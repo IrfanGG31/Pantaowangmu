@@ -1,0 +1,185 @@
+# CONTRACT.md — Finance Bot API Contract
+
+> Single source of truth antara Backend dan Frontend.  
+> Jangan ubah tanpa sync kedua pihak.
+
+---
+
+## Base URL
+
+```
+Dev:  http://localhost:3001/api
+Prod: $VITE_API_URL/api
+```
+
+## Authentication
+
+Setiap request **wajib** kirim salah satu header:
+
+| Mode | Header | Value |
+|------|--------|-------|
+| Production (Telegram) | `Authorization` | `tma <initData>` |
+| Development bypass | `X-Dev-User-Id` | `<userId string>` |
+
+---
+
+## Endpoints
+
+### Transactions
+
+#### `GET /transactions`
+Query params: `limit` (max 100, default 20), `offset`, `type` (`income`|`expense`), `month` (`YYYY-MM`), `date` (`YYYY-MM-DD`)
+
+Response:
+```ts
+{
+  data: Transaction[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+```
+
+#### `GET /transactions/summary?period=today|week|month`
+Response:
+```ts
+{
+  period: 'today' | 'week' | 'month';
+  income: number;
+  expense: number;
+  balance: number;
+  by_category: CategorySummary[];
+}
+```
+
+#### `POST /transactions`
+Body:
+```ts
+{ type: 'income'|'expense'; amount: number; category: string; note?: string }
+```
+Response:
+```ts
+{ data: Transaction; budgetAlert: BudgetAlert | null }
+```
+Status: 201
+
+#### `DELETE /transactions/last`
+Response: `{ data: Transaction; message: string }`
+
+#### `DELETE /transactions/:id`
+Response: `{ data: Transaction; message: string }`
+
+#### `GET /transactions/export`
+Returns: CSV file download (Content-Disposition: attachment)
+
+---
+
+### Budgets
+
+#### `GET /budgets?month=YYYY-MM`
+Response:
+```ts
+{ month: string; data: Budget[] }
+```
+
+#### `POST /budgets`
+Body:
+```ts
+{ category: string; amount: number; month?: string }
+```
+Response: `{ data: Budget }` — Status: 201
+
+#### `DELETE /budgets/:id`
+Response: `{ data: Budget; message: string }`
+
+---
+
+### Misc
+
+#### `GET /categories`
+Response:
+```ts
+{ expense: string[]; income: string[] }
+```
+
+#### `GET /health`
+Response: `{ status: 'ok'; timestamp: string }`
+
+---
+
+## Data Types (snake_case WAJIB)
+
+```ts
+interface Transaction {
+  id: number;
+  user_id: string;
+  type: 'income' | 'expense';
+  amount: number;           // integer, Rupiah, max 999_999_999
+  category: string;         // lowercase
+  note: string;             // max 100 chars, bisa kosong
+  created_at: string;       // "YYYY-MM-DD HH:MM:SS"
+}
+
+interface Budget {
+  id: number;
+  user_id: string;
+  category: string;
+  amount: number;
+  month: string;            // "YYYY-MM"
+  created_at: string;
+  spent?: number;           // di-inject backend (GET only)
+  percentage?: number;      // spent / amount * 100
+  remaining?: number;       // amount - spent
+}
+
+interface CategorySummary {
+  type: 'income' | 'expense';
+  category: string;
+  total: number;
+  count: number;
+}
+
+interface BudgetAlert {
+  category: string;
+  spent: number;
+  budget: number;
+  percentage: number;
+}
+
+interface Summary {
+  period: 'today' | 'week' | 'month';
+  income: number;
+  expense: number;
+  balance: number;
+  by_category: CategorySummary[];
+}
+```
+
+---
+
+## Categories
+
+**Expense:** makan, transport, belanja, tagihan, hiburan, kesehatan, pendidikan, lainnya  
+**Income:** gaji, bonus, freelance, investasi, lainnya
+
+---
+
+## Validation Rules
+
+| Field | Rule |
+|-------|------|
+| `amount` | integer positif, 1 ≤ n ≤ 999_999_999 |
+| `category` | lowercase, alphanum + spasi, max 100 char |
+| `note` | optional, max 100 char |
+| `month` | format `YYYY-MM` |
+| `type` | `income` atau `expense` |
+
+---
+
+## Error Response
+
+```ts
+{ error: string }
+```
+
+HTTP status: 400 (validation), 401 (auth), 404 (not found), 500 (server)

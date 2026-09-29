@@ -1,0 +1,104 @@
+{
+  "users": [
+    {
+      "user_id": "123456",
+      "first_name": "Dev",
+      "username": "devuser",
+      "created_at": "2026-08-29 18:44:53"
+    },
+    {
+      "user_id": "999",
+      "first_name": "Dev",
+      "username": "devuser",
+      "created_at": "2026-08-29 18:50:47"
+    },
+    {
+      "user_id": "777",
+      "first_name": "Dev",
+      "username": "devuser",
+      "created_at": "2026-08-29 18:52:28"
+    }
+  ],
+  "transactions": [
+    {
+      "id": 1,
+      "user_id": "123456",
+      "type": "expense",
+      "amount": 25000,
+      "category": "makan",
+      "note": "siang padang",
+      "created_at": "2026-08-29 18:44:53"
+    },
+    {
+      "id": 2,
+      "user_id": "999",
+      "type": "expense",
+      "amount": 35000,
+      "category": "makan",
+      "note": "mie goreng",
+      "created_at": "2026-08-29 18:50:47"
+    },
+    {
+      "id": 3,
+      "user_id": "999",
+      "type": "income",
+      "amount": 5000000,
+      "category": "gaji",
+      "note": "bulanan",
+      "created_at": "2026-08-29 18:50:47"
+    },
+    {
+      "id": 5,
+      "user_id": "777",
+      "type": "expense",
+      "amount": 50000,
+      "category": "makan",
+      "note": "makan siang",
+      "created_at": "2026-08-29 18:52:28"
+    },
+    {
+      "id": 6,
+      "user_id": "777",
+      "type": "expense",
+      "amount": 200000,
+      "category": "belanja",
+      "note": "groceries",
+      "created_at": "2026-08-29 18:52:28"
+    },
+    {
+      "id": 7,
+      "user_id": "777",
+      "type": "income",
+      "amount": 5000000,
+      "category": "gaji",
+      "note": "salary Aug",
+      "created_at": "2026-08-29 18:52:28"
+    }
+  ],
+  "budgets": [
+    {
+      "id": 1,
+      "user_id": "999",
+      "category": "makan",
+      "amount": 1000000,
+      "month": "2026-08",
+      "created_at": "2026-08-29 18:50:47"
+    },
+    {
+      "id": 2,
+      "user_id": "777",
+      "category": "makan",
+      "amount": 800000,
+      "month": "2026-08",
+      "created_at": "2026-08-29 18:52:28"
+    },
+    {
+      "id": 3,
+      "user_id": "777",
+      "category": "transport",
+      "amount": 300000,
+      "month": "2026-08",
+      "created_at": "2026-08-29 18:52:28"
+    }
+  ]
+}

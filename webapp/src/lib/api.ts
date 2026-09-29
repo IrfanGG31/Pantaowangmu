@@ -1,0 +1,275 @@
+/**
+ * webapp/src/lib/api.ts
+ *
+ * Type-safe API client.
+ * - Auth header: "Authorization: tma <initData>" (prod) or "X-Dev-User-Id: <id>" (dev)
+ * - Base URL from import.meta.env.VITE_API_URL (falls back to /api via Vite proxy)
+ * - All field names match CONTRACT.md (snake_case)
+ * - No double-submit: caller must use submitting flag
+ */
+
+import { getInitData } from './telegram.js';
+import type {
+  Transaction,
+  Budget,
+  Summary,
+  Period,
+  TransactionListResponse,
+  TransactionCreateResponse,
+  BudgetListResponse,
+  CategoriesResponse,
+} from './types.js';
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const BASE =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ??
+  '/api';
+
+// Dev bypass user ID — override with VITE_DEV_USER_ID in .env.local
+const DEV_USER_ID = (import.meta.env.VITE_DEV_USER_ID as string | undefined) ?? '123456';
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+function buildHeaders(hasBody = false): Record<string, string> {
+  const initData = getInitData();
+  const base: Record<string, string> = {};
+
+  if (hasBody) base['Content-Type'] = 'application/json';
+
+  if (initData) {
+    base['Authorization'] = `tma ${initData}`;
+  } else {
+    // Dev bypass — backend must be in NODE_ENV=development
+    base['X-Dev-User-Id'] = DEV_USER_ID;
+  }
+
+  return base;
+}
+
+async function request<T>(
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH',
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal
+): Promise<T> {
+  const hasBody = body !== undefined;
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: buildHeaders(hasBody),
+    body: hasBody ? JSON.stringify(body) : undefined,
+    signal,
+  });
+
+  // Always try to parse JSON for error info
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+
+  if (!res.ok) {
+    const msg = (json as { error?: string }).error ?? `HTTP ${res.status}`;
+    throw new ApiError(msg, res.status);
+  }
+
+  return json as T;
+}
+
+// ── ApiError class ────────────────────────────────────────────────────────────
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number = 0
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+
+  get isUnauthorized(): boolean { return this.status === 401; }
+  get isNotFound(): boolean { return this.status === 404; }
+  get isValidation(): boolean { return this.status === 400; }
+}
+
+// ── Transactions ──────────────────────────────────────────────────────────────
+
+export interface TransactionListParams {
+  limit?: number;
+  offset?: number;
+  type?: 'income' | 'expense';
+  month?: string;   // YYYY-MM
+  date?: string;    // YYYY-MM-DD
+}
+
+export const transactionsApi = {
+  list(params: TransactionListParams = {}, signal?: AbortSignal): Promise<TransactionListResponse> {
+    const qs = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(params)
+          .filter(([, v]) => v !== undefined && v !== '')
+          .map(([k, v]) => [k, String(v)])
+      )
+    ).toString();
+    return request<TransactionListResponse>('GET', `/transactions${qs ? `?${qs}` : ''}`, undefined, signal);
+  },
+
+  summary(period: Period = 'today', signal?: AbortSignal): Promise<Summary> {
+    return request<Summary>('GET', `/transactions/summary?period=${period}`, undefined, signal);
+  },
+
+  create(data: {
+    type: 'income' | 'expense';
+    amount: number;
+    category: string;
+    note?: string;
+  }): Promise<TransactionCreateResponse> {
+    return request<TransactionCreateResponse>('POST', '/transactions', data);
+  },
+
+  delete(id: number): Promise<{ data: Transaction; message: string }> {
+    return request('DELETE', `/transactions/${id}`);
+  },
+
+  deleteLast(): Promise<{ data: Transaction; message: string }> {
+    return request('DELETE', '/transactions/last');
+  },
+
+  exportUrl(): string {
+    const initData = getInitData();
+    const params = initData
+      ? `?auth=${encodeURIComponent(initData)}`
+      : `?dev_user=${DEV_USER_ID}`;
+    // Note: export uses GET with auth query param since browser fetch can't set headers on window.open
+    // Backend supports Authorization header so we use direct fetch + blob download instead
+    return `${BASE}/transactions/export`;
+  },
+
+  async downloadCsv(): Promise<void> {
+    const res = await fetch(`${BASE}/transactions/export`, {
+      headers: buildHeaders(false),
+    });
+    if (!res.ok) throw new ApiError('Export gagal', res.status);
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+};
+
+// ── Budgets ───────────────────────────────────────────────────────────────────
+
+export const budgetsApi = {
+  list(month?: string, signal?: AbortSignal): Promise<BudgetListResponse> {
+    return request<BudgetListResponse>(
+      'GET',
+      `/budgets${month ? `?month=${month}` : ''}`,
+      undefined,
+      signal
+    );
+  },
+
+  create(data: {
+    category: string;
+    amount: number;
+    month?: string;
+  }): Promise<{ data: Budget }> {
+    return request('POST', '/budgets', data);
+  },
+
+  delete(id: number): Promise<{ data: Budget; message: string }> {
+    return request('DELETE', `/budgets/${id}`);
+  },
+};
+
+// ── Categories ────────────────────────────────────────────────────────────────
+
+export const categoriesApi = {
+  list(signal?: AbortSignal): Promise<CategoriesResponse> {
+    return request<CategoriesResponse>('GET', '/categories', undefined, signal);
+  },
+};
+
+// ── Formatters (UI helpers, collocated here for convenience) ─────────────────
+
+export function formatRupiah(n: number | null | undefined): string {
+  if (n == null) return 'Rp\u00A00';
+  return 'Rp\u00A0' + Math.round(n).toLocaleString('id-ID');
+}
+
+export function formatRupiahCompact(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return `Rp\u00A0${(n / 1_000_000).toFixed(1)}jt`;
+  if (Math.abs(n) >= 1_000) return `Rp\u00A0${(n / 1_000).toFixed(0)}rb`;
+  return formatRupiah(n);
+}
+
+export function formatDate(dt: string): string {
+  return new Date(dt).toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function formatDateShort(dt: string): string {
+  return new Date(dt).toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+  });
+}
+
+export function formatTime(dt: string): string {
+  return new Date(dt).toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+export const EXPENSE_CATEGORIES = [
+  'makan', 'transport', 'belanja', 'tagihan',
+  'hiburan', 'kesehatan', 'pendidikan', 'lainnya',
+] as const;
+
+export const INCOME_CATEGORIES = [
+  'gaji', 'bonus', 'freelance', 'investasi', 'lainnya',
+] as const;
+
+export const CATEGORY_ICONS: Record<string, string> = {
+  makan: '🍜',
+  transport: '🚗',
+  belanja: '🛍️',
+  tagihan: '💡',
+  hiburan: '🎮',
+  kesehatan: '💊',
+  pendidikan: '📚',
+  lainnya: '📦',
+  gaji: '💼',
+  bonus: '🎁',
+  freelance: '💻',
+  investasi: '📈',
+};
+
+export const CATEGORY_COLORS: Record<string, string> = {
+  makan: '#FF6B6B',
+  transport: '#4ECDC4',
+  belanja: '#45B7D1',
+  tagihan: '#FFA07A',
+  hiburan: '#98D8C8',
+  kesehatan: '#7BC8F6',
+  pendidikan: '#C3B1E1',
+  lainnya: '#B0B0B0',
+  gaji: '#34C759',
+  bonus: '#5AC8FA',
+  freelance: '#AF52DE',
+  investasi: '#30D158',
+};
