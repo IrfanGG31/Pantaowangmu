@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { getAllUsers } from '../db/users.js';
 import { getUsersWithoutTransactionToday, markReminded } from '../db/reminders.js';
 import { getBudgetsByUser } from '../db/budgets.js';
-import { getStartOfWeek, formatRupiah, getMonthStr } from '../utils/formatter.js';
+import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
 import { safeSendMessage } from '../utils/telegram.js';
 import { logger } from '../api/server.js';
@@ -22,7 +22,7 @@ export function startScheduler(bot) {
     async () => {
       logger.info('[Scheduler] Running daily reminder job (21:00 WIB)...');
       try {
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = getDateStr();
         const inactiveUsers = getUsersWithoutTransactionToday(todayStr);
 
         for (const user of inactiveUsers) {

@@ -1,5 +1,6 @@
 import db from './connection.js';
 import { getUserExpenseThisMonth } from './transactions.js';
+import { getMonthStr } from '../utils/formatter.js';
 
 /**
  * Creates or updates a budget for a given user, category, and month.
@@ -13,7 +14,7 @@ export function setBudget(userId, category, amount, month) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
   const cleanAmount = parseInt(amount, 10);
-  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  const targetMonth = month || getMonthStr();
 
   const stmt = db.prepare(`
     INSERT INTO budgets (user_id, category, amount, month, created_at)
@@ -35,7 +36,7 @@ export function setBudget(userId, category, amount, month) {
 export function getBudget(userId, category, month) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
-  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  const targetMonth = month || getMonthStr();
 
   const stmt = db.prepare(`
     SELECT id, user_id, category, amount, month, created_at
@@ -65,7 +66,7 @@ export function getBudget(userId, category, month) {
  */
 export function getBudgetsByUser(userId, month) {
   const uid = String(userId);
-  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  const targetMonth = month || getMonthStr();
 
   const stmt = db.prepare(`
     SELECT id, user_id, category, amount, month, created_at
@@ -98,7 +99,7 @@ export function getBudgetsByUser(userId, month) {
 export function deleteBudget(userId, category, month) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
-  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  const targetMonth = month || getMonthStr();
 
   const stmt = db.prepare('DELETE FROM budgets WHERE user_id = ? AND category = ? AND month = ?');
   const result = stmt.run(uid, cleanCat, targetMonth);

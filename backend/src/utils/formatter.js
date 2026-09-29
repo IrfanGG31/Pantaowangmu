@@ -56,19 +56,108 @@ export function parseRupiah(str) {
 }
 
 /**
+ * The timezone used for "today / this week / this month" (default Asia/Jakarta).
+ * @returns {string}
+ */
+export function getTimeZone() {
+  return process.env.TIMEZONE || 'Asia/Jakarta';
+}
+
+// SQLite datetime('now') values ("YYYY-MM-DD HH:MM:SS") are UTC but carry no zone marker.
+const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+function toDate(date) {
+  if (typeof date === 'string' && SQL_DATETIME.test(date)) {
+    return new Date(`${date.replace(' ', 'T')}Z`);
+  }
+  return new Date(date);
+}
+
+/**
+ * Formats a Date as the UTC "YYYY-MM-DD HH:MM:SS" string used in created_at columns.
+ * @param {Date} date
+ * @returns {string}
+ */
+export function toSqlDateTime(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function zonedParts(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: getTimeZone(),
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).formatToParts(date);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') };
+}
+
+// UTC instant of local midnight on the given calendar date (month is 1-based; overflow is normalised).
+function zonedMidnight(year, month, day) {
+  const wallClock = Date.UTC(year, month - 1, day);
+  let instant = wallClock;
+  // Two passes settle the offset even when it differs between the guess and the real instant (DST).
+  for (let i = 0; i < 2; i++) {
+    const p = zonedParts(new Date(instant));
+    const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - instant;
+    instant = wallClock - offset;
+  }
+  // If a DST jump skips midnight, start the day at its first existing instant instead.
+  const p = zonedParts(new Date(instant));
+  const shortfall = wallClock - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  if (shortfall > 0) instant += shortfall;
+  return new Date(instant);
+}
+
+/**
+ * Local calendar date "YYYY-MM-DD" in the configured timezone.
+ * @param {Date|string|number} [date=new Date()]
+ * @returns {string}
+ */
+export function getDateStr(date = new Date()) {
+  const { year, month, day } = zonedParts(toDate(date));
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * UTC range [start, end) covering one local day "YYYY-MM-DD".
+ * @param {string} dateStr
+ * @returns {{ start: string, end: string }}
+ */
+export function getDayRange(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return { start: toSqlDateTime(zonedMidnight(y, m, d)), end: toSqlDateTime(zonedMidnight(y, m, d + 1)) };
+}
+
+/**
+ * UTC range [start, end) covering one local month "YYYY-MM".
+ * @param {string} monthStr
+ * @returns {{ start: string, end: string }}
+ */
+export function getMonthRange(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return { start: toSqlDateTime(zonedMidnight(y, m, 1)), end: toSqlDateTime(zonedMidnight(y, m + 1, 1)) };
+}
+
+/**
  * Formats a date to full Indonesian date & time string.
  * @param {Date|string|number} date
  * @returns {string}
  */
 export function formatDate(date) {
-  const d = new Date(date);
+  const d = toDate(date);
   return d.toLocaleDateString('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'Asia/Jakarta'
+    timeZone: getTimeZone()
   });
 }
 
@@ -79,12 +168,12 @@ export function formatDate(date) {
  * @returns {string}
  */
 export function formatDateShort(date) {
-  const d = new Date(date);
+  const d = toDate(date);
   return d.toLocaleDateString('id-ID', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-    timeZone: 'Asia/Jakarta'
+    timeZone: getTimeZone()
   });
 }
 
@@ -95,52 +184,44 @@ export function formatDateShort(date) {
  * @returns {string}
  */
 export function formatTime(date) {
-  const d = new Date(date);
+  const d = toDate(date);
   return d.toLocaleTimeString('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: 'Asia/Jakarta'
+    timeZone: getTimeZone()
   });
 }
 
 /**
- * Gets "YYYY-MM" string for a date in Asia/Jakarta timezone.
+ * Gets "YYYY-MM" string for a date in the configured timezone.
  * @param {Date|string|number} [date=new Date()]
  * @returns {string}
  */
 export function getMonthStr(date = new Date()) {
-  const d = new Date(date);
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: '2-digit'
-  });
-  return formatter.format(d);
+  return getDateStr(date).slice(0, 7);
 }
 
 /**
- * Returns Date representing the start of week (Monday 00:00:00 WIB).
+ * Returns the instant of Monday 00:00:00 local time for the week containing `date`.
  * @param {Date} [date=new Date()]
  * @returns {Date}
  */
 export function getStartOfWeek(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when Sunday
-  const start = new Date(d.setDate(diff));
-  start.setHours(0, 0, 0, 0);
-  return start;
+  const { year, month, day } = zonedParts(toDate(date));
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const daysSinceMonday = (weekday + 6) % 7;
+  return zonedMidnight(year, month, day - daysSinceMonday);
 }
 
 /**
- * Returns Date representing the start of month (1st day 00:00:00 WIB).
+ * Returns the instant of the 1st of the month, 00:00:00 local time.
  * @param {Date} [date=new Date()]
  * @returns {Date}
  */
 export function getStartOfMonth(date = new Date()) {
-  const d = new Date(date);
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+  const { year, month } = zonedParts(toDate(date));
+  return zonedMidnight(year, month, 1);
 }
 
 /**

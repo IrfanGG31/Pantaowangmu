@@ -1,4 +1,8 @@
 import db from './connection.js';
+import { getDateStr, getDayRange, getMonthRange, getMonthStr } from '../utils/formatter.js';
+
+// created_at is UTC; local day/month ranges are converted to UTC bounds before comparing.
+const IN_RANGE = 'datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)';
 
 /**
  * Creates a new transaction.
@@ -14,9 +18,6 @@ export function createTransaction(userId, type, amount, category, note = '') {
   const cleanCat = String(category).toLowerCase().trim();
   const cleanNote = String(note || '').trim();
   const cleanAmount = parseInt(amount, 10);
-
-  // Use local timestamp in Asia/Jakarta (or ISO formatted)
-  const nowStr = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' }).replace(' ', 'T');
 
   const stmt = db.prepare(`
     INSERT INTO transactions (user_id, type, amount, category, note, created_at)
@@ -49,13 +50,15 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
   }
 
   if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) {
-    whereClauses.push("strftime('%Y-%m', created_at) = ?");
-    params.push(filters.month);
+    const { start, end } = getMonthRange(filters.month);
+    whereClauses.push(IN_RANGE);
+    params.push(start, end);
   }
 
   if (filters.date && /^\d{4}-\d{2}-\d{2}$/.test(filters.date)) {
-    whereClauses.push("strftime('%Y-%m-%d', created_at) = ?");
-    params.push(filters.date);
+    const { start, end } = getDayRange(filters.date);
+    whereClauses.push(IN_RANGE);
+    params.push(start, end);
   }
 
   const whereSql = whereClauses.join(' AND ');
@@ -131,7 +134,8 @@ export function deleteTransaction(userId, id) {
  */
 export function getTodaySummary(userId) {
   const uid = String(userId);
-  const todayDate = new Date().toISOString().slice(0, 10);
+  const todayDate = getDateStr();
+  const { start, end } = getDayRange(todayDate);
 
   const aggStmt = db.prepare(`
     SELECT
@@ -139,18 +143,18 @@ export function getTodaySummary(userId) {
       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expense,
       COUNT(*) as count
     FROM transactions
-    WHERE user_id = ? AND strftime('%Y-%m-%d', created_at) = strftime('%Y-%m-%d', 'now')
+    WHERE user_id = ? AND ${IN_RANGE}
   `);
-  const agg = aggStmt.get(uid) || { income: 0, expense: 0, count: 0 };
+  const agg = aggStmt.get(uid, start, end) || { income: 0, expense: 0, count: 0 };
 
   const catStmt = db.prepare(`
     SELECT type, category, SUM(amount) as total, COUNT(*) as count
     FROM transactions
-    WHERE user_id = ? AND strftime('%Y-%m-%d', created_at) = strftime('%Y-%m-%d', 'now')
+    WHERE user_id = ? AND ${IN_RANGE}
     GROUP BY type, category
     ORDER BY total DESC
   `);
-  const by_category = catStmt.all(uid) || [];
+  const by_category = catStmt.all(uid, start, end) || [];
 
   return {
     date: todayDate,
@@ -188,13 +192,14 @@ export function getStatsByCategory(userId, startDate, endDate) {
  */
 export function getTodayExpenseByCategory(userId) {
   const uid = String(userId);
+  const { start, end } = getDayRange(getDateStr());
   const stmt = db.prepare(`
     SELECT category, SUM(amount) as total
     FROM transactions
-    WHERE user_id = ? AND type = 'expense' AND strftime('%Y-%m-%d', created_at) = strftime('%Y-%m-%d', 'now')
+    WHERE user_id = ? AND type = 'expense' AND ${IN_RANGE}
     GROUP BY category
   `);
-  return stmt.all(uid) || [];
+  return stmt.all(uid, start, end) || [];
 }
 
 /**
@@ -207,7 +212,7 @@ export function getTodayExpenseByCategory(userId) {
 export function getUserExpenseThisMonth(userId, category, month) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
-  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  const { start, end } = getMonthRange(month || getMonthStr());
 
   const stmt = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total
@@ -215,9 +220,9 @@ export function getUserExpenseThisMonth(userId, category, month) {
     WHERE user_id = ?
       AND type = 'expense'
       AND category = ?
-      AND strftime('%Y-%m', created_at) = ?
+      AND ${IN_RANGE}
   `);
-  const row = stmt.get(uid, cleanCat, targetMonth);
+  const row = stmt.get(uid, cleanCat, start, end);
   return Number(row?.total || 0);
 }
 

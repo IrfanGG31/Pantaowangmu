@@ -1,4 +1,5 @@
 import db from './connection.js';
+import { getDateStr, getDayRange } from '../utils/formatter.js';
 
 /**
  * Records a reminder sent to a user on a specific date.
@@ -8,7 +9,7 @@ import db from './connection.js';
  */
 export function markReminded(userId, date) {
   const uid = String(userId);
-  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const targetDate = date || getDateStr();
 
   const stmt = db.prepare(`
     INSERT INTO reminder_log (user_id, reminder_date, created_at)
@@ -27,7 +28,7 @@ export function markReminded(userId, date) {
  */
 export function wasRemindedToday(userId, date) {
   const uid = String(userId);
-  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const targetDate = date || getDateStr();
 
   const stmt = db.prepare(`
     SELECT id FROM reminder_log
@@ -43,15 +44,21 @@ export function wasRemindedToday(userId, date) {
  * @returns {Array<Object>}
  */
 export function getUsersWithoutTransactionToday(date) {
-  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const targetDate = date || getDateStr();
+  const { start, end } = getDayRange(targetDate);
 
   const stmt = db.prepare(`
     SELECT u.user_id, u.first_name, u.username, u.timezone
     FROM users u
-    LEFT JOIN transactions t ON u.user_id = t.user_id AND strftime('%Y-%m-%d', t.created_at) = ?
-    LEFT JOIN reminder_log r ON u.user_id = r.user_id AND r.reminder_date = ?
-    WHERE t.id IS NULL AND r.id IS NULL
+    WHERE NOT EXISTS (
+      SELECT 1 FROM transactions t
+      WHERE t.user_id = u.user_id
+        AND datetime(t.created_at) >= datetime(?) AND datetime(t.created_at) < datetime(?)
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM reminder_log r WHERE r.user_id = u.user_id AND r.reminder_date = ?
+    )
   `);
 
-  return stmt.all(targetDate, targetDate) || [];
+  return stmt.all(start, end, targetDate) || [];
 }
