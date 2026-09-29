@@ -4,6 +4,9 @@
   "description": "Finance Bot Backend — Telegram Mini App & Bot for Personal Finance",
   "main": "src/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
