@@ -23,11 +23,14 @@ import type {
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BASE =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ??
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ||
   '/api';
 
-// Dev bypass user ID — override with VITE_DEV_USER_ID in .env.local
-const DEV_USER_ID = (import.meta.env.VITE_DEV_USER_ID as string | undefined) ?? '123456';
+// Dev bypass user ID — override with VITE_DEV_USER_ID in .env.local.
+// Gated on import.meta.env.DEV so production builds contain no bypass value.
+const DEV_USER_ID = import.meta.env.DEV
+  ? ((import.meta.env.VITE_DEV_USER_ID as string | undefined) ?? '123456')
+  : '';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -39,7 +42,7 @@ function buildHeaders(hasBody = false): Record<string, string> {
 
   if (initData) {
     base['Authorization'] = `tma ${initData}`;
-  } else {
+  } else if (import.meta.env.DEV) {
     // Dev bypass — backend must be in NODE_ENV=development
     base['X-Dev-User-Id'] = DEV_USER_ID;
   }
