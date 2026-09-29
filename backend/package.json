@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "setup-telegram": "node scripts/setup-telegram.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
