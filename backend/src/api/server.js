@@ -58,7 +58,14 @@ app.use(helmet({
 }));
 
 // CORS configuration. The Mini App is served from this same origin, so production never needs '*'.
-const webappOrigin = process.env.WEBAPP_URL ? new URL(process.env.WEBAPP_URL).origin : null;
+let webappOrigin = null;
+if (process.env.WEBAPP_URL) {
+  try {
+    webappOrigin = new URL(process.env.WEBAPP_URL).origin;
+  } catch {
+    logger.warn('[Server] WEBAPP_URL is not a valid URL (expected https://...); CORS allows same-origin only.');
+  }
+}
 let corsOrigin;
 if (isProduction) {
   corsOrigin = webappOrigin ? [webappOrigin] : false;
