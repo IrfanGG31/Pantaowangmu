@@ -129,6 +129,7 @@ Angka dihitung server (tanpa panggilan AI) pada zona waktu `TIMEZONE`. Response:
 ```ts
 {
   today: string;                                  // "YYYY-MM-DD" lokal
+  balance: { income: number; expense: number; net: number };  // sepanjang waktu: semua pemasukan − pengeluaran ("Sisa saldo")
   month_to_date: { income: number; expense: number; count: number; net: number };
   previous_month_same_period: { expense: number };
   expense_change_pct: number | null;              // null bila bulan lalu 0

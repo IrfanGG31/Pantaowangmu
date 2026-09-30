@@ -3,6 +3,7 @@ import requireTelegramAuth from '../middleware/auth.js';
 import apiLimiter from '../middleware/rateLimit.js';
 import { getMemory } from '../../db/memory.js';
 import { getBudgetsByUser } from '../../db/budgets.js';
+import { getBalance } from '../../db/transactions.js';
 import { computeInsights, todayAllowance, buildTips } from '../../ai/insights.js';
 import { getMonthStr } from '../../utils/formatter.js';
 
@@ -31,6 +32,7 @@ router.get('/', (req, res, next) => {
     };
     res.json({
       ...ins,
+      balance: getBalance(userId),
       today_allowance: today,
       budget_watch: budgetWatch,
       tips: buildTips(ins, { today, budget: budgetWatch })
