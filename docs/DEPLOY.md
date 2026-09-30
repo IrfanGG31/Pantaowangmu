@@ -57,11 +57,13 @@ tidak isi transaksi atau catatan pengguna, dan tidak ada password pengguna (logi
 Keamanan: password admin di-hash scrypt, sesi berupa cookie HttpOnly/Secure/SameSite=Strict yang berlaku 12 jam,
 login dibatasi 10 percobaan per 15 menit per IP, halaman tidak bisa di-iframe, dan setiap perubahan tercatat di audit log.
 
-Membuat hash password admin (Railway → Console, atau di laptop dari folder `backend`):
+Membuat hash password admin (Railway → Console, atau di laptop dari folder `backend`). Ganti `passwordku`
+dengan password yang ingin dipakai login (min. 8 karakter):
 ```
-node scripts/hash-password.js
+node scripts/hash-password.js "passwordku"
 ```
-Ketik password (min. 12 karakter, tidak ditampilkan), lalu salin hasil `scrypt$...` ke `ADMIN_PASSWORD_HASH`.
+Salin hasil `scrypt$...` ke `ADMIN_PASSWORD_HASH`. Saat login di `/admin`, ketik password aslinya, bukan hash-nya.
+Tanpa argumen (`node scripts/hash-password.js`), skrip menanyakan password tanpa menampilkannya di layar.
 
 **Cek koneksi AI** (Railway → Console): `node scripts/check-ai.js`. Skrip ini menampilkan nilai URL dan model yang terbaca,
 apakah model ada di daftar penyedia, lalu satu tes chat beserta status/pesan error. Key tidak pernah dicetak.
