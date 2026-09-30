@@ -187,4 +187,22 @@ interface Summary {
 { error: string }
 ```
 
-HTTP status: 400 (validation), 401 (auth), 404 (not found), 500 (server)
+HTTP status: 400 (validation), 401 (auth), 403 (langganan tidak aktif, `code: "subscription_inactive"`), 404 (not found), 500 (server)
+
+---
+
+## Admin API (`/api/admin`, bukan untuk Mini App)
+
+Login dengan email + password admin (env `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`). Sesi berupa cookie HttpOnly `pu_admin`
+(Path `/api/admin`, SameSite=Strict, 12 jam). Request yang mengubah data wajib `Content-Type: application/json`.
+Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
+
+| Method & path | Keterangan |
+|---|---|
+| `POST /api/admin/login` `{ email, password }` | 200 + cookie; 401 salah; 429 terlalu banyak percobaan; 503 admin belum dikonfigurasi |
+| `POST /api/admin/logout` | Hapus cookie |
+| `GET /api/admin/me` | `{ email, config: { plans: [{ id, ai_daily_limit }], statuses, trial_days } }` |
+| `GET /api/admin/overview?days=7..90` | `{ users, ai, transactions, daily[] }` (agregat) |
+| `GET /api/admin/users?search=&state=active\|expired\|suspended&plan=trial\|pro&limit=&offset=` | `{ total, data[] }` dengan `state`, `ai_daily_limit_effective`, `ai_calls_today`, `ai_calls_30d`, `ai_tokens_30d`, `tx_count_30d` |
+| `PATCH /api/admin/users/:user_id` | Salah satu/lebih: `plan`, `status`, `extend_days` (1..3650) **atau** `plan_expires_at` (`"never"` / tanggal), `ai_daily_limit` (0..10000 / `null` = default paket). Dicatat di audit log. |
+| `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |

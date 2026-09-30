@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import { upsertUser } from '../db/users.js';
+import { upsertUser, getUser } from '../db/users.js';
+import { getAccess, blockedMessage, touchActivity, aiDailyLimit, countAiCallsToday, recordAiUsage } from '../db/subscriptions.js';
 import {
   createTransaction,
   getLastTransaction,
@@ -33,7 +34,8 @@ import {
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
-import { getAiConfig, takeAiQuota, runAssistant } from '../ai/interpreter.js';
+import { getAiConfig, runAssistant, forgetConversation } from '../ai/interpreter.js';
+import { getMemory, setNickname, addFact, removeFact, clearMemory } from '../db/memory.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -221,8 +223,15 @@ function assistantContext(userId, from = {}) {
     ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}`).join('\n')
     : 'belum ada';
 
+  const memory = getMemory(userId);
+  const factLines = memory.facts.length
+    ? memory.facts.map((f) => `- [id ${f.id}] ${f.fact}`).join('\n')
+    : 'belum ada';
+
   return [
-    `Nama: ${from.first_name || '-'}`,
+    `Nama Telegram: ${from.first_name || '-'}`,
+    `Nama panggilan: ${memory.nickname || 'belum diatur'}`,
+    `Ingatan tentang pengguna:\n${factLines}`,
     `Sekarang: ${getDateStr(now)} (${dayLabel}) jam ${timeLabel}, zona ${tz}`,
     `Hari ini: pemasukan ${formatRupiah(today.income)}, pengeluaran ${formatRupiah(today.expense)}, ${today.count} transaksi; per kategori: ${byCategory(today.by_category)}`,
     `Bulan ini (${month}): pemasukan ${formatRupiah(income)}, pengeluaran ${formatRupiah(expense)}, saldo ${signedRupiah(income - expense)}; per kategori: ${byCategory(monthStats)}`,
@@ -267,8 +276,30 @@ export function registerHandlers(bot) {
     } catch {}
   };
 
+  // Every command, message and button press is checked against the user's subscription first.
+  const denied = async (from, chatId) => {
+    if (!from) return true;
+    const user = upsertUser({ user_id: String(from.id), first_name: from.first_name || '', username: from.username || '' });
+    const access = getAccess(user);
+    if (access.allowed) {
+      touchActivity(user.user_id);
+      return false;
+    }
+    if (chatId) await safeSendMessage(bot, chatId, blockedMessage(user, access));
+    return true;
+  };
+
+  const onText = (regex, fn) => bot.onText(regex, async (msg, match) => {
+    try {
+      if (await denied(msg.from, msg.chat.id)) return;
+      await fn(msg, match);
+    } catch (err) {
+      logger.error({ err: err.message }, '[Bot] Command handler failed');
+    }
+  });
+
   // ── /start ─────────────────────────────────────────────────────────────
-  bot.onText(/^\/start(?:@\w+)?(?:\s+(.*))?$/, async (msg) => {
+  onText(/^\/start(?:@\w+)?(?:\s+(.*))?$/, async (msg) => {
     const chatId = msg.chat.id;
     ensureUser(msg);
 
@@ -290,7 +321,7 @@ export function registerHandlers(bot) {
   });
 
   // ── /help ─────────────────────────────────────────────────────────────
-  bot.onText(/^\/help(?:@\w+)?$/, async (msg) => {
+  onText(/^\/help(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     ensureUser(msg);
 
@@ -307,9 +338,10 @@ _Contoh: /budget makan 1000000_
 
 /hapus - Hapus transaksi terakhir
 /export - Unduh riwayat transaksi dalam format CSV
+/memori - Lihat atau hapus hal yang aku ingat tentang kamu
 /help - Tampilkan bantuan ini
 
-💬 *Tanpa perintah juga bisa:*
+💬 *Tanpa perintah juga bisa, ngobrol biasa saja:*
 • \`makan siang 25rb\`
 • \`bensin 50k\` / \`Rp 15.000 parkir\`
 • \`gaji 5jt\` / \`terima jualan 150rb\`
@@ -320,7 +352,7 @@ _Contoh: /budget makan 1000000_
   });
 
   // ── /catat <jumlah> <kategori> [catatan] ──────────────────────────────
-  bot.onText(/^\/catat(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+  onText(/^\/catat(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
     const rawInput = match[1]?.trim();
@@ -369,14 +401,14 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
   // ── /hari, /minggu, /bulan ───────────────────────────────────────────
   const periodCommands = { hari: 'today', minggu: 'week', bulan: 'month' };
   for (const [command, period] of Object.entries(periodCommands)) {
-    bot.onText(new RegExp(`^\\/${command}(?:@\\w+)?$`), async (msg) => {
+    onText(new RegExp(`^\\/${command}(?:@\\w+)?$`), async (msg) => {
       const userId = ensureUser(msg);
       await safeSendMessage(bot, msg.chat.id, summaryText(userId, period), { parse_mode: 'Markdown' });
     });
   }
 
   // ── /budget <kategori> <jumlah> ────────────────────────────────────────
-  bot.onText(/^\/budget(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+  onText(/^\/budget(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
     const rawInput = match[1]?.trim();
@@ -401,7 +433,7 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
   });
 
   // ── /hapus ────────────────────────────────────────────────────────────
-  bot.onText(/^\/hapus(?:@\w+)?$/, async (msg) => {
+  onText(/^\/hapus(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
@@ -429,7 +461,7 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
   });
 
   // ── /export ───────────────────────────────────────────────────────────
-  bot.onText(/^\/export(?:@\w+)?$/, async (msg) => {
+  onText(/^\/export(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
@@ -456,8 +488,33 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     }
   });
 
+  // ── /memori ───────────────────────────────────────────────────────────
+  onText(/^\/memori(?:@\w+)?$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const memory = getMemory(userId);
+
+    if (!memory.nickname && memory.facts.length === 0) {
+      return safeSendMessage(bot, chatId, '🧠 Aku belum menyimpan ingatan apa pun tentang kamu.\n\nCeritakan saja, misalnya "panggil aku Boss" atau "aku gajian tiap tanggal 25".');
+    }
+
+    const lines = ['🧠 Yang aku ingat tentang kamu:', ''];
+    if (memory.nickname) lines.push(`• Nama panggilan: ${memory.nickname}`);
+    for (const f of memory.facts) lines.push(`• ${f.fact}`);
+    lines.push('', 'Mau aku lupakan sesuatu? Bilang saja, misalnya "lupakan soal gajian".');
+
+    await safeSendMessage(bot, chatId, lines.join('\n'), {
+      reply_markup: { inline_keyboard: [[{ text: '🗑️ Hapus semua ingatan', callback_data: 'mem_clear' }]] }
+    });
+  });
+
   // ── Free text (private chats only) ────────────────────────────────────
   const handleRuleBased = async (chatId, userId, parsed) => {
+    if (parsed.intent === 'nickname') {
+      const nickname = setNickname(userId, parsed.nickname);
+      return safeSendMessage(bot, chatId, `Siap! Mulai sekarang aku panggil kamu ${nickname} 😊`);
+    }
+
     if (parsed.intent === 'summary') {
       return safeSendMessage(bot, chatId, summaryText(userId, parsed.period), { parse_mode: 'Markdown' });
     }
@@ -497,6 +554,22 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     if (turn.reply) {
       await safeSendMessage(bot, chatId, turn.reply);
     }
+
+    const memoryNotes = [];
+    for (const action of turn.actions) {
+      if (action.type === 'set_nickname') {
+        setNickname(userId, action.nickname);
+      } else if (action.type === 'remember') {
+        const saved = addFact(userId, action.fact);
+        if (saved) memoryNotes.push(`🧠 Aku ingat: ${saved.fact}`);
+      } else if (action.type === 'forget') {
+        if (removeFact(userId, action.fact_id)) memoryNotes.push('🧹 Satu ingatan dihapus.');
+      }
+    }
+    if (memoryNotes.length) {
+      await safeSendMessage(bot, chatId, `${memoryNotes.join('\n')}\n\nLihat atau hapus ingatan: /memori`);
+    }
+
     for (const action of turn.actions) {
       if (action.type === 'add_transaction') {
         const saved = saveTransaction(userId, { type: action.tx_type, amount: action.amount, category: action.category, note: action.note });
@@ -518,11 +591,11 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const parsed = parseFreeText(msg.text);
 
     const ai = getAiConfig();
-    if (ai && takeAiQuota(userId, ai.dailyLimit)) {
+    if (ai && countAiCallsToday(userId) < aiDailyLimit(getUser(userId))) {
       bot.sendChatAction?.(chatId, 'typing').catch(() => {});
       const turn = await runAssistant(
         { userId, text: msg.text, context: assistantContext(userId, msg.from), hint: parsed },
-        { logger }
+        { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
       );
       if (turn) return respondAsAssistant(chatId, userId, turn);
     }
@@ -535,8 +608,10 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     try {
       if (typeof msg.text === 'string') {
         if (msg.text.startsWith('/')) return;
+        if (await denied(msg.from, msg.chat.id)) return;
         await handleFreeText(msg);
       } else if (msg.voice || msg.audio || msg.photo || msg.document || msg.video_note) {
+        if (await denied(msg.from, msg.chat.id)) return;
         await safeSendMessage(bot, msg.chat.id, UNSUPPORTED_MEDIA, { parse_mode: 'Markdown' });
       }
     } catch (err) {
@@ -552,6 +627,13 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const userId = String(query.from.id);
 
     if (!chatId || !data) return;
+    const user = getUser(userId);
+    const access = getAccess(user);
+    if (!access.allowed) {
+      await safeAnswerCallback(bot, query.id, 'Langganan tidak aktif');
+      await safeSendMessage(bot, chatId, blockedMessage(user || { user_id: userId }, access));
+      return;
+    }
 
     if (data.startsWith('del_last:')) {
       const txId = parseInt(data.replace('del_last:', ''), 10);
@@ -612,6 +694,11 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       }
       await safeAnswerCallback(bot, query.id, 'Tercatat');
       await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+    } else if (data === 'mem_clear') {
+      clearMemory(userId);
+      forgetConversation(userId);
+      await safeAnswerCallback(bot, query.id, 'Ingatan dihapus');
+      await editMessage(chatId, messageId, '🧹 Semua ingatan dan riwayat obrolan sudah dihapus.');
     } else if (data.startsWith('bset:')) {
       const [, category, amountStr] = data.split(':');
       const amount = parseInt(amountStr, 10);

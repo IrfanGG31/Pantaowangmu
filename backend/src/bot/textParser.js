@@ -45,6 +45,8 @@ const INCOME_HINTS = [
 const BUDGET_WORDS = ['budget', 'budgetku', 'anggaran', 'batas', 'batasi', 'membatasi', 'limit'];
 const SUMMARY_WORDS = ['ringkasan', 'rekap', 'laporan', 'total', 'pengeluaran', 'pemasukan', 'saldo', 'berapa'];
 
+const NICKNAME_RE = /^(?:tolong\s+)?(?:panggil|sebut)\s+(?:aku|saya|gue|gw)\s+(?:dengan\s+|jadi\s+|sebagai\s+)?(.+)$|^nama\s+panggilan(?:ku|\s+aku|\s+saya)?\s+(?:adalah\s+)?(.+)$/i;
+
 const MAX_NOTE_LENGTH = 200;
 const MIN_PLAIN_AMOUNT = 100;
 
@@ -138,6 +140,7 @@ function detectPeriod(text) {
  *   { intent: 'transaction', type: 'income'|'expense', amount: number, category: string|null, note: string } |
  *   { intent: 'budget', amount: number|null, category: string|null } |
  *   { intent: 'summary', period: 'today'|'week'|'month' } |
+ *   { intent: 'nickname', nickname: string } |
  *   { intent: 'unknown' }
  * )}
  */
@@ -145,6 +148,12 @@ export function parseFreeText(input) {
   const original = String(input || '').trim();
   if (!original) return { intent: 'unknown' };
   const text = original.toLowerCase();
+
+  const nick = NICKNAME_RE.exec(original);
+  if (nick) {
+    const nickname = (nick[1] || nick[2]).replace(/[.!?,\s]+$/, '').replace(/^["'“]|["'”]$/g, '').trim().slice(0, 40);
+    if (nickname) return { intent: 'nickname', nickname };
+  }
 
   const found = extractAmount(original);
 

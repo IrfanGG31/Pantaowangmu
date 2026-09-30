@@ -2,15 +2,15 @@
 // The model replies in JSON: a message for the user plus optional actions that the bot
 // validates and executes. Never logs the API key.
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
-import { getDateStr } from '../utils/formatter.js';
+import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH } from '../db/memory.js';
 
 const MAX_AMOUNT = 999999999;
 const MAX_NOTE_LENGTH = 200;
-const MAX_INPUT_LENGTH = 1000;
-const MAX_REPLY_LENGTH = 3500;
-const MAX_ACTIONS = 3;
-const HISTORY_TURNS = 10;
-const HISTORY_IDLE_MS = 30 * 60 * 1000;
+const MAX_INPUT_LENGTH = 2000;
+const MAX_REPLY_LENGTH = 3800;
+const MAX_ACTIONS = 5;
+const HISTORY_TURNS = 12;
+const HISTORY_IDLE_MS = 60 * 60 * 1000;
 
 // Tolerates values pasted with surrounding quotes or angle brackets, e.g. "<https://...>".
 function cleanEnv(value) {
@@ -18,7 +18,7 @@ function cleanEnv(value) {
 }
 
 /**
- * @returns {{ baseUrl: string, apiKey: string, model: string, timeoutMs: number, dailyLimit: number } | null}
+ * @returns {{ baseUrl: string, apiKey: string, model: string, timeoutMs: number, maxTokens: number } | null}
  */
 export function getAiConfig() {
   const baseUrl = cleanEnv(process.env.AI_BASE_URL).replace(/\/+$/, '');
@@ -29,30 +29,14 @@ export function getAiConfig() {
     baseUrl,
     apiKey,
     model,
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 20000,
-    dailyLimit: Number(process.env.AI_DAILY_LIMIT) || 50
+    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 30000,
+    maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
 
-// ── Per-user daily quota and short conversation memory (in-process; single replica) ──
+// ── Short conversation memory (in-process; single replica) ──
 
-const usage = new Map();
 const histories = new Map();
-
-/**
- * Counts one AI call for the user today; false when the daily limit is reached.
- */
-export function takeAiQuota(userId, limit) {
-  const today = getDateStr();
-  for (const key of usage.keys()) {
-    if (!key.endsWith(`:${today}`)) usage.delete(key);
-  }
-  const key = `${userId}:${today}`;
-  const used = usage.get(key) || 0;
-  if (used >= limit) return false;
-  usage.set(key, used + 1);
-  return true;
-}
 
 function getHistory(userId) {
   const entry = histories.get(userId);
@@ -65,47 +49,76 @@ function remember(userId, userText, assistantText) {
   histories.set(userId, { at: Date.now(), messages: messages.slice(-HISTORY_TURNS * 2) });
 }
 
+export function forgetConversation(userId) {
+  histories.delete(userId);
+}
+
 export function resetAiState() {
-  usage.clear();
   histories.clear();
 }
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Kamu adalah PantaUangmu, asisten keuangan pribadi di Telegram. Bicara bahasa Indonesia santai,
-hangat, dan singkat (maksimal 5 kalimat), panggil pengguna "kamu".
+const SYSTEM_PROMPT = `Kamu adalah Panta, asisten AI pribadi pengguna di Telegram (bot PantaUangmu).
 
-Kamu bisa:
-- mencatat transaksi (pengeluaran/pemasukan),
-- mengatur budget bulanan per kategori pengeluaran,
-- menjawab pertanyaan tentang keuangan pengguna HANYA dari DATA PENGGUNA di bawah (jangan mengarang angka),
-- memberi saran hemat yang praktis berdasarkan data itu,
-- ngobrol ringan, lalu arahkan kembali ke keuangan.
+SIAPA KAMU
+- Kamu asisten AI serba bisa seperti asisten AI pada umumnya: menjawab pertanyaan umum, menjelaskan konsep,
+  menulis, merangkum, brainstorming, menghitung, menerjemahkan, dan menemani ngobrol atau curhat.
+  Jangan menolak atau memotong topik non-keuangan. Jawab dengan lengkap dan akurat dulu.
+- Keahlian utamamu adalah keuangan pribadi, setara perencana keuangan: budgeting (mis. 50/30/20), dana darurat,
+  menabung untuk tujuan, mengelola utang dan cicilan, menghitung bunga, dasar investasi (deposito, reksa dana,
+  obligasi/SBN, emas, saham), serta kebiasaan belanja. Saat relevan, kaitkan jawaban dengan kondisi keuangan
+  pengguna dari DATA PENGGUNA, tapi jangan memaksa setiap obrolan jadi soal uang.
+- Untuk investasi atau pajak, beri penjelasan edukatif dan sebutkan risikonya. Jangan menjanjikan keuntungan.
 
+GAYA
+- Ikuti bahasa dan gaya pengguna (default: bahasa Indonesia santai, hangat, akrab).
+- Panggil pengguna dengan nama panggilan dari DATA PENGGUNA. Jika belum ada, pakai nama Telegram-nya.
+- Panjang jawaban menyesuaikan: singkat untuk obrolan ringan, lebih rinci (boleh berpoin) untuk pertanyaan yang butuh penjelasan.
+- Teks biasa saja, tanpa Markdown (jangan pakai **, __, #, atau tabel). Untuk daftar pakai "•". Emoji secukupnya.
+- Pakai angka dari DATA PENGGUNA apa adanya. Jangan mengarang transaksi atau saldo.
+
+INGATAN
+- DATA PENGGUNA berisi nama panggilan dan hal-hal yang pernah kamu ingat tentang pengguna. Gunakan untuk personalisasi.
+- Jika pengguna minta dipanggil dengan nama tertentu, pakai aksi set_nickname.
+- Jika pengguna menyebut info pribadi yang berguna jangka panjang (tujuan keuangan, tanggal gajian, tanggungan,
+  pekerjaan, preferensi), simpan dengan aksi remember dalam satu kalimat singkat.
+- Jika pengguna minta melupakan sesuatu, pakai aksi forget dengan id dari daftar ingatan.
+- JANGAN pernah menyimpan PIN, password, OTP, nomor kartu, CVV, atau data login. Ingatkan pengguna untuk tidak membagikannya.
+
+FORMAT BALASAN
 Balas HANYA dengan satu objek JSON, tanpa teks lain:
 {"reply":"<pesan untuk pengguna>","actions":[...]}
 
 Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"add_transaction","tx_type":"expense"|"income","amount":<bilangan bulat rupiah>,"category":"<kategori>","note":"<catatan singkat>"}
 {"type":"set_budget","category":"<kategori pengeluaran>","amount":<bilangan bulat rupiah>}
+{"type":"set_nickname","nickname":"<nama panggilan>"}
+{"type":"remember","fact":"<satu kalimat singkat>"}
+{"type":"forget","fact_id":<id>}
 
 Kategori pengeluaran: ${EXPENSE_CATEGORIES.join(', ')}.
 Kategori pemasukan: ${INCOME_CATEGORIES.join(', ')}.
 
-Aturan:
-- Tambahkan aksi hanya jika pengguna jelas ingin mencatat atau mengatur budget. Pertanyaan tidak butuh aksi.
+ATURAN AKSI
+- Catat transaksi atau atur budget hanya jika pengguna jelas memintanya atau jelas melaporkan uang keluar/masuk.
+  Pertanyaan dan obrolan tidak butuh aksi.
 - "rb"/"ribu"/"k" = ribu, "jt"/"juta" = juta. amount selalu bilangan bulat tanpa titik/koma.
 - Jangan menebak nominal. Jika nominal tidak ada, tanyakan di reply dan jangan buat aksi.
 - Jika ragu kategori, pakai "lainnya". note maksimal 60 karakter, tanpa nominal.
-- Jika ada aksi, reply cukup 1 kalimat singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
+- Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
-- Untuk hapus transaksi, sarankan perintah /hapus. Untuk file CSV, sarankan /export.
+- Untuk hapus transaksi, sarankan /hapus. Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
 
-Contoh:
+CONTOH
+Pengguna: "panggil aku Boss"
+{"reply":"Siap, Boss! Mulai sekarang aku panggil kamu Boss 😎","actions":[{"type":"set_nickname","nickname":"Boss"}]}
 Pengguna: "catat 40K uang rokok"
-{"reply":"Siap, aku catat ya.","actions":[{"type":"add_transaction","tx_type":"expense","amount":40000,"category":"lainnya","note":"rokok"}]}
-Pengguna: "bulan ini aku paling boros di mana?"
-{"reply":"Bulan ini pengeluaran terbesarmu di makan (Rp 850.000), lalu transport. Coba kurangi jajan kopi harian.","actions":[]}`;
+{"reply":"Oke, aku catat ya.","actions":[{"type":"add_transaction","tx_type":"expense","amount":40000,"category":"lainnya","note":"rokok"}]}
+Pengguna: "aku gajian tiap tanggal 25, lagi nabung buat nikah tahun depan"
+{"reply":"Noted! Gajian tanggal 25 dan target nikah tahun depan. Mau aku bantu hitung target tabungan per bulannya?","actions":[{"type":"remember","fact":"Gajian setiap tanggal 25"},{"type":"remember","fact":"Sedang menabung untuk menikah tahun depan"}]}
+Pengguna: "jelasin dong apa itu inflasi"
+{"reply":"Inflasi itu kenaikan harga barang dan jasa secara umum dari waktu ke waktu, jadi daya beli uang turun. ... (penjelasan lengkap)","actions":[]}`;
 
 // ── Model call and output handling ──────────────────────────────────────────
 
@@ -126,11 +139,28 @@ function extractJson(text) {
 
 const validAmount = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_AMOUNT;
 
+// Never store secrets even if the model proposes it.
+const SECRET_PATTERN = /\b(pin|password|passcode|kata sandi|sandi|otp|cvv|cvc)\b|\b\d{12,19}\b/i;
+
 /**
  * Checks one model-proposed action. Returns null for anything the bot must not execute.
  */
 export function sanitizeAction(raw) {
   if (!raw || typeof raw !== 'object') return null;
+
+  if (raw.type === 'set_nickname') {
+    const nickname = typeof raw.nickname === 'string' ? raw.nickname.replace(/\s+/g, ' ').trim().slice(0, MAX_NICKNAME_LENGTH) : '';
+    return nickname ? { type: 'set_nickname', nickname } : null;
+  }
+  if (raw.type === 'remember') {
+    const fact = typeof raw.fact === 'string' ? raw.fact.replace(/\s+/g, ' ').trim().slice(0, MAX_FACT_LENGTH) : '';
+    return fact && !SECRET_PATTERN.test(fact) ? { type: 'remember', fact } : null;
+  }
+  if (raw.type === 'forget') {
+    const factId = Number(raw.fact_id);
+    return Number.isInteger(factId) && factId > 0 ? { type: 'forget', fact_id: factId } : null;
+  }
+
   const amount = typeof raw.amount === 'string' ? Number(raw.amount) : raw.amount;
   if (!validAmount(amount)) return null;
 
@@ -170,14 +200,47 @@ export function parseAssistantOutput(content) {
   return { reply, actions };
 }
 
-// The rule parser reads amounts exactly; prefer its number when the model proposes a single matching action.
+// The rule parser reads amounts exactly; prefer its number when the model proposes a single matching money action.
 function applyHint(actions, hint) {
-  if (!hint || !hint.amount || actions.length !== 1) return actions;
-  const [action] = actions;
-  if ((hint.intent === 'transaction' && action.type === 'add_transaction') || (hint.intent === 'budget' && action.type === 'set_budget')) {
-    return [{ ...action, amount: hint.amount }];
+  if (!hint || !hint.amount) return actions;
+  const money = actions.filter((a) => a.type === 'add_transaction' || a.type === 'set_budget');
+  if (money.length !== 1) return actions;
+  const [target] = money;
+  const matches = (hint.intent === 'transaction' && target.type === 'add_transaction') || (hint.intent === 'budget' && target.type === 'set_budget');
+  return matches ? actions.map((a) => (a === target ? { ...a, amount: hint.amount } : a)) : actions;
+}
+
+/**
+ * One chat-completions call. Resolves to { ok, status, content, finishReason, usage, latencyMs, error } and never throws.
+ * `error` is a short provider message with the API key redacted, for logs and diagnostics.
+ */
+export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
+  const redact = (s) => String(s || '').split(config.apiKey).join('<AI_API_KEY>').slice(0, 300);
+  const started = Date.now();
+  try {
+    const res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({ model: config.model, temperature: 0.5, max_tokens: config.maxTokens, messages }),
+      signal: AbortSignal.timeout(config.timeoutMs)
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      const message = body?.error?.message || body?.message || body?.error || `HTTP ${res.status}`;
+      return { ok: false, status: res.status, latencyMs: Date.now() - started, error: redact(typeof message === 'string' ? message : JSON.stringify(message)) };
+    }
+    const choice = body?.choices?.[0];
+    return {
+      ok: true,
+      status: res.status,
+      content: choice?.message?.content ?? '',
+      finishReason: choice?.finish_reason ?? null,
+      usage: { prompt_tokens: Number(body?.usage?.prompt_tokens) || 0, completion_tokens: Number(body?.usage?.completion_tokens) || 0 },
+      latencyMs: Date.now() - started
+    };
+  } catch (err) {
+    return { ok: false, status: 0, latencyMs: Date.now() - started, error: err.name === 'TimeoutError' ? `timeout ${config.timeoutMs}ms` : redact(err.cause?.code || err.message) };
   }
-  return actions;
 }
 
 /**
@@ -185,9 +248,10 @@ function applyHint(actions, hint) {
  * or the answer is unusable (callers then fall back to the rule-based flow).
  *
  * @param {{ userId: string, text: string, context: string, hint?: object|null }} turn
- * @param {{ fetchImpl?: typeof fetch, logger?: { warn: Function } }} [options]
+ * @param {{ fetchImpl?: typeof fetch, logger?: { warn: Function }, onUsage?: Function }} [options]
+ *   onUsage receives { model, ok, http_status, prompt_tokens, completion_tokens, latency_ms, error } for every call.
  */
-export async function runAssistant({ userId, text, context, hint = null }, { fetchImpl = fetch, logger } = {}) {
+export async function runAssistant({ userId, text, context, hint = null }, { fetchImpl = fetch, logger, onUsage } = {}) {
   const config = getAiConfig();
   if (!config) return null;
 
@@ -199,32 +263,35 @@ export async function runAssistant({ userId, text, context, hint = null }, { fet
     { role: 'user', content: input }
   ];
 
+  const result = await callChat(config, messages, { fetchImpl });
+  const output = result.ok ? parseAssistantOutput(result.content) : null;
+
   try {
-    const res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: config.model, temperature: 0.3, max_tokens: 1500, messages }),
-      signal: AbortSignal.timeout(config.timeoutMs)
+    onUsage?.({
+      model: config.model,
+      ok: Boolean(output),
+      http_status: result.status || null,
+      prompt_tokens: result.usage?.prompt_tokens || 0,
+      completion_tokens: result.usage?.completion_tokens || 0,
+      latency_ms: result.latencyMs || 0,
+      error: result.ok ? (output ? null : `unusable response (finish_reason ${result.finishReason})`) : result.error
     });
-
-    if (!res.ok) {
-      logger?.warn({ status: res.status }, '[AI] Request failed');
-      return null;
-    }
-
-    const body = await res.json();
-    const output = parseAssistantOutput(body?.choices?.[0]?.message?.content);
-    if (!output) {
-      logger?.warn('[AI] Unusable response');
-      return null;
-    }
-
-    const actions = applyHint(output.actions, hint);
-    const summary = actions.length ? ` [aksi: ${actions.map((a) => `${a.type} ${a.amount}`).join(', ')}]` : '';
-    remember(userId, input, `${output.reply}${summary}`);
-    return { reply: output.reply, actions };
   } catch (err) {
-    logger?.warn({ err: err.name === 'TimeoutError' ? 'timeout' : err.message }, '[AI] Request error');
+    logger?.warn({ err: err.message }, '[AI] Failed to record usage');
+  }
+
+  if (!result.ok) {
+    logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Request failed');
     return null;
   }
+
+  if (!output) {
+    logger?.warn({ finish_reason: result.finishReason, content_length: String(result.content || '').length }, '[AI] Unusable response');
+    return null;
+  }
+
+  const actions = applyHint(output.actions, hint);
+  const summary = actions.length ? ` [aksi: ${actions.map((a) => a.type).join(', ')}]` : '';
+  remember(userId, input, `${output.reply}${summary}`);
+  return { reply: output.reply, actions };
 }
