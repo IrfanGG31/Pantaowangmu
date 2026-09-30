@@ -2,7 +2,6 @@
 // The model replies in JSON: a message for the user plus optional actions that the bot
 // validates and executes. Never logs the API key.
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
-import { getDateStr } from '../utils/formatter.js';
 import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH } from '../db/memory.js';
 
 const MAX_AMOUNT = 999999999;
@@ -19,7 +18,7 @@ function cleanEnv(value) {
 }
 
 /**
- * @returns {{ baseUrl: string, apiKey: string, model: string, timeoutMs: number, dailyLimit: number, maxTokens: number } | null}
+ * @returns {{ baseUrl: string, apiKey: string, model: string, timeoutMs: number, maxTokens: number } | null}
  */
 export function getAiConfig() {
   const baseUrl = cleanEnv(process.env.AI_BASE_URL).replace(/\/+$/, '');
@@ -31,30 +30,13 @@ export function getAiConfig() {
     apiKey,
     model,
     timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 30000,
-    dailyLimit: Number(process.env.AI_DAILY_LIMIT) || 50,
     maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
 
-// ── Per-user daily quota and short conversation memory (in-process; single replica) ──
+// ── Short conversation memory (in-process; single replica) ──
 
-const usage = new Map();
 const histories = new Map();
-
-/**
- * Counts one AI call for the user today; false when the daily limit is reached.
- */
-export function takeAiQuota(userId, limit) {
-  const today = getDateStr();
-  for (const key of usage.keys()) {
-    if (!key.endsWith(`:${today}`)) usage.delete(key);
-  }
-  const key = `${userId}:${today}`;
-  const used = usage.get(key) || 0;
-  if (used >= limit) return false;
-  usage.set(key, used + 1);
-  return true;
-}
 
 function getHistory(userId) {
   const entry = histories.get(userId);
@@ -72,7 +54,6 @@ export function forgetConversation(userId) {
 }
 
 export function resetAiState() {
-  usage.clear();
   histories.clear();
 }
 
@@ -230,11 +211,12 @@ function applyHint(actions, hint) {
 }
 
 /**
- * One chat-completions call. Resolves to { ok, status, content, finishReason, error } and never throws.
+ * One chat-completions call. Resolves to { ok, status, content, finishReason, usage, latencyMs, error } and never throws.
  * `error` is a short provider message with the API key redacted, for logs and diagnostics.
  */
 export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
   const redact = (s) => String(s || '').split(config.apiKey).join('<AI_API_KEY>').slice(0, 300);
+  const started = Date.now();
   try {
     const res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -245,12 +227,19 @@ export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       const message = body?.error?.message || body?.message || body?.error || `HTTP ${res.status}`;
-      return { ok: false, status: res.status, error: redact(typeof message === 'string' ? message : JSON.stringify(message)) };
+      return { ok: false, status: res.status, latencyMs: Date.now() - started, error: redact(typeof message === 'string' ? message : JSON.stringify(message)) };
     }
     const choice = body?.choices?.[0];
-    return { ok: true, status: res.status, content: choice?.message?.content ?? '', finishReason: choice?.finish_reason ?? null };
+    return {
+      ok: true,
+      status: res.status,
+      content: choice?.message?.content ?? '',
+      finishReason: choice?.finish_reason ?? null,
+      usage: { prompt_tokens: Number(body?.usage?.prompt_tokens) || 0, completion_tokens: Number(body?.usage?.completion_tokens) || 0 },
+      latencyMs: Date.now() - started
+    };
   } catch (err) {
-    return { ok: false, status: 0, error: err.name === 'TimeoutError' ? `timeout ${config.timeoutMs}ms` : redact(err.cause?.code || err.message) };
+    return { ok: false, status: 0, latencyMs: Date.now() - started, error: err.name === 'TimeoutError' ? `timeout ${config.timeoutMs}ms` : redact(err.cause?.code || err.message) };
   }
 }
 
@@ -259,9 +248,10 @@ export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
  * or the answer is unusable (callers then fall back to the rule-based flow).
  *
  * @param {{ userId: string, text: string, context: string, hint?: object|null }} turn
- * @param {{ fetchImpl?: typeof fetch, logger?: { warn: Function } }} [options]
+ * @param {{ fetchImpl?: typeof fetch, logger?: { warn: Function }, onUsage?: Function }} [options]
+ *   onUsage receives { model, ok, http_status, prompt_tokens, completion_tokens, latency_ms, error } for every call.
  */
-export async function runAssistant({ userId, text, context, hint = null }, { fetchImpl = fetch, logger } = {}) {
+export async function runAssistant({ userId, text, context, hint = null }, { fetchImpl = fetch, logger, onUsage } = {}) {
   const config = getAiConfig();
   if (!config) return null;
 
@@ -274,12 +264,27 @@ export async function runAssistant({ userId, text, context, hint = null }, { fet
   ];
 
   const result = await callChat(config, messages, { fetchImpl });
+  const output = result.ok ? parseAssistantOutput(result.content) : null;
+
+  try {
+    onUsage?.({
+      model: config.model,
+      ok: Boolean(output),
+      http_status: result.status || null,
+      prompt_tokens: result.usage?.prompt_tokens || 0,
+      completion_tokens: result.usage?.completion_tokens || 0,
+      latency_ms: result.latencyMs || 0,
+      error: result.ok ? (output ? null : `unusable response (finish_reason ${result.finishReason})`) : result.error
+    });
+  } catch (err) {
+    logger?.warn({ err: err.message }, '[AI] Failed to record usage');
+  }
+
   if (!result.ok) {
     logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Request failed');
     return null;
   }
 
-  const output = parseAssistantOutput(result.content);
   if (!output) {
     logger?.warn({ finish_reason: result.finishReason, content_length: String(result.content || '').length }, '[AI] Unusable response');
     return null;

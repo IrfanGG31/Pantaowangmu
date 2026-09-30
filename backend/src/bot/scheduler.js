@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { getAllUsers } from '../db/users.js';
+import { getAccess, hasAccess } from '../db/subscriptions.js';
 import { getUsersWithoutTransactionToday, markReminded } from '../db/reminders.js';
 import { getBudgetsByUser } from '../db/budgets.js';
 import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr } from '../utils/formatter.js';
@@ -26,6 +27,7 @@ export function startScheduler(bot) {
         const inactiveUsers = getUsersWithoutTransactionToday(todayStr);
 
         for (const user of inactiveUsers) {
+          if (!hasAccess(user.user_id)) continue;
           const name = user.first_name || 'Kak';
           const text = `🔔 *Pengingat Keuangan Harian*
 
@@ -55,7 +57,7 @@ Yuk catat pengeluaran atau pemasukanmu hari ini agar keuangan tetap terkontrol:
     async () => {
       logger.info('[Scheduler] Running weekly summary job (Monday 09:00 WIB)...');
       try {
-        const users = getAllUsers();
+        const users = getAllUsers().filter((u) => getAccess(u).allowed);
         const now = new Date();
         // Last week start and end
         const lastWeekStart = new Date(now);
@@ -118,7 +120,7 @@ Ketik /minggu atau buka Mini App untuk detail lebih lengkap! ✨`;
     async () => {
       logger.info('[Scheduler] Running budget alert check (20:00 WIB)...');
       try {
-        const users = getAllUsers();
+        const users = getAllUsers().filter((u) => getAccess(u).allowed);
         const currentMonth = getMonthStr();
 
         for (const user of users) {

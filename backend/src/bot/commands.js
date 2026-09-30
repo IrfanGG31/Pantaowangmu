@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import { upsertUser } from '../db/users.js';
+import { upsertUser, getUser } from '../db/users.js';
+import { getAccess, blockedMessage, touchActivity, aiDailyLimit, countAiCallsToday, recordAiUsage } from '../db/subscriptions.js';
 import {
   createTransaction,
   getLastTransaction,
@@ -33,7 +34,7 @@ import {
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
-import { getAiConfig, takeAiQuota, runAssistant, forgetConversation } from '../ai/interpreter.js';
+import { getAiConfig, runAssistant, forgetConversation } from '../ai/interpreter.js';
 import { getMemory, setNickname, addFact, removeFact, clearMemory } from '../db/memory.js';
 import { logger } from '../api/server.js';
 
@@ -275,8 +276,30 @@ export function registerHandlers(bot) {
     } catch {}
   };
 
+  // Every command, message and button press is checked against the user's subscription first.
+  const denied = async (from, chatId) => {
+    if (!from) return true;
+    const user = upsertUser({ user_id: String(from.id), first_name: from.first_name || '', username: from.username || '' });
+    const access = getAccess(user);
+    if (access.allowed) {
+      touchActivity(user.user_id);
+      return false;
+    }
+    if (chatId) await safeSendMessage(bot, chatId, blockedMessage(user, access));
+    return true;
+  };
+
+  const onText = (regex, fn) => bot.onText(regex, async (msg, match) => {
+    try {
+      if (await denied(msg.from, msg.chat.id)) return;
+      await fn(msg, match);
+    } catch (err) {
+      logger.error({ err: err.message }, '[Bot] Command handler failed');
+    }
+  });
+
   // ── /start ─────────────────────────────────────────────────────────────
-  bot.onText(/^\/start(?:@\w+)?(?:\s+(.*))?$/, async (msg) => {
+  onText(/^\/start(?:@\w+)?(?:\s+(.*))?$/, async (msg) => {
     const chatId = msg.chat.id;
     ensureUser(msg);
 
@@ -298,7 +321,7 @@ export function registerHandlers(bot) {
   });
 
   // ── /help ─────────────────────────────────────────────────────────────
-  bot.onText(/^\/help(?:@\w+)?$/, async (msg) => {
+  onText(/^\/help(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     ensureUser(msg);
 
@@ -329,7 +352,7 @@ _Contoh: /budget makan 1000000_
   });
 
   // ── /catat <jumlah> <kategori> [catatan] ──────────────────────────────
-  bot.onText(/^\/catat(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+  onText(/^\/catat(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
     const rawInput = match[1]?.trim();
@@ -378,14 +401,14 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
   // ── /hari, /minggu, /bulan ───────────────────────────────────────────
   const periodCommands = { hari: 'today', minggu: 'week', bulan: 'month' };
   for (const [command, period] of Object.entries(periodCommands)) {
-    bot.onText(new RegExp(`^\\/${command}(?:@\\w+)?$`), async (msg) => {
+    onText(new RegExp(`^\\/${command}(?:@\\w+)?$`), async (msg) => {
       const userId = ensureUser(msg);
       await safeSendMessage(bot, msg.chat.id, summaryText(userId, period), { parse_mode: 'Markdown' });
     });
   }
 
   // ── /budget <kategori> <jumlah> ────────────────────────────────────────
-  bot.onText(/^\/budget(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+  onText(/^\/budget(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
     const rawInput = match[1]?.trim();
@@ -410,7 +433,7 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
   });
 
   // ── /hapus ────────────────────────────────────────────────────────────
-  bot.onText(/^\/hapus(?:@\w+)?$/, async (msg) => {
+  onText(/^\/hapus(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
@@ -438,7 +461,7 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
   });
 
   // ── /export ───────────────────────────────────────────────────────────
-  bot.onText(/^\/export(?:@\w+)?$/, async (msg) => {
+  onText(/^\/export(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
@@ -466,7 +489,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   });
 
   // ── /memori ───────────────────────────────────────────────────────────
-  bot.onText(/^\/memori(?:@\w+)?$/, async (msg) => {
+  onText(/^\/memori(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
     const memory = getMemory(userId);
@@ -568,11 +591,11 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const parsed = parseFreeText(msg.text);
 
     const ai = getAiConfig();
-    if (ai && takeAiQuota(userId, ai.dailyLimit)) {
+    if (ai && countAiCallsToday(userId) < aiDailyLimit(getUser(userId))) {
       bot.sendChatAction?.(chatId, 'typing').catch(() => {});
       const turn = await runAssistant(
         { userId, text: msg.text, context: assistantContext(userId, msg.from), hint: parsed },
-        { logger }
+        { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
       );
       if (turn) return respondAsAssistant(chatId, userId, turn);
     }
@@ -585,8 +608,10 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     try {
       if (typeof msg.text === 'string') {
         if (msg.text.startsWith('/')) return;
+        if (await denied(msg.from, msg.chat.id)) return;
         await handleFreeText(msg);
       } else if (msg.voice || msg.audio || msg.photo || msg.document || msg.video_note) {
+        if (await denied(msg.from, msg.chat.id)) return;
         await safeSendMessage(bot, msg.chat.id, UNSUPPORTED_MEDIA, { parse_mode: 'Markdown' });
       }
     } catch (err) {
@@ -602,6 +627,13 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const userId = String(query.from.id);
 
     if (!chatId || !data) return;
+    const user = getUser(userId);
+    const access = getAccess(user);
+    if (!access.allowed) {
+      await safeAnswerCallback(bot, query.id, 'Langganan tidak aktif');
+      await safeSendMessage(bot, chatId, blockedMessage(user || { user_id: userId }, access));
+      return;
+    }
 
     if (data.startsWith('del_last:')) {
       const txId = parseInt(data.replace('del_last:', ''), 10);

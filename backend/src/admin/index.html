@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>PantaUangmu Admin</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <main id="login-view" class="login" hidden>
+    <form id="login-form" class="card login-card" autocomplete="on">
+      <h1>PantaUangmu Admin</h1>
+      <label>Email
+        <input type="email" name="email" autocomplete="username" required>
+      </label>
+      <label>Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="error" role="alert" hidden></p>
+      <button type="submit" class="btn primary">Masuk</button>
+    </form>
+  </main>
+
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <h1>PantaUangmu Admin</h1>
+      <div class="topbar-actions">
+        <span id="admin-email" class="muted"></span>
+        <button id="logout" class="btn">Keluar</button>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="filters" role="group" aria-label="Periode">
+        <span class="muted">Periode:</span>
+        <button class="chip" data-days="7">7 hari</button>
+        <button class="chip" data-days="30">30 hari</button>
+        <button class="chip" data-days="90">90 hari</button>
+        <button id="refresh" class="btn">Muat ulang</button>
+        <span id="updated-at" class="muted small"></span>
+      </div>
+
+      <section id="kpis" class="kpis" aria-label="Ringkasan"></section>
+
+      <section class="charts">
+        <figure class="card chart-card">
+          <figcaption>Pengguna aktif per hari</figcaption>
+          <div class="chart" id="chart-active"></div>
+        </figure>
+        <figure class="card chart-card">
+          <figcaption>Pesan dijawab AI per hari</figcaption>
+          <div class="chart" id="chart-ai"></div>
+        </figure>
+      </section>
+      <details class="card table-view">
+        <summary>Lihat data harian sebagai tabel</summary>
+        <div class="table-wrap"><table id="daily-table"></table></div>
+      </details>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Pengguna</h2>
+          <div class="user-filters">
+            <input id="user-search" type="search" placeholder="Cari ID, nama, atau username" aria-label="Cari pengguna">
+            <select id="user-state" aria-label="Filter status">
+              <option value="">Semua status</option>
+              <option value="active">Aktif</option>
+              <option value="expired">Habis</option>
+              <option value="suspended">Dinonaktifkan</option>
+            </select>
+            <select id="user-plan" aria-label="Filter paket">
+              <option value="">Semua paket</option>
+              <option value="trial">Trial</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap"><table id="users-table"></table></div>
+        <div class="pager">
+          <button id="prev-page" class="btn">‹ Sebelumnya</button>
+          <span id="page-info" class="muted"></span>
+          <button id="next-page" class="btn">Berikutnya ›</button>
+        </div>
+      </section>
+
+      <section class="two-col">
+        <div class="card">
+          <h2>Error AI terbaru</h2>
+          <div class="table-wrap"><table id="errors-table"></table></div>
+        </div>
+        <div class="card">
+          <h2>Log aktivitas admin</h2>
+          <div class="table-wrap"><table id="audit-table"></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="user-dialog">
+    <form id="user-form" method="dialog" class="dialog-body">
+      <h2 id="dialog-title">Kelola pengguna</h2>
+      <p id="dialog-sub" class="muted"></p>
+      <div class="field-grid">
+        <label>Paket
+          <select name="plan"></select>
+        </label>
+        <label>Status akun
+          <select name="status">
+            <option value="active">Aktif</option>
+            <option value="suspended">Dinonaktifkan</option>
+          </select>
+        </label>
+        <label>Kuota AI per hari
+          <input name="ai_daily_limit" type="number" min="0" max="10000" step="1">
+          <span class="hint">Kosongkan untuk default paket</span>
+        </label>
+      </div>
+      <fieldset>
+        <legend>Masa aktif: <strong id="dialog-expiry"></strong></legend>
+        <div class="extend">
+          <button type="button" class="chip" data-extend="7">+7 hari</button>
+          <button type="button" class="chip" data-extend="30">+30 hari</button>
+          <button type="button" class="chip" data-extend="90">+90 hari</button>
+          <button type="button" class="chip" data-extend="365">+1 tahun</button>
+          <button type="button" class="chip" data-expiry="never">Tanpa batas</button>
+          <button type="button" class="chip" data-expiry="now">Akhiri sekarang</button>
+        </div>
+        <p id="dialog-pending" class="muted small"></p>
+      </fieldset>
+      <p id="dialog-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="dialog-cancel" class="btn">Batal</button>
+        <button type="submit" id="dialog-save" class="btn primary">Simpan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="tooltip" class="tooltip" role="status" hidden></div>
+  <script type="module" src="/admin/admin.js"></script>
+</body>
+</html>

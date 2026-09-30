@@ -66,7 +66,25 @@ export function initDatabase(customPath) {
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
 
   database.exec(schemaSql);
+  migrate(database);
   return database;
+}
+
+// Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS".
+// Existing users get plan_expires_at NULL (no expiry), so nobody is locked out by the upgrade.
+const USER_COLUMNS = [
+  ['plan', "TEXT DEFAULT 'trial'"],
+  ['status', "TEXT DEFAULT 'active'"],
+  ['plan_expires_at', 'DATETIME'],
+  ['ai_daily_limit', 'INTEGER'],
+  ['last_active_at', 'DATETIME']
+];
+
+function migrate(database) {
+  const existing = new Set(database.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  for (const [name, definition] of USER_COLUMNS) {
+    if (!existing.has(name)) database.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+  }
 }
 
 export const db = {

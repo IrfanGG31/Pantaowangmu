@@ -11,7 +11,6 @@ import {
   parseAssistantOutput,
   runAssistant,
   callChat,
-  takeAiQuota,
   resetAiState
 } from '../src/ai/interpreter.js';
 
@@ -33,7 +32,7 @@ function setAiEnv(extra = {}) {
 }
 
 function clearAiEnv() {
-  for (const k of ['AI_BASE_URL', 'AI_API_KEY', 'AI_MODEL', 'AI_DAILY_LIMIT']) delete process.env[k];
+  for (const k of ['AI_BASE_URL', 'AI_API_KEY', 'AI_MODEL', 'PLAN_TRIAL_AI_LIMIT']) delete process.env[k];
 }
 
 describe('AI assistant core', () => {
@@ -128,12 +127,6 @@ describe('AI assistant core', () => {
     expect(result.error).not.toContain(KEY);
   });
 
-  it('enforces a per-user daily quota', () => {
-    expect(takeAiQuota('1', 2)).toBe(true);
-    expect(takeAiQuota('1', 2)).toBe(true);
-    expect(takeAiQuota('1', 2)).toBe(false);
-    expect(takeAiQuota('2', 2)).toBe(true);
-  });
 });
 
 class FakeBot {
@@ -164,7 +157,7 @@ describe('Bot in assistant mode', () => {
   beforeAll(() => initDatabase(':memory:'));
 
   beforeEach(() => {
-    db.exec('DELETE FROM transactions; DELETE FROM budgets; DELETE FROM user_facts; DELETE FROM user_profile;');
+    db.exec('DELETE FROM transactions; DELETE FROM budgets; DELETE FROM user_facts; DELETE FROM user_profile; DELETE FROM ai_usage;');
     bot = new FakeBot();
     registerHandlers(bot);
   });
@@ -278,13 +271,15 @@ describe('Bot in assistant mode', () => {
     expect(bot.last().text).toContain('belum paham');
   });
 
-  it('falls back to the rule parser after the daily limit', async () => {
-    setAiEnv({ AI_DAILY_LIMIT: '1' });
+  it('falls back to the rule parser after the plan\'s daily AI limit and records usage', async () => {
+    setAiEnv({ PLAN_TRIAL_AI_LIMIT: '1' });
     const fetchMock = aiReply(asJson({ reply: 'Halo!', actions: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await bot.message('halo');
     await bot.message('makan 10rb');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(getAllTransactions('42')).toHaveLength(1);
+    const row = db.prepare('SELECT user_id, model, ok FROM ai_usage').get();
+    expect(row).toEqual({ user_id: '42', model: 'MiniMax-M3.1-Flash-Preview', ok: 1 });
   });
 });

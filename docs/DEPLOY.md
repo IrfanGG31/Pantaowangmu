@@ -33,9 +33,35 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_BASE_URL` | tidak | API kompatibel OpenAI, mis. `https://ai.sumopod.com/v1`. Tanpa tanda kutip atau `< >`. |
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
-| `AI_DAILY_LIMIT` | tidak | Maks. pesan yang dijawab AI per pengguna per hari. Default `50`. |
 | `AI_TIMEOUT_MS` | tidak | Default `30000`. |
 | `AI_MAX_TOKENS` | tidak | Default `4000`. Naikkan bila model "thinking" sering membalas kosong. |
+| `AI_PRICE_INPUT_PER_1M`, `AI_PRICE_OUTPUT_PER_1M` | tidak | Harga per 1 juta token masuk/keluar dari penyedia AI, untuk perkiraan biaya di dashboard. |
+| `AI_PRICE_CURRENCY` | tidak | Default `IDR`. |
+| `TRIAL_DAYS` | tidak | Masa trial pengguna baru. Default `7`. `0` = pengguna baru langsung terblokir sampai diaktifkan admin. |
+| `PLAN_TRIAL_AI_LIMIT`, `PLAN_PRO_AI_LIMIT` | tidak | Pesan AI per hari per paket. Default `20` / `100`. Bisa ditimpa per pengguna di dashboard. |
+| `ADMIN_CONTACT` | tidak | Ditampilkan ke pengguna yang terblokir, mis. `@username_admin`. |
+| `ADMIN_EMAIL` | untuk /admin | Email login admin. |
+| `ADMIN_PASSWORD_HASH` | untuk /admin (rahasia) | Hash scrypt, dibuat dengan `node scripts/hash-password.js`. Jangan isi password asli. |
+| `ADMIN_SESSION_SECRET` | disarankan (rahasia) | String acak ≥ 32 karakter untuk menandatangani sesi admin. Tanpa ini, sesi admin hilang tiap restart. |
+
+**Langganan.** Setiap pengguna punya `plan` (`trial`/`pro`), `status` (`active`/`suspended`) dan `plan_expires_at`
+(UTC; kosong = tanpa batas). Pengguna baru mendapat trial `TRIAL_DAYS` hari. Pengguna yang sudah ada sebelum fitur ini
+tidak punya tanggal berakhir, jadi tidak ikut terblokir. Bila langganan habis atau dinonaktifkan, semua perintah, pesan,
+tombol, pengingat terjadwal, dan API Mini App ditolak (HTTP 403 `subscription_inactive`), dan bot menampilkan ID
+Telegram pengguna agar admin mudah mencarinya.
+
+**Dashboard admin** ada di `https://<domain>/admin`. Isinya: total pengguna, pengguna aktif harian/mingguan/bulanan,
+pemakaian AI (pesan, token, latensi, error, perkiraan biaya), daftar pengguna (ubah paket, perpanjang masa aktif,
+nonaktifkan, atur kuota AI), error AI terbaru, dan log aktivitas admin. Dashboard hanya menampilkan angka agregat,
+tidak isi transaksi atau catatan pengguna, dan tidak ada password pengguna (login pengguna memakai Telegram).
+Keamanan: password admin di-hash scrypt, sesi berupa cookie HttpOnly/Secure/SameSite=Strict yang berlaku 12 jam,
+login dibatasi 10 percobaan per 15 menit per IP, halaman tidak bisa di-iframe, dan setiap perubahan tercatat di audit log.
+
+Membuat hash password admin (Railway → Console, atau di laptop dari folder `backend`):
+```
+node scripts/hash-password.js
+```
+Ketik password (min. 12 karakter, tidak ditampilkan), lalu salin hasil `scrypt$...` ke `ADMIN_PASSWORD_HASH`.
 
 **Cek koneksi AI** (Railway → Console): `node scripts/check-ai.js`. Skrip ini menampilkan nilai URL dan model yang terbaca,
 apakah model ada di daftar penyedia, lalu satu tes chat beserta status/pesan error. Key tidak pernah dicetak.
@@ -49,7 +75,8 @@ dijawab AI sebagai asisten keuangan pribadi. AI menerima ringkasan data pengguna
 10 transaksi terakhir) dan 10 giliran obrolan terakhir (di memori, hilang saat restart). AI boleh mengusulkan dua aksi:
 `add_transaction` dan `set_budget`. Server memvalidasi aksi itu, lalu menjalankannya. Transaksi yang tercatat
 diberi tombol Batalkan. Nominal dari parser aturan diutamakan bila tersedia. Perintah `/...` tidak lewat AI.
-Bila AI mati, gagal, lambat, atau kuota harian habis, bot memakai parser aturan. Teks pesan dan ringkasan data
+Setiap panggilan AI dicatat di tabel `ai_usage` (token, latensi, status; tanpa isi pesan) untuk kuota harian per paket
+dan dashboard. Bila AI mati, gagal, lambat, atau kuota harian habis, bot memakai parser aturan. Teks pesan dan ringkasan data
 dikirim ke penyedia AI tersebut.
 
 Jangan pernah set `VITE_API_URL` atau `VITE_DEV_USER_ID` di Railway.

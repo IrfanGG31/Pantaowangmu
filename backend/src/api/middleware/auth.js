@@ -1,5 +1,21 @@
 import { validateInitData } from '../../utils/telegram.js';
 import { upsertUser } from '../../db/users.js';
+import { getAccess, touchActivity } from '../../db/subscriptions.js';
+
+// Blocks users whose subscription is suspended or expired; records activity for the rest.
+function admit(req, res, next, userObj) {
+  const row = upsertUser(userObj);
+  const access = getAccess(row);
+  if (!access.allowed) {
+    return res.status(403).json({
+      error: access.state === 'suspended' ? 'Akun kamu dinonaktifkan. Hubungi admin.' : 'Langganan kamu sudah berakhir. Hubungi admin untuk berlangganan.',
+      code: 'subscription_inactive'
+    });
+  }
+  touchActivity(userObj.user_id);
+  req.user = userObj;
+  next();
+}
 
 /**
  * Express middleware to validate Telegram WebApp authentication.
@@ -16,9 +32,7 @@ export default function requireTelegramAuth(req, res, next) {
         first_name: 'Dev User',
         username: 'devuser'
       };
-      upsertUser(user);
-      req.user = user;
-      return next();
+      return admit(req, res, next, user);
     }
   }
 
@@ -49,9 +63,5 @@ export default function requireTelegramAuth(req, res, next) {
     username: user.username || ''
   };
 
-  // Upsert user in database
-  upsertUser(userObj);
-
-  req.user = userObj;
-  next();
+  admit(req, res, next, userObj);
 }

@@ -12,7 +12,8 @@
     "start": "node src/index.js",
     "test": "vitest run",
     "setup-telegram": "node scripts/setup-telegram.js",
-    "check-ai": "node scripts/check-ai.js"
+    "check-ai": "node scripts/check-ai.js",
+    "hash-password": "node scripts/hash-password.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

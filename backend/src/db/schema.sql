@@ -64,3 +64,39 @@ CREATE TABLE IF NOT EXISTS user_facts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_facts_user ON user_facts(user_id);
+
+-- One row per AI call, for quota and the admin dashboard (no message content stored)
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  http_status INTEGER,
+  prompt_tokens INTEGER DEFAULT 0,
+  completion_tokens INTEGER DEFAULT 0,
+  latency_ms INTEGER DEFAULT 0,
+  error TEXT,
+  created_at DATETIME DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage(created_at);
+
+-- Which users were active on which local date (for daily/weekly/monthly active users)
+CREATE TABLE IF NOT EXISTS user_activity_daily (
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  PRIMARY KEY (user_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_activity_date ON user_activity_daily(date);
+
+-- Admin actions on users
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_email TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_user_id TEXT,
+  details TEXT,
+  created_at DATETIME DEFAULT (datetime('now'))
+);

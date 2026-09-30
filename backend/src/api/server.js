@@ -10,6 +10,7 @@ import healthRouter from './routes/health.js';
 import transactionsRouter from './routes/transactions.js';
 import budgetsRouter from './routes/budgets.js';
 import exportRouter from './routes/export.js';
+import adminRouter from './routes/admin.js';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
 
 export const logger = pino({
@@ -104,6 +105,22 @@ app.use(['/health', '/api/health'], healthRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/budgets', budgetsRouter);
 app.use('/api/export', exportRouter);
+
+// Admin dashboard (plain static page + JSON API). Stricter than the Mini App: never framed, no inline scripts.
+const adminDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../admin');
+const ADMIN_CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", "connect-src 'self'",
+  "font-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"
+].join('; ');
+function adminHeaders(req, res, next) {
+  res.setHeader('Content-Security-Policy', ADMIN_CSP);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}
+app.use('/api/admin', adminHeaders, adminRouter);
+app.use('/admin', adminHeaders, express.static(adminDir, { index: 'index.html' }));
 
 // Mini App (static SPA build). Mounted after the API so /api/* never falls through to index.html.
 if (hasWebapp) {
