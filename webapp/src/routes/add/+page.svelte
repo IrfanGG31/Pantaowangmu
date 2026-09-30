@@ -23,7 +23,7 @@
     showAlert,
   } from '$lib/telegram.js';
   import { invalidateTransactions, showToast } from '$lib/stores.js';
-  import { TxType } from '$lib/types.js';
+  import type { TxType } from '$lib/types.js';
 
   // ── Form state ─────────────────────────────────────────────────
   let type: TxType = 'expense';

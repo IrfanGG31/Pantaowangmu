@@ -16,7 +16,7 @@
     ApiError,
   } from '$lib/api.js';
   import { setupBackButton } from '$lib/telegram.js';
-  import { Summary, CategorySummary, Period } from '$lib/types.js';
+  import type { Summary, CategorySummary, Period } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
   let period: Period = 'month';
