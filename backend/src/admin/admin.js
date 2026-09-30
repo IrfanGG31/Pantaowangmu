@@ -541,10 +541,35 @@ function setDays(days) {
   refreshAll();
 }
 
+// ── Backups ──────────────────────────────────────────────────────────────
+
+const fmtSize = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+const REMOTE_LABEL = { uploaded: 'tersalin ke bucket', failed: 'GAGAL disalin ke bucket', not_configured: 'hanya di volume' };
+
+function renderBackups(b) {
+  const last = b.last;
+  const lastText = !last ? 'Belum pernah backup.'
+    : last.ok ? `Terakhir ${fmtRelative(last.at)} (${fmtDateTime(last.at)}), ${REMOTE_LABEL[last.remote] || last.remote}.`
+    : `Backup terakhir GAGAL ${fmtRelative(last.at)}.`;
+  $('backup-summary').textContent = `${lastText} Otomatis tiap hari jam ${b.schedule} (${b.timezone}); ${b.keep} backup terakhir disimpan di volume; ` +
+    (b.remote_configured ? 'salinan dikirim ke bucket.' : 'bucket belum diatur (BACKUP_S3_*).');
+  showError('backup-error', last && last.error ? last.error : '');
+  renderTable($('backups-table'), ['Waktu', 'File', 'Ukuran', ''], b.data.map((f) => [
+    fmtDateTime(f.created_at),
+    el('code', {}, f.name),
+    fmtSize(f.size),
+    el('a', { class: 'btn', href: `/api/admin/backups/${encodeURIComponent(f.name)}`, download: f.name }, 'Unduh')
+  ]), 'Belum ada backup di volume.', [2]);
+}
+
+async function loadBackups() {
+  renderBackups(await api('/backups'));
+}
+
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -692,3 +717,19 @@ $('settings-form').addEventListener('submit', async (event) => {
 });
 
 showApp().catch(() => showLogin());
+
+$('backup-now').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = 'Membuat backup…';
+  showError('backup-error', '');
+  try {
+    renderBackups(await api('/backups', { method: 'POST', body: '{}' }));
+    loadAudit();
+  } catch (err) {
+    showError('backup-error', err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Backup sekarang';
+  }
+});

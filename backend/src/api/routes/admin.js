@@ -21,6 +21,8 @@ import {
   setSetting
 } from '../../db/billing.js';
 import { getTrialDays } from '../../db/users.js';
+import { listBackups, backupFilePath, backupKeep, lastBackupStatus, runBackup } from '../../backup/index.js';
+import { getS3Config } from '../../backup/s3.js';
 
 const router = Router();
 
@@ -208,6 +210,44 @@ router.get('/audit', (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+function backupState() {
+  return {
+    remote_configured: Boolean(getS3Config()),
+    keep: backupKeep(),
+    schedule: '03:00',
+    timezone: process.env.TIMEZONE || 'Asia/Jakarta',
+    last: lastBackupStatus(),
+    data: listBackups()
+  };
+}
+
+router.get('/backups', (req, res, next) => {
+  try {
+    res.json(backupState());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/backups', async (req, res) => {
+  try {
+    const status = await runBackup({ reason: 'manual' });
+    logAdminAction(req.admin.email, 'backup_now', null, { name: status.name, remote: status.remote });
+    res.status(201).json({ status, ...backupState() });
+  } catch (err) {
+    logAdminAction(req.admin.email, 'backup_now', null, { error: err.message.slice(0, 120) });
+    res.status(500).json({ error: `Backup gagal: ${err.message}` });
+  }
+});
+
+// The file holds every user's data: admins only, audited, never cached.
+router.get('/backups/:name', (req, res) => {
+  const file = backupFilePath(req.params.name);
+  if (!file) return res.status(404).json({ error: 'Backup tidak ditemukan' });
+  logAdminAction(req.admin.email, 'download_backup', null, { name: req.params.name });
+  res.download(file, req.params.name, { headers: { 'Content-Type': 'application/gzip' } });
 });
 
 export default router;

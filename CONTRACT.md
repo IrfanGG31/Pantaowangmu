@@ -264,4 +264,7 @@ Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
 | `GET /api/admin/vouchers`, `POST /api/admin/vouchers`, `PATCH /api/admin/vouchers/:code` | Buat `{ plan_id, count, days?, price?, max_uses?, expires_in_days?, note? }` → `{ codes }`; ubah `{ disabled }` |
 | `GET /api/admin/payments?limit=` | Riwayat pembayaran (voucher dan manual) |
 | `GET /api/admin/settings`, `PUT /api/admin/settings` | `{ payment_instructions }` (tampil di /langganan) |
+| `GET /api/admin/backups` | `{ remote_configured, keep, schedule, timezone, last: { at, ok, name, size, reason, remote, error } \| null, data: [{ name, size, created_at }] }` |
+| `POST /api/admin/backups` `{}` | Backup sekarang → 201 `{ status, ...GET /backups }`; 500 bila gagal. Dicatat di audit log. |
+| `GET /api/admin/backups/:name` | Unduh `finance-YYYYMMDD-HHMMSS.db.gz` (gzip SQLite). Nama lain → 404. Dicatat di audit log. |
 | `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |

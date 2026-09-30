@@ -73,6 +73,7 @@ h2 { font-size: 16px; margin: 0 0 12px; }
 }
 .btn:hover, .chip:hover { background: var(--surface-2); }
 .btn:disabled { opacity: .5; cursor: default; }
+a.btn { display: inline-block; text-decoration: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .chip { border-radius: 999px; padding: 5px 12px; }
 .chip[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }

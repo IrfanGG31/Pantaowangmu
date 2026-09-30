@@ -24,6 +24,7 @@ try {
 }
 
 let dbInstance = null;
+let dbFilePath = null;
 
 /**
  * Returns or creates the singleton SQLite database instance.
@@ -46,6 +47,7 @@ export function getDb(customPath) {
   }
 
   dbInstance = new SqliteClass(resolvedPath);
+  dbFilePath = resolvedPath;
 
   // Set SQLite pragmas
   dbInstance.exec('PRAGMA foreign_keys = ON;');
@@ -54,6 +56,14 @@ export function getDb(customPath) {
   }
 
   return dbInstance;
+}
+
+/**
+ * Absolute path of the open database file (':memory:' in tests, null before the first connection).
+ * @returns {string|null}
+ */
+export function getDbFilePath() {
+  return dbFilePath;
 }
 
 /**
