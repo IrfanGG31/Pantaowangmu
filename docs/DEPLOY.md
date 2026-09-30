@@ -38,22 +38,35 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_MAX_TOKENS` | tidak | Default `4000`. Naikkan bila model "thinking" sering membalas kosong. |
 | `AI_PRICE_INPUT_PER_1M`, `AI_PRICE_OUTPUT_PER_1M` | tidak | Harga per 1 juta token masuk/keluar dari penyedia AI, untuk perkiraan biaya di dashboard. |
 | `AI_PRICE_CURRENCY` | tidak | Default `IDR`. |
-| `TRIAL_DAYS` | tidak | Masa trial pengguna baru. Default `7`. `0` = pengguna baru langsung terblokir sampai diaktifkan admin. |
-| `PLAN_TRIAL_AI_LIMIT`, `PLAN_PRO_AI_LIMIT` | tidak | Pesan AI per hari per paket. Default `20` / `100`. Bisa ditimpa per pengguna di dashboard. |
-| `ADMIN_CONTACT` | tidak | Ditampilkan ke pengguna yang terblokir, mis. `@username_admin`. |
+| `TRIAL_DAYS` | tidak | Masa trial pengguna baru. Default `7`. `0` = pengguna baru langsung di paket Gratis. |
+| `PLAN_TRIAL_AI_LIMIT`, `PLAN_TRIAL_RECEIPT_LIMIT` | tidak | Kuota trial: pesan AI per hari (default `20`) dan foto nota per bulan (default `10`). Kuota paket berbayar diatur di dashboard. |
+| `ADMIN_CONTACT` | tidak | Ditampilkan di /langganan (bila instruksi pembayaran kosong) dan ke akun yang dinonaktifkan, mis. `@username_admin`. |
 | `ADMIN_EMAIL` | untuk /admin | Email login admin. |
 | `ADMIN_PASSWORD_HASH` | untuk /admin (rahasia) | Hash scrypt, dibuat dengan `node scripts/hash-password.js`. Jangan isi password asli. |
 | `ADMIN_SESSION_SECRET` | disarankan (rahasia) | String acak ≥ 32 karakter untuk menandatangani sesi admin. Tanpa ini, sesi admin hilang tiap restart. |
 
-**Langganan.** Setiap pengguna punya `plan` (`trial`/`pro`), `status` (`active`/`suspended`) dan `plan_expires_at`
-(UTC; kosong = tanpa batas). Pengguna baru mendapat trial `TRIAL_DAYS` hari. Pengguna yang sudah ada sebelum fitur ini
-tidak punya tanggal berakhir, jadi tidak ikut terblokir. Bila langganan habis atau dinonaktifkan, semua perintah, pesan,
-tombol, pengingat terjadwal, dan API Mini App ditolak (HTTP 403 `subscription_inactive`), dan bot menampilkan ID
-Telegram pengguna agar admin mudah mencarinya.
+**Langganan (freemium).** Setiap pengguna punya `plan` (`trial` atau ID paket di tabel `plans`, default `pro`),
+`status` (`active`/`suspended`) dan `plan_expires_at` (UTC; kosong = tanpa batas). Alurnya:
 
-**Dashboard admin** ada di `https://<domain>/admin`. Isinya: total pengguna, pengguna aktif harian/mingguan/bulanan,
-pemakaian AI (pesan, token, latensi, error, perkiraan biaya), daftar pengguna (ubah paket, perpanjang masa aktif,
-nonaktifkan, atur kuota AI), error AI terbaru, dan log aktivitas admin. Dashboard hanya menampilkan angka agregat,
+1. `/start` membuat akun otomatis dan memberi trial `TRIAL_DAYS` hari. Pengguna lama tanpa tanggal berakhir tetap tanpa batas.
+2. `/langganan` menampilkan status, pemakaian kuota, daftar paket dan harganya, serta instruksi pembayaran (diatur
+   di dashboard).
+3. Setelah membayar (transfer/QRIS), pengguna menerima kode dari admin dan mengetik `/aktivasi KODE`. Admin juga bisa
+   langsung mencatat pembayaran manual di dashboard. Masa aktif ditambahkan di atas sisa masa aktif yang ada.
+4. Bot mengirim pengingat H-3 dan H-1 sebelum berakhir, dan pemberitahuan saat berakhir (setiap hari 10.00 WIB, masing-masing sekali).
+5. Saat habis, pengguna turun ke **Gratis**: tetap bisa mencatat, melihat budget, ringkasan, Mini App, dan export.
+   Asisten AI dan baca foto nota nonaktif (bot memakai parser aturan).
+6. Hanya akun yang **dinonaktifkan** admin yang diblokir total (bot dan API 403 `subscription_inactive`).
+
+Kuota: pesan AI per hari (asisten dan laporan mingguan) dan foto nota per bulan mengikuti paket. Kuota AI bisa
+ditimpa per pengguna. `/aktivasi` dibatasi 5 kode salah per jam per pengguna. Kode berformat `PANTA-XXXX-XXXX`
+(tanpa huruf/angka yang mirip seperti O/0 dan I/1).
+
+**Dashboard admin** ada di `https://<domain>/admin`. Isinya:
+- Pendapatan bulan ini dan per periode, pengguna berbayar, pengguna yang habis ≤ 7 hari.
+- Pengguna aktif harian/mingguan/bulanan, dan pemakaian AI (pesan, token, latensi, error, perkiraan biaya).
+- Daftar pengguna: ubah paket, catat pembayaran manual, perpanjang masa aktif, nonaktifkan, atur kuota AI.
+- Paket & harga, voucher (buat kode, nonaktifkan), riwayat pembayaran, instruksi pembayaran, error AI terbaru, dan log aktivitas admin. Dashboard hanya menampilkan angka agregat,
 tidak isi transaksi atau catatan pengguna, dan tidak ada password pengguna (login pengguna memakai Telegram).
 Keamanan: password admin di-hash scrypt, sesi berupa cookie HttpOnly/Secure/SameSite=Strict yang berlaku 12 jam,
 login dibatasi 10 percobaan per 15 menit per IP, halaman tidak bisa di-iframe, dan setiap perubahan tercatat di audit log.

@@ -103,7 +103,7 @@ input, select {
 .topbar-actions .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .content { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
 /* Grid items default to min-width:auto, which lets wide tables stretch the page; keep them inside the viewport. */
-.content > *, .charts > *, .two-col > *, .kpis > * { min-width: 0; }
+.content > *, .charts > *, .two-col > *, .kpis > *, .billing-grid > * { min-width: 0; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .section-head h2 { margin: 0; }
@@ -189,3 +189,30 @@ legend { color: var(--text-secondary); font-size: 13px; padding: 0 4px; }
   .kpi-value { font-size: 22px; }
   .topbar h1 { font-size: 16px; }
 }
+
+/* Billing */
+.inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 8px 0 12px; }
+.inline-form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.inline-form input, .inline-form select { width: 130px; }
+.inline-form .grow input, label.grow input { width: 100%; }
+.inline-form .grow { flex: 1 1 200px; }
+label.grow { display: grid; gap: 4px; font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+.stack { display: grid; gap: 8px; }
+.row { display: flex; align-items: center; gap: 12px; }
+textarea {
+  font: inherit; color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; width: 100%; resize: vertical;
+}
+.voucher-result { display: grid; gap: 8px; margin-bottom: 12px; padding: 12px; border-radius: 8px; background: var(--surface-2); }
+.voucher-result textarea { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+.table-input { width: 76px; padding: 4px 6px; }
+.table-input.name { width: 110px; }
+.add-plan { margin-top: 12px; }
+.add-plan summary { cursor: pointer; color: var(--text-secondary); }
+.badge.free { color: var(--warning-text); }
+.badge.free::before { background: var(--warning); }
+code { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+fieldset + fieldset { margin-top: 0; }
+
+.billing-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 1000px) { .billing-grid { grid-template-columns: minmax(0, 1fr); } }

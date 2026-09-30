@@ -60,7 +60,7 @@ function fmtTokens(n) {
 }
 
 function fmtMoney(cost) {
-  if (!cost || cost.amount === null) return 'Harga belum diatur';
+  if (!cost || cost.amount === null) return '—';
   try {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: cost.currency, maximumFractionDigits: cost.currency === 'IDR' ? 0 : 2 }).format(cost.amount);
   } catch {
@@ -99,9 +99,31 @@ async function showApp() {
   $('admin-email').textContent = me.email;
   $('login-view').hidden = true;
   $('app-view').hidden = false;
-  const planSelect = document.querySelector('#user-form select[name="plan"]');
-  planSelect.replaceChildren(...me.config.plans.map((p) => el('option', { value: p.id }, `${p.id === 'pro' ? 'Pro' : 'Trial'} · ${p.ai_daily_limit}/hari`)));
+  fillPlanSelects();
   setDays(state.days);
+}
+
+const paidPlans = () => state.config.plans.filter((p) => p.id !== 'trial');
+const planName = (id) => state.config?.plans.find((p) => p.id === id)?.name || id || '—';
+const rupiah = (n) => (n === null || n === undefined ? '—' : new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n));
+
+function fillPlanSelects() {
+  const plans = state.config.plans;
+  document.querySelector('#user-form select[name="plan"]').replaceChildren(
+    ...plans.map((p) => el('option', { value: p.id }, `${p.name} · AI ${p.ai_daily_limit}/hari`))
+  );
+  const filter = $('user-plan');
+  const current = filter.value;
+  filter.replaceChildren(el('option', { value: '' }, 'Semua paket'), ...plans.map((p) => el('option', { value: p.id }, p.name)));
+  filter.value = current;
+  const paid = paidPlans().filter((p) => p.active);
+  $('voucher-plan').replaceChildren(...paid.map((p) => el('option', { value: p.id }, `${p.name} (${p.period_days} hari, ${rupiah(p.price)})`)));
+  $('pay-plan').replaceChildren(...paidPlans().map((p) => el('option', { value: p.id }, p.name)));
+}
+
+async function reloadConfig() {
+  state.config = (await api('/me')).config;
+  fillPlanSelects();
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────
@@ -118,14 +140,14 @@ function renderOverview(o) {
   const ai = o.ai;
   const errorRate = ai.calls ? (ai.errors / ai.calls).toLocaleString('id-ID', { style: 'percent', maximumFractionDigits: 1 }) : '0%';
   $('kpis').replaceChildren(
-    kpi('Total pengguna', fmt.format(u.total), `${fmt.format(u.by_plan.pro)} pro · ${fmt.format(u.by_plan.trial)} trial`),
-    kpi('Langganan aktif', fmt.format(u.active_access), `${fmt.format(u.expired)} habis · ${fmt.format(u.suspended)} dinonaktifkan`),
-    kpi('Aktif hari ini', fmt.format(u.active_today), `${fmt.format(u.active_7d)} dalam 7 hari`),
-    kpi(`Aktif ${o.days} hari`, fmt.format(u.active_30d), `${fmt.format(u.new_in_period)} pengguna baru`),
+    kpi('Pendapatan bulan ini', rupiah(o.revenue.this_month.amount), `${fmt.format(o.revenue.this_month.count)} pembayaran · ${o.days} hari: ${rupiah(o.revenue.period.amount)}`),
+    kpi('Pengguna berbayar', fmt.format(u.paying), `${fmt.format(u.expiring_7d)} habis ≤ 7 hari`),
+    kpi('Total pengguna', fmt.format(u.total), `${fmt.format(u.trial)} trial · ${fmt.format(u.free)} gratis · ${fmt.format(u.suspended)} nonaktif`),
+    kpi('Aktif hari ini', fmt.format(u.active_today), `${fmt.format(u.active_7d)} dalam 7 hari · ${fmt.format(u.active_30d)} dalam ${o.days} hari`),
+    kpi('Pengguna baru', fmt.format(u.new_in_period), `dalam ${o.days} hari`),
     kpi('Pesan AI hari ini', fmt.format(ai.calls_today), ai.model ? `Model: ${ai.model}` : 'AI belum dikonfigurasi'),
-    kpi(`Pesan AI ${o.days} hari`, fmt.format(ai.calls), `${fmt.format(ai.users)} pengguna · rata-rata ${fmt.format(ai.avg_latency_ms)} ms`),
-    kpi(`Token AI ${o.days} hari`, fmtTokens(ai.prompt_tokens + ai.completion_tokens), `${fmtTokens(ai.prompt_tokens)} masuk · ${fmtTokens(ai.completion_tokens)} keluar`),
-    kpi(`Perkiraan biaya AI ${o.days} hari`, fmtMoney(ai.cost), `Error ${errorRate} (${fmt.format(ai.errors)})`)
+    kpi(`Token AI ${o.days} hari`, fmtTokens(ai.prompt_tokens + ai.completion_tokens), `${fmt.format(ai.calls)} pesan · rata-rata ${fmt.format(ai.avg_latency_ms)} ms`),
+    kpi(`Perkiraan biaya AI ${o.days} hari`, fmtMoney(ai.cost), ai.cost?.amount === null ? `Isi AI_PRICE_* di Variables · error ${errorRate}` : `Error ${errorRate} (${fmt.format(ai.errors)})`)
   );
 
   barChart($('chart-active'), o.daily, (d) => d.active_users, (d) => [`${fmtDay(d.date)}`, `${fmt.format(d.active_users)} pengguna aktif`, `${fmt.format(d.new_users)} pengguna baru`]);
@@ -257,7 +279,7 @@ function renderTable(table, headers, rows, emptyText, numericCols = []) {
 
 // ── Users ────────────────────────────────────────────────────────────────
 
-const STATE_LABEL = { active: 'Aktif', expired: 'Habis', suspended: 'Dinonaktifkan' };
+const STATE_LABEL = { active: 'Aktif', free: 'Gratis', suspended: 'Dinonaktifkan' };
 
 function userCell(u) {
   return el('div', {}, el('strong', {}, u.first_name || '(tanpa nama)'), el('span', { class: 'sub' }, u.username ? `@${u.username}` : '—'));
@@ -284,7 +306,7 @@ async function loadUsers() {
       userCell(u),
       el('div', {},
         el('span', { class: `badge ${u.state}` }, STATE_LABEL[u.state] || u.state), ' ',
-        el('span', { class: `plan ${u.plan}` }, u.plan === 'pro' ? 'Pro' : 'Trial'),
+        el('span', { class: `plan ${u.plan === 'trial' ? 'trial' : 'pro'}` }, planName(u.plan)),
         el('span', { class: 'sub' }, u.plan_expires_at ? `s/d ${expiryText(u)}` : 'Tanpa batas')),
       `${fmt.format(u.ai_calls_today)} / ${fmt.format(u.ai_daily_limit_effective)}`,
       fmt.format(u.ai_calls_30d),
@@ -332,7 +354,140 @@ function openUser(u) {
   $('dialog-expiry').textContent = expiryText(u);
   $('dialog-pending').textContent = '';
   $('dialog-error').hidden = true;
+  const paid = paidPlans();
+  $('pay-plan').value = paid.some((p) => p.id === u.plan) ? u.plan : paid[0]?.id || '';
+  setPaymentDefaults();
+  $('pay-note').value = '';
   $('user-dialog').showModal();
+}
+
+function setPaymentDefaults() {
+  const plan = paidPlans().find((p) => p.id === $('pay-plan').value);
+  $('pay-days').value = plan?.period_days ?? 30;
+  $('pay-amount').value = plan?.price ?? '';
+}
+
+async function submitPayment() {
+  const u = state.editing;
+  const plan = paidPlans().find((p) => p.id === $('pay-plan').value);
+  if (!plan) return;
+  const days = Number($('pay-days').value);
+  const amount = $('pay-amount').value === '' ? 0 : Number($('pay-amount').value);
+  if (!confirm(`Catat pembayaran ${rupiah(amount)} dan aktifkan ${plan.name} ${days} hari untuk ${u.first_name || u.user_id}?`)) return;
+  $('pay-submit').disabled = true;
+  try {
+    await api(`/users/${encodeURIComponent(u.user_id)}/payments`, {
+      method: 'POST',
+      body: JSON.stringify({ plan_id: plan.id, days, amount, note: $('pay-note').value.trim() || undefined })
+    });
+    $('user-dialog').close();
+    await Promise.all([loadUsers(), loadAudit(), loadOverview(), loadPayments()]);
+  } catch (err) {
+    $('dialog-error').textContent = err.message;
+    $('dialog-error').hidden = false;
+  } finally {
+    $('pay-submit').disabled = false;
+  }
+}
+
+// ── Plans, vouchers, payments, settings ──────────────────────────────────
+
+function showError(id, message) {
+  $(id).textContent = message || '';
+  $(id).hidden = !message;
+}
+
+function loadPlansTable() {
+  const input = (value, attrs) => el('input', { class: 'table-input', type: 'number', min: '0', value: value ?? '', ...attrs });
+  const rows = paidPlans().map((p) => {
+    const name = el('input', { class: 'table-input name', value: p.name, maxlength: '40' });
+    const price = input(p.price, { placeholder: 'tanya admin' });
+    const period = input(p.period_days, { min: '1' });
+    const ai = input(p.ai_daily_limit);
+    const receipts = input(p.receipt_monthly_limit);
+    const active = el('input', { type: 'checkbox', 'aria-label': 'Aktif' });
+    active.checked = p.active;
+    const save = el('button', {
+      class: 'btn',
+      onclick: async () => {
+        showError('plans-error', '');
+        save.disabled = true;
+        try {
+          await api(`/plans/${encodeURIComponent(p.id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              name: name.value.trim(),
+              price: price.value === '' ? null : Number(price.value),
+              period_days: Number(period.value),
+              ai_daily_limit: Number(ai.value),
+              receipt_monthly_limit: Number(receipts.value),
+              active: active.checked
+            })
+          });
+          await reloadConfig();
+          loadPlansTable();
+          loadAudit();
+        } catch (err) {
+          showError('plans-error', err.message);
+        } finally {
+          save.disabled = false;
+        }
+      }
+    }, 'Simpan');
+    return [p.id, name, price, period, ai, receipts, active, save];
+  });
+  const trial = state.config.plans.find((p) => p.id === 'trial');
+  rows.push(['trial', 'Trial', '—', `${state.config.trial_days} (env)`, `${trial.ai_daily_limit} (env)`, `${trial.receipt_monthly_limit} (env)`, '—', '']);
+  renderTable($('plans-table'), ['ID', 'Nama', 'Harga (Rp)', 'Hari', 'AI/hari', 'Nota/bulan', 'Aktif', ''], rows, 'Belum ada paket.');
+}
+
+async function loadVouchers() {
+  const { data } = await api('/vouchers?limit=100');
+  const now = Date.now();
+  const status = (v) => {
+    if (v.disabled) return ['suspended', 'Nonaktif'];
+    if (v.expires_at && parseUtc(v.expires_at).getTime() <= now) return ['free', 'Kedaluwarsa'];
+    if (v.used_count >= v.max_uses) return ['free', 'Terpakai'];
+    return ['active', 'Tersedia'];
+  };
+  renderTable($('vouchers-table'), ['Kode', 'Paket', 'Hari', 'Harga', 'Dipakai', 'Berlaku s/d', 'Status', 'Catatan', ''], data.map((v) => {
+    const [cls, label] = status(v);
+    return [
+      el('code', {}, v.code),
+      v.plan_name || v.plan_id,
+      fmt.format(v.days),
+      rupiah(v.price),
+      `${fmt.format(v.used_count)} / ${fmt.format(v.max_uses)}`,
+      v.expires_at ? fmtDate(v.expires_at) : 'Selamanya',
+      el('span', { class: `badge ${cls}` }, label),
+      { text: v.note || '—', class: 'wrap' },
+      el('button', {
+        class: 'btn',
+        onclick: async () => {
+          await api(`/vouchers/${encodeURIComponent(v.code)}`, { method: 'PATCH', body: JSON.stringify({ disabled: !v.disabled }) });
+          await Promise.all([loadVouchers(), loadAudit()]);
+        }
+      }, v.disabled ? 'Aktifkan' : 'Nonaktifkan')
+    ];
+  }), 'Belum ada voucher.', [2, 3, 4]);
+}
+
+async function loadPayments() {
+  const { data } = await api('/payments?limit=30');
+  renderTable($('payments-table'), ['Waktu', 'Pengguna', 'Paket', 'Nominal', 'Metode', 'Referensi', 'Aktif s/d'], data.map((p) => [
+    fmtDateTime(p.created_at),
+    el('div', {}, el('strong', {}, p.first_name || p.user_id), el('span', { class: 'sub' }, `ID ${p.user_id}`)),
+    `${p.plan_name || p.plan_id} · ${fmt.format(p.days)} hari`,
+    rupiah(p.amount),
+    p.method === 'voucher' ? 'Voucher' : `Manual (${p.created_by || 'admin'})`,
+    { text: p.reference || '—', class: 'wrap' },
+    p.period_end ? fmtDate(p.period_end) : 'Tanpa batas'
+  ]), 'Belum ada pembayaran.', [3]);
+}
+
+async function loadSettings() {
+  const { payment_instructions } = await api('/settings');
+  $('settings-form').payment_instructions.value = payment_instructions || '';
 }
 
 function setPendingExpiry(change, label) {
@@ -388,7 +543,8 @@ function setDays(days) {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadOverview(), loadUsers(), loadAudit()]);
+    loadPlansTable();
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -452,6 +608,87 @@ let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (lastOverview && !$('app-view').hidden) renderOverview(lastOverview); }, 150);
+});
+
+$('pay-plan').addEventListener('change', setPaymentDefaults);
+$('pay-submit').addEventListener('click', submitPayment);
+
+const numberOrUndefined = (v) => (v === '' || v === undefined ? undefined : Number(v));
+
+$('voucher-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.currentTarget;
+  showError('voucher-error', '');
+  const button = f.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const { codes } = await api('/vouchers', {
+      method: 'POST',
+      body: JSON.stringify({
+        plan_id: f.plan_id.value,
+        count: numberOrUndefined(f.count.value),
+        days: numberOrUndefined(f.days.value),
+        price: numberOrUndefined(f.price.value),
+        max_uses: numberOrUndefined(f.max_uses.value),
+        expires_in_days: f.expires_in_days.value === '' ? null : Number(f.expires_in_days.value),
+        note: f.note.value.trim()
+      })
+    });
+    $('voucher-codes').value = codes.join('\n');
+    $('voucher-codes').rows = Math.min(10, Math.max(2, codes.length));
+    $('voucher-result').hidden = false;
+    f.note.value = '';
+    await Promise.all([loadVouchers(), loadAudit()]);
+  } catch (err) {
+    showError('voucher-error', err.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('copy-codes').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('voucher-codes').value);
+    $('copy-codes').textContent = 'Tersalin ✓';
+  } catch {
+    $('voucher-codes').select();
+  }
+  setTimeout(() => { $('copy-codes').textContent = 'Salin'; }, 1500);
+});
+
+$('plan-create').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.currentTarget;
+  showError('plans-error', '');
+  try {
+    await api('/plans', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: f.elements.namedItem('id').value.trim(),
+        name: f.elements.namedItem('name').value.trim(),
+        price: f.price.value === '' ? null : Number(f.price.value),
+        period_days: Number(f.period_days.value)
+      })
+    });
+    f.reset();
+    await reloadConfig();
+    loadPlansTable();
+    loadAudit();
+  } catch (err) {
+    showError('plans-error', err.message);
+  }
+});
+
+$('settings-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await api('/settings', { method: 'PUT', body: JSON.stringify({ payment_instructions: event.currentTarget.payment_instructions.value }) });
+    $('settings-status').textContent = 'Tersimpan ✓';
+    loadAudit();
+  } catch (err) {
+    $('settings-status').textContent = err.message;
+  }
+  setTimeout(() => { $('settings-status').textContent = ''; }, 2000);
 });
 
 showApp().catch(() => showLogin());

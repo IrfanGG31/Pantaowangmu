@@ -1,6 +1,16 @@
 import crypto from 'node:crypto';
 import { upsertUser, getUser } from '../db/users.js';
-import { getAccess, blockedMessage, touchActivity, aiDailyLimit, countAiCallsToday, recordAiUsage } from '../db/subscriptions.js';
+import {
+  getAccess,
+  getEntitlement,
+  blockedMessage,
+  touchActivity,
+  countAiCallsToday,
+  countReceiptsThisMonth,
+  recordAiUsage,
+  TRIAL_PLAN
+} from '../db/subscriptions.js';
+import { listPlans, getSetting, redeemVoucher } from '../db/billing.js';
 import {
   createTransaction,
   getLastTransaction,
@@ -200,6 +210,8 @@ Atau ketik /help untuk daftar perintah.`;
 
 const UNSUPPORTED_MEDIA = 'ℹ️ Voice dan file ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`.\n\n🧾 Foto nota/struk bisa langsung dikirim.';
 
+const UPSELL = '💎 Asisten AI dan baca foto nota tersedia di paket berbayar. Lihat /langganan';
+
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -231,6 +243,57 @@ const receiptKeyboard = (key) => ({
     [{ text: '❌ Batal', callback_data: `txx:${key}` }]
   ]
 });
+
+const planName = (planId) => (planId === TRIAL_PLAN ? 'Trial' : listPlans({ includeInactive: true }).find((p) => p.id === planId)?.name || planId);
+
+/**
+ * /langganan: current status, usage, plans and how to pay. Plain text so admin-written instructions need no escaping.
+ */
+function subscriptionText(user) {
+  const access = getAccess(user);
+  const ent = getEntitlement(user);
+  const lines = ['💳 Langganan PantaUangmu', ''];
+
+  if (access.state === 'free') {
+    lines.push(`Status: Gratis (paket ${planName(user.plan)} berakhir ${formatDateShort(user.plan_expires_at)})`);
+    lines.push('Kamu tetap bisa mencatat transaksi, budget, ringkasan, Mini App, dan export.');
+    lines.push('Asisten AI dan baca foto nota nonaktif.');
+  } else {
+    const until = user.plan_expires_at ? `s/d ${formatDateShort(user.plan_expires_at)}` : 'tanpa batas waktu';
+    lines.push(`Status: ${planName(access.tier)} aktif ${until}`);
+    lines.push(`Pemakaian: asisten AI ${countAiCallsToday(user.user_id)}/${ent.ai_daily_limit} hari ini, foto nota ${countReceiptsThisMonth(user.user_id)}/${ent.receipt_monthly_limit} bulan ini`);
+  }
+
+  const plans = listPlans();
+  if (plans.length) {
+    lines.push('', 'Paket tersedia:');
+    for (const p of plans) {
+      const price = p.price === null || p.price === undefined ? 'harga: tanya admin' : `${formatRupiah(p.price)} / ${p.period_days} hari`;
+      lines.push(`• ${p.name}: ${price}. Asisten AI ${p.ai_daily_limit} pesan/hari, foto nota ${p.receipt_monthly_limit}/bulan.`);
+    }
+  }
+
+  const contact = (process.env.ADMIN_CONTACT || '').trim();
+  const instructions = getSetting('payment_instructions', '') || (contact ? `Hubungi ${contact} untuk pembayaran.` : 'Hubungi admin untuk pembayaran.');
+  lines.push('', 'Cara berlangganan:', instructions, '', 'Sudah punya kode aktivasi? Ketik: /aktivasi KODE', `ID kamu: ${user.user_id}`);
+  return lines.join('\n');
+}
+
+const REDEEM_MAX_FAILURES = 5;
+const REDEEM_WINDOW_MS = 60 * 60 * 1000;
+const redeemFailures = new Map();
+
+function redeemBlocked(userId) {
+  const entry = redeemFailures.get(userId);
+  if (!entry || Date.now() - entry.first > REDEEM_WINDOW_MS) return false;
+  return entry.count >= REDEEM_MAX_FAILURES;
+}
+
+function noteRedeemFailure(userId) {
+  const entry = redeemFailures.get(userId);
+  if (!entry || Date.now() - entry.first > REDEEM_WINDOW_MS) redeemFailures.set(userId, { first: Date.now(), count: 1 });
+  else entry.count += 1;
+}
 
 function describeProfileChange(action) {
   const parts = [];
@@ -273,7 +336,7 @@ export function registerHandlers(bot) {
       touchActivity(user.user_id);
       return false;
     }
-    if (chatId) await safeSendMessage(bot, chatId, blockedMessage(user, access));
+    if (chatId) await safeSendMessage(bot, chatId, blockedMessage(user));
     return true;
   };
 
@@ -327,6 +390,8 @@ _Contoh: /budget makan 1000000_
 /hapus - Hapus transaksi terakhir
 /export - Unduh riwayat transaksi dalam format CSV
 /memori - Lihat atau hapus hal yang aku ingat tentang kamu
+/langganan - Status paket, kuota, dan cara berlangganan
+/aktivasi KODE - Aktifkan paket dengan kode
 /help - Tampilkan bantuan ini
 
 💬 *Tanpa perintah juga bisa, ngobrol biasa saja:*
@@ -480,6 +545,32 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     }
   });
 
+  // ── /langganan, /aktivasi ─────────────────────────────────────────────
+  onText(/^\/(?:langganan|paket)(?:@\w+)?$/, async (msg) => {
+    const userId = ensureUser(msg);
+    await safeSendMessage(bot, msg.chat.id, subscriptionText(getUser(userId)));
+  });
+
+  onText(/^\/aktivasi(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const code = match[1]?.trim();
+    if (!code) {
+      return safeSendMessage(bot, chatId, 'Ketik kode aktivasi setelah perintahnya, misalnya:\n/aktivasi PANTA-ABCD-EFGH\n\nBelum punya kode? Lihat /langganan');
+    }
+    if (redeemBlocked(userId)) {
+      return safeSendMessage(bot, chatId, '⏳ Terlalu banyak kode salah. Coba lagi dalam 1 jam.');
+    }
+    const result = redeemVoucher(userId, code);
+    if (result.error) {
+      noteRedeemFailure(userId);
+      return safeSendMessage(bot, chatId, `❌ ${result.error}`);
+    }
+    redeemFailures.delete(userId);
+    const until = result.user.plan_expires_at ? `s/d ${formatDateShort(result.user.plan_expires_at)}` : 'tanpa batas waktu';
+    await safeSendMessage(bot, chatId, `✅ Kode berhasil dipakai!\n\nPaket ${result.plan.name} aktif ${until}. Asisten AI dan baca foto nota sudah bisa dipakai. Terima kasih! 🙏`);
+  });
+
   // ── /memori ───────────────────────────────────────────────────────────
   onText(/^\/memori(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
@@ -510,7 +601,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   });
 
   // ── Free text (private chats only) ────────────────────────────────────
-  const handleRuleBased = async (chatId, userId, parsed) => {
+  const handleRuleBased = async (chatId, userId, parsed, { upsell = false } = {}) => {
     if (parsed.intent === 'nickname') {
       const nickname = setNickname(userId, parsed.nickname);
       return safeSendMessage(bot, chatId, `Siap! Mulai sekarang aku panggil kamu ${nickname} 😊`);
@@ -548,7 +639,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       return safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
     }
 
-    return safeSendMessage(bot, chatId, FREE_TEXT_HELP, { parse_mode: 'Markdown' });
+    return safeSendMessage(bot, chatId, upsell ? `${FREE_TEXT_HELP}\n\n${UPSELL}` : FREE_TEXT_HELP, { parse_mode: 'Markdown' });
   };
 
   const respondAsAssistant = async (chatId, userId, turn) => {
@@ -604,7 +695,8 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const parsed = parseFreeText(msg.text);
 
     const ai = getAiConfig();
-    if (ai && countAiCallsToday(userId) < aiDailyLimit(getUser(userId))) {
+    const entitlement = getEntitlement(getUser(userId));
+    if (ai && entitlement.ai && countAiCallsToday(userId) < entitlement.ai_daily_limit) {
       bot.sendChatAction?.(chatId, 'typing').catch(() => {});
       const turn = await runAssistant(
         { userId, text: msg.text, context: buildUserContext(userId, msg.from), hint: parsed },
@@ -613,7 +705,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       if (turn) return respondAsAssistant(chatId, userId, turn);
     }
 
-    return handleRuleBased(chatId, userId, parsed);
+    return handleRuleBased(chatId, userId, parsed, { upsell: entitlement.tier === 'free' && Boolean(ai) });
   };
 
   // ── Receipt photos ────────────────────────────────────────────────────
@@ -634,8 +726,12 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     if (!getAiConfig()) {
       return safeSendMessage(bot, chatId, 'ℹ️ Baca foto nota butuh fitur AI yang belum aktif. Ketik saja, misalnya `belanja 87rb indomaret`.', { parse_mode: 'Markdown' });
     }
-    if (countAiCallsToday(userId) >= aiDailyLimit(getUser(userId))) {
-      return safeSendMessage(bot, chatId, 'ℹ️ Kuota AI harian kamu sudah habis, jadi nota belum bisa dibaca hari ini. Ketik saja, misalnya `belanja 87rb indomaret`.', { parse_mode: 'Markdown' });
+    const entitlement = getEntitlement(getUser(userId));
+    if (entitlement.tier === 'free') {
+      return safeSendMessage(bot, chatId, `🧾 Baca foto nota tersedia selama trial dan di paket berbayar.\n\n${UPSELL}\n\nSementara itu, ketik saja: \`belanja 87rb indomaret\``, { parse_mode: 'Markdown' });
+    }
+    if (countReceiptsThisMonth(userId) >= entitlement.receipt_monthly_limit) {
+      return safeSendMessage(bot, chatId, `ℹ️ Kuota foto nota bulan ini (${entitlement.receipt_monthly_limit}) sudah habis. Ketik saja, misalnya \`belanja 87rb indomaret\`, atau cek /langganan.`, { parse_mode: 'Markdown' });
     }
 
     bot.sendChatAction?.(chatId, 'typing').catch(() => {});
@@ -644,7 +740,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       const image = await downloadTelegramFile(fileId);
       receipt = await readReceipt(
         { imageBase64: image.toString('base64'), mimeType, caption: msg.caption || '' },
-        { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
+        { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, kind: 'receipt', ...usage }) }
       );
     } catch (err) {
       logger.warn({ err: err.message }, '[Bot] Receipt download failed');
@@ -702,7 +798,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const access = getAccess(user);
     if (!access.allowed) {
       await safeAnswerCallback(bot, query.id, 'Langganan tidak aktif');
-      await safeSendMessage(bot, chatId, blockedMessage(user || { user_id: userId }, access));
+      await safeSendMessage(bot, chatId, blockedMessage(user || { user_id: userId }));
       return;
     }
 

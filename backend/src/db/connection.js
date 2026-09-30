@@ -80,6 +80,9 @@ const ADDED_COLUMNS = {
     ['ai_daily_limit', 'INTEGER'],
     ['last_active_at', 'DATETIME']
   ],
+  ai_usage: [
+    ['kind', "TEXT DEFAULT 'chat'"]
+  ],
   user_profile: [
     ['monthly_income', 'INTEGER'],
     ['payday', 'INTEGER'],

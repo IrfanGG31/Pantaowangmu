@@ -1,7 +1,8 @@
 // Aggregate queries for the admin dashboard. Never returns transaction contents or notes.
 import db from './connection.js';
 import { getUser } from './users.js';
-import { PLANS, STATUSES, aiDailyLimit, getAccess } from './subscriptions.js';
+import { STATUSES, isKnownPlan, getAccess, getEntitlement } from './subscriptions.js';
+import { revenueBetween } from './billing.js';
 import { getDateStr, getDayRange, toDate, toSqlDateTime } from '../utils/formatter.js';
 
 const DAY_MS = 86400000;
@@ -54,10 +55,14 @@ export function getOverview({ days = 30, now = new Date() } = {}) {
       COUNT(*) AS total,
       SUM(CASE WHEN status = 'suspended' THEN 1 ELSE 0 END) AS suspended,
       SUM(CASE WHEN status != 'suspended' AND plan_expires_at IS NOT NULL AND datetime(plan_expires_at) <= datetime(?) THEN 1 ELSE 0 END) AS expired,
-      SUM(CASE WHEN plan = 'pro' THEN 1 ELSE 0 END) AS pro,
-      SUM(CASE WHEN plan != 'pro' OR plan IS NULL THEN 1 ELSE 0 END) AS trial
+      SUM(CASE WHEN status != 'suspended' AND plan IS NOT NULL AND plan != 'trial'
+        AND (plan_expires_at IS NULL OR datetime(plan_expires_at) > datetime(?)) THEN 1 ELSE 0 END) AS paying,
+      SUM(CASE WHEN status != 'suspended' AND (plan = 'trial' OR plan IS NULL)
+        AND (plan_expires_at IS NULL OR datetime(plan_expires_at) > datetime(?)) THEN 1 ELSE 0 END) AS trial,
+      SUM(CASE WHEN status != 'suspended' AND plan_expires_at IS NOT NULL
+        AND datetime(plan_expires_at) > datetime(?) AND datetime(plan_expires_at) <= datetime(?) THEN 1 ELSE 0 END) AS expiring_7d
     FROM users
-  `).get(nowStr);
+  `).get(nowStr, nowStr, nowStr, nowStr, toSqlDateTime(new Date(now.getTime() + 7 * DAY_MS)));
 
   const activeSince = (n) => db.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM user_activity_daily WHERE date >= ?')
     .get(dates[Math.max(0, dates.length - n)]).n;
@@ -106,9 +111,11 @@ export function getOverview({ days = 30, now = new Date() } = {}) {
     users: {
       total,
       active_access: total - suspended - expired,
-      expired,
+      free: expired,
       suspended,
-      by_plan: { trial: Number(users.trial) || 0, pro: Number(users.pro) || 0 },
+      paying: Number(users.paying) || 0,
+      trial: Number(users.trial) || 0,
+      expiring_7d: Number(users.expiring_7d) || 0,
       active_today: activeSince(1),
       active_7d: activeSince(7),
       active_30d: activeSince(Math.min(30, days)),
@@ -127,6 +134,12 @@ export function getOverview({ days = 30, now = new Date() } = {}) {
       recent_errors: recentErrors
     },
     transactions: { count: Number(tx.count), users: Number(tx.users) },
+    // Upper bound is exclusive and SQL timestamps have 1-second resolution: include payments made this second.
+    revenue: {
+      period: revenueBetween(since, toSqlDateTime(new Date(now.getTime() + 1000))),
+      this_month: revenueBetween(getDayRange(`${today.slice(0, 7)}-01`).start, toSqlDateTime(new Date(now.getTime() + 1000))),
+      currency: 'IDR'
+    },
     daily: dates.map((date) => ({
       date,
       active_users: activeByDay.get(date) || 0,
@@ -139,7 +152,7 @@ export function getOverview({ days = 30, now = new Date() } = {}) {
 }
 
 /**
- * Paginated user list with usage counters. `state` filters by access: active | expired | suspended.
+ * Paginated user list with usage counters. `state` filters: active | expiring (within 7 days) | free | suspended.
  */
 export function listUsers({ search = '', state = '', plan = '', limit = 50, offset = 0, now = new Date() } = {}) {
   const nowStr = toSqlDateTime(now);
@@ -154,12 +167,16 @@ export function listUsers({ search = '', state = '', plan = '', limit = 50, offs
     const like = `%${q.replace(/[%_]/g, '')}%`;
     params.push(like, like, like);
   }
-  if (PLANS.includes(plan)) {
+  if (plan && isKnownPlan(plan)) {
     where.push('u.plan = ?');
     params.push(plan);
   }
   if (state === 'suspended') where.push("u.status = 'suspended'");
-  if (state === 'expired') {
+  if (state === 'expiring') {
+    where.push("u.status != 'suspended' AND u.plan_expires_at IS NOT NULL AND datetime(u.plan_expires_at) > datetime(?) AND datetime(u.plan_expires_at) <= datetime(?)");
+    params.push(nowStr, toSqlDateTime(new Date(now.getTime() + 7 * DAY_MS)));
+  }
+  if (state === 'free') {
     where.push("u.status != 'suspended' AND u.plan_expires_at IS NOT NULL AND datetime(u.plan_expires_at) <= datetime(?)");
     params.push(nowStr);
   }
@@ -187,7 +204,7 @@ export function listUsers({ search = '', state = '', plan = '', limit = 50, offs
     data: rows.map((u) => ({
       ...u,
       state: getAccess(u, now).state,
-      ai_daily_limit_effective: aiDailyLimit(u),
+      ai_daily_limit_effective: getEntitlement(u, now).ai_daily_limit,
       ai_calls_today: Number(u.ai_calls_today),
       ai_calls_30d: Number(u.ai_calls_30d),
       ai_tokens_30d: Number(u.ai_tokens_30d),
@@ -210,7 +227,7 @@ export function updateUserByAdmin(userId, changes, adminEmail, now = new Date())
   const applied = {};
 
   if (changes.plan !== undefined) {
-    if (!PLANS.includes(changes.plan)) return { error: `Paket harus salah satu dari: ${PLANS.join(', ')}` };
+    if (!isKnownPlan(changes.plan)) return { error: 'Paket tidak dikenal' };
     sets.push('plan = ?');
     params.push(changes.plan);
     applied.plan = changes.plan;

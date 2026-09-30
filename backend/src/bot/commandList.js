@@ -8,5 +8,7 @@ export const BOT_COMMANDS = [
   { command: 'hapus', description: 'Hapus transaksi terakhir' },
   { command: 'export', description: 'Unduh riwayat transaksi CSV' },
   { command: 'memori', description: 'Lihat atau hapus ingatan asisten tentang kamu' },
+  { command: 'langganan', description: 'Status paket, kuota, dan cara berlangganan' },
+  { command: 'aktivasi', description: 'Aktifkan paket dengan kode: /aktivasi KODE' },
   { command: 'help', description: 'Panduan dan daftar perintah' }
 ];

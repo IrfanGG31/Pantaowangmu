@@ -66,13 +66,12 @@
             <select id="user-state" aria-label="Filter status">
               <option value="">Semua status</option>
               <option value="active">Aktif</option>
-              <option value="expired">Habis</option>
+              <option value="expiring">Habis ≤ 7 hari</option>
+              <option value="free">Gratis (habis)</option>
               <option value="suspended">Dinonaktifkan</option>
             </select>
             <select id="user-plan" aria-label="Filter paket">
               <option value="">Semua paket</option>
-              <option value="trial">Trial</option>
-              <option value="pro">Pro</option>
             </select>
           </div>
         </div>
@@ -82,6 +81,59 @@
           <span id="page-info" class="muted"></span>
           <button id="next-page" class="btn">Berikutnya ›</button>
         </div>
+      </section>
+
+      <section class="billing-grid">
+        <div class="card">
+          <h2>Paket &amp; harga</h2>
+          <p class="muted small">Harga dalam rupiah. Kosongkan harga untuk "tanya admin". Paket nonaktif tidak tampil di /langganan.</p>
+          <div class="table-wrap"><table id="plans-table"></table></div>
+          <details class="add-plan">
+            <summary>Tambah paket</summary>
+            <form id="plan-create" class="inline-form">
+              <input name="id" placeholder="ID (mis. tahunan)" required pattern="[a-z0-9_-]{2,20}">
+              <input name="name" placeholder="Nama (mis. Pro Tahunan)" required>
+              <input name="price" type="number" min="0" placeholder="Harga (Rp)">
+              <input name="period_days" type="number" min="1" placeholder="Periode (hari)" required>
+              <button class="btn primary" type="submit">Tambah</button>
+            </form>
+          </details>
+          <p id="plans-error" class="error" role="alert" hidden></p>
+        </div>
+        <div class="card">
+          <h2>Instruksi pembayaran</h2>
+          <p class="muted small">Tampil di /langganan. Contoh: rekening/QRIS dan ke mana mengirim bukti transfer.</p>
+          <form id="settings-form" class="stack">
+            <textarea name="payment_instructions" rows="6" maxlength="1000" placeholder="Transfer ke BCA 1234567890 a.n. ... lalu kirim bukti ke @admin. Kode aktivasi akan dikirim setelah dicek."></textarea>
+            <div class="row"><button class="btn primary" type="submit">Simpan</button><span id="settings-status" class="muted small"></span></div>
+          </form>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><h2>Voucher / kode aktivasi</h2></div>
+        <form id="voucher-form" class="inline-form">
+          <label>Paket <select name="plan_id" id="voucher-plan"></select></label>
+          <label>Jumlah kode <input name="count" type="number" min="1" max="100" value="1"></label>
+          <label>Durasi (hari) <input name="days" type="number" min="1" placeholder="default paket"></label>
+          <label>Harga per kode (Rp) <input name="price" type="number" min="0" placeholder="default paket"></label>
+          <label>Maks. pemakaian <input name="max_uses" type="number" min="1" value="1"></label>
+          <label>Kode berlaku (hari) <input name="expires_in_days" type="number" min="1" placeholder="selamanya"></label>
+          <label class="grow">Catatan <input name="note" maxlength="100" placeholder="mis. transfer Budi 30 Sep"></label>
+          <button class="btn primary" type="submit">Buat kode</button>
+        </form>
+        <p id="voucher-error" class="error" role="alert" hidden></p>
+        <div id="voucher-result" class="voucher-result" hidden>
+          <p class="muted small">Kode baru, kirim ke pembeli. Mereka mengetik <code>/aktivasi KODE</code> di bot.</p>
+          <textarea id="voucher-codes" rows="3" readonly></textarea>
+          <button id="copy-codes" class="btn" type="button">Salin</button>
+        </div>
+        <div class="table-wrap"><table id="vouchers-table"></table></div>
+      </section>
+
+      <section class="card">
+        <h2>Pembayaran terbaru</h2>
+        <div class="table-wrap"><table id="payments-table"></table></div>
       </section>
 
       <section class="two-col">
@@ -117,7 +169,18 @@
         </label>
       </div>
       <fieldset>
-        <legend>Masa aktif: <strong id="dialog-expiry"></strong></legend>
+        <legend>Catat pembayaran manual</legend>
+        <p class="muted small">Untuk transfer yang sudah kamu terima. Paket langsung aktif dan masuk laporan pendapatan.</p>
+        <div class="field-grid">
+          <label>Paket <select id="pay-plan"></select></label>
+          <label>Durasi (hari) <input id="pay-days" type="number" min="1"></label>
+          <label>Nominal (Rp) <input id="pay-amount" type="number" min="0"></label>
+        </div>
+        <label class="grow">Catatan <input id="pay-note" maxlength="100" placeholder="mis. transfer BCA 30 Sep"></label>
+        <button type="button" id="pay-submit" class="btn primary">Catat &amp; aktifkan</button>
+      </fieldset>
+      <fieldset>
+        <legend>Masa aktif (tanpa pembayaran): <strong id="dialog-expiry"></strong></legend>
         <div class="extend">
           <button type="button" class="chip" data-extend="7">+7 hari</button>
           <button type="button" class="chip" data-extend="30">+30 hari</button>
