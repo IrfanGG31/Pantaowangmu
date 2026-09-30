@@ -10,8 +10,9 @@ import {
   transferBetweenWallets, walletParserOptions, KIND_EMOJI, KIND_LABEL
 } from '../db/wallets.js';
 import { getBalance } from '../db/transactions.js';
-import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
-import { formatRupiah } from '../utils/formatter.js';
+import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL, DEFAULT_REMINDER_TIME } from '../db/memory.js';
+import { listBills, createBill, payBill, deleteBill, findBillByName } from '../db/bills.js';
+import { formatRupiah, getDateStr } from '../utils/formatter.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const signed = (n) => `${n < 0 ? '-' : ''}${formatRupiah(n)}`;
@@ -220,4 +221,122 @@ export function setStyle(userId, { language, persona }) {
   if (LANGUAGES.includes(language)) changes.language = language;
   if (PERSONAS.includes(persona)) changes.persona = persona;
   return setProfile(userId, changes).length > 0;
+}
+
+// ── Recurring bills ─────────────────────────────────────────────────────────
+
+const dueLabel = (b) => {
+  if (b.paid_this_month) return `lunas bulan ini · berikutnya ${shortDay(b.due_date)}`;
+  if (b.days_until < 0) return `lewat ${-b.days_until} hari (${shortDay(b.due_date)})`;
+  if (b.days_until === 0) return 'hari ini';
+  if (b.days_until === 1) return 'besok';
+  return `${b.days_until} hari lagi (${shortDay(b.due_date)})`;
+};
+
+function shortDay(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
+export function doAddBill(userId, { name, amount, day_of_month, type = 'expense', category = null, wallet = null }) {
+  const day = day_of_month || Number(getDateStr().slice(8, 10));
+  const walletRow = wallet ? findWalletByName(userId, wallet) : null;
+  const result = createBill(userId, { name, amount, day_of_month: day, type, category, wallet_id: walletRow?.id ?? null });
+  if (result.error) return `❌ ${result.error}`;
+  const b = result.bill;
+  return [
+    `${result.updated ? '✏️ Diperbarui' : '📅 Tagihan rutin disimpan'}: ${b.name} ${formatRupiah(b.amount)} tiap tanggal ${b.day_of_month}${b.type === 'income' ? ' (pemasukan)' : ''}.`,
+    `Jatuh tempo: ${dueLabel(b)}.`,
+    'Aku ingatkan H-1, dan di hari-H ada tombol "Sudah bayar" yang langsung mencatatnya. Lihat semua: /tagihan'
+  ].join('\n');
+}
+
+export function billsText(userId) {
+  const bills = listBills(userId);
+  if (!bills.length) {
+    return [
+      '📅 Belum ada tagihan rutin.',
+      '',
+      'Tambah lewat chat, misalnya:',
+      '• kos 1,5jt tiap tanggal 5',
+      '• netflix 54rb tiap bulan tgl 12',
+      '• cicilan motor 800rb tiap tanggal 1',
+      '',
+      'Panta mengingatkan H-1, dan jatah harian otomatis menyisihkan tagihan yang belum dibayar.'
+    ].join('\n');
+  }
+  const unpaid = bills.filter((b) => !b.paid_this_month && b.type === 'expense');
+  const lines = ['📅 Tagihan rutin', ''];
+  for (const b of bills) lines.push(`${b.paid_this_month ? '✅' : b.days_until < 0 ? '⚠️' : '•'} ${b.name} ${formatRupiah(b.amount)} (tgl ${b.day_of_month}) · ${dueLabel(b)}`);
+  if (unpaid.length) lines.push('', `Belum dibayar bulan ini: ${formatRupiah(unpaid.reduce((s, b) => s + b.amount, 0))}`);
+  lines.push('', 'Hapus: /tagihan hapus <nama>');
+  return lines.join('\n');
+}
+
+/** "✅ Kos" buttons for unpaid bills due within a week (or overdue). */
+export function billsKeyboard(userId) {
+  const rows = listBills(userId)
+    .filter((b) => !b.paid_this_month && b.days_until <= 7)
+    .slice(0, 6)
+    .map((b) => [{ text: `✅ ${b.name} sudah dibayar`, callback_data: `bp:${b.id}:${b.month}` }]);
+  return rows.length ? { inline_keyboard: rows } : undefined;
+}
+
+export function doPayBill(userId, billId, month, { record = true } = {}) {
+  const result = payBill(userId, billId, month, { record });
+  if (result.error) return { text: `ℹ️ ${result.error}` };
+  const b = result.bill;
+  const wallet = result.tx?.wallet_id ? getWallet(userId, result.tx.wallet_id) : null;
+  return {
+    text: record
+      ? `✅ ${b.name} ${formatRupiah(b.amount)} dicatat sebagai ${b.type === 'income' ? 'pemasukan' : 'pengeluaran'}${wallet ? ` dari ${walletLabel(wallet)}` : ''}. Berikutnya ${shortDay(b.due_date)}.`
+      : `⏭️ ${b.name} bulan ini dilewati. Berikutnya ${shortDay(b.due_date)}.`,
+    tx: result.tx
+  };
+}
+
+export function doDeleteBill(userId, name) {
+  const bill = findBillByName(userId, name);
+  if (!bill) return `❌ Tagihan "${name}" tidak ditemukan. Lihat /tagihan`;
+  deleteBill(userId, bill.id);
+  return `🗑️ Tagihan rutin ${bill.name} dihapus. Transaksi yang sudah tercatat tetap ada.`;
+}
+
+// ── Reminders ───────────────────────────────────────────────────────────────
+
+export function remindersText(userId) {
+  const p = getMemory(userId).profile;
+  const time = p.reminder_time || DEFAULT_REMINDER_TIME;
+  return [
+    '🔔 Pengingat',
+    '',
+    `Pengingat harian: ${time === 'off' ? 'mati' : `jam ${time}`} (hanya kalau hari itu belum ada catatan)`,
+    `Pengingat pintar: ${p.smart_nudge ? 'aktif' : 'mati'} (Panta menyapa di jam kamu biasanya jajan, kalau belum mencatat)`,
+    '',
+    'Atur lewat tombol, atau chat: "ingatkan aku jam 8 malam" / "matikan pengingat".'
+  ].join('\n');
+}
+
+export function remindersKeyboard(userId) {
+  const p = getMemory(userId).profile;
+  const time = p.reminder_time || DEFAULT_REMINDER_TIME;
+  const mark = (on, text) => (on ? `✅ ${text}` : text);
+  return {
+    inline_keyboard: [
+      ['19:00', '20:00', '21:00', '22:00'].map((t) => ({ text: mark(time === t, t), callback_data: `rt:${t}` })),
+      [{ text: mark(time === 'off', 'Matikan harian'), callback_data: 'rt:off' }],
+      [{ text: p.smart_nudge ? '🧠 Matikan pengingat pintar' : '🧠 Aktifkan pengingat pintar', callback_data: `rn:${p.smart_nudge ? 'off' : 'on'}` }]
+    ]
+  };
+}
+
+export function doSetReminder(userId, { time, smart }) {
+  const changes = {};
+  if (time !== undefined) changes.reminder_time = time;
+  if (smart !== undefined) changes.smart_nudge = smart;
+  const saved = setProfile(userId, changes);
+  if (!saved.length) return '❌ Jam tidak valid. Contoh: "ingatkan aku jam 20:30".';
+  if (time === 'off') return '🔕 Pengingat harian dimatikan. Nyalakan lagi: "ingatkan aku jam 9 malam" atau /pengingat';
+  if (time) return `🔔 Siap! Aku ingatkan jam ${time} kalau hari itu kamu belum mencatat. Atur lagi: /pengingat`;
+  return smart ? '🧠 Pengingat pintar aktif. Aku pelajari jam kamu biasanya jajan.' : '🧠 Pengingat pintar dimatikan.';
 }

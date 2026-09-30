@@ -52,7 +52,8 @@ import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransact
 import {
   parseOptionsFor, allCategoryNames, categoryLabel, pickerCategories, walletLabel, doAddCategory, doRemoveCategory,
   doLearn, categoriesText, walletsText, doAddWallet, doSetWalletBalance, doTransfer, walletSwitchRow, styleText,
-  styleKeyboard, setStyle
+  styleKeyboard, setStyle, doAddBill, billsText, billsKeyboard, doPayBill, doDeleteBill, remindersText,
+  remindersKeyboard, doSetReminder
 } from './personal.js';
 import { detectWalletId } from './textParser.js';
 import { logger } from '../api/server.js';
@@ -422,6 +423,8 @@ _Contoh: /budget makan 1000000_
 /kategori - Kategori & kata kunci pribadimu
 /dompet - Dompet/metode bayar & saldo per dompet (opsional)
 /gaya - Bahasa (Jawa, Sunda, English, ...) & persona Panta
+/tagihan - Tagihan rutin (kos, cicilan, langganan)
+/pengingat - Atur jam pengingat & pengingat pintar
 /memori - Lihat atau hapus hal yang aku ingat tentang kamu
 /langganan - Status paket, kuota, dan cara berlangganan
 /aktivasi KODE - Aktifkan paket dengan kode
@@ -437,6 +440,7 @@ _Contoh: /budget makan 1000000_
 • \`nabung nikah 50jt sampai des 2027\`
 • \`tambah kategori kopi ☕\` / \`kopken masuk kopi\`
 • \`saldo BCA 4jt\` / \`kopi 25rb pakai qris\` / \`tarik tunai 500rb\`
+• \`kos 1,5jt tiap tanggal 5\` / \`ingatkan aku jam 8 malam\`
 
 📸 *Kirim foto nota/struk* untuk dicatat otomatis.`;
 
@@ -680,6 +684,23 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     await safeSendMessage(bot, chatId, `🗃️ Dompet ${walletLabel(wallet)} disembunyikan. Transaksi lamanya tetap tercatat. Aktifkan lagi: /dompet tambah ${wallet.name}`);
   });
 
+  // ── /tagihan [hapus <nama>] ────────────────────────────────────────────
+  onText(/^\/tagihan(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const args = match[1]?.trim() || '';
+    const del = /^hapus\s+(.+)$/i.exec(args);
+    if (del) return safeSendMessage(bot, chatId, doDeleteBill(userId, del[1]));
+    const keyboard = billsKeyboard(userId);
+    await safeSendMessage(bot, chatId, billsText(userId), keyboard ? { reply_markup: keyboard } : {});
+  });
+
+  // ── /pengingat ─────────────────────────────────────────────────────────
+  onText(/^\/pengingat(?:@\w+)?$/, async (msg) => {
+    const userId = ensureUser(msg);
+    await safeSendMessage(bot, msg.chat.id, remindersText(userId), { reply_markup: remindersKeyboard(userId) });
+  });
+
   // ── /gaya: language and persona ────────────────────────────────────────
   onText(/^\/gaya(?:@\w+)?$/, async (msg) => {
     const userId = ensureUser(msg);
@@ -722,6 +743,13 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       }));
     }
     if (parsed.intent === 'transfer') return safeSendMessage(bot, chatId, doTransfer(userId, parsed));
+    if (parsed.intent === 'add_bill') return safeSendMessage(bot, chatId, doAddBill(userId, parsed));
+    if (parsed.intent === 'reminder') return safeSendMessage(bot, chatId, doSetReminder(userId, { time: parsed.time }));
+    if (parsed.intent === 'profile_income') {
+      const changes = { monthly_income: parsed.monthly_income, ...(parsed.payday ? { payday: parsed.payday } : {}) };
+      setProfile(userId, changes);
+      return safeSendMessage(bot, chatId, `🧠 Profil diperbarui: ${describeProfileChange(changes)}. Jatah aman harian sekarang dihitung dari sini (lihat Beranda Mini App).`);
+    }
 
     if (parsed.intent === 'transaction') {
       if (!parsed.category) {
@@ -782,6 +810,9 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       else if (action.type === 'learn_keyword') setupNotes.push(doLearn(userId, action));
       else if (action.type === 'add_wallet') setupNotes.push(doAddWallet(userId, action));
       else if (action.type === 'set_wallet_balance') setupNotes.push(doSetWalletBalance(userId, { walletName: action.wallet, balance: action.balance }));
+      else if (action.type === 'add_bill') setupNotes.push(doAddBill(userId, { ...action, type: action.tx_type }));
+      else if (action.type === 'delete_bill') setupNotes.push(doDeleteBill(userId, action.name));
+      else if (action.type === 'set_reminder') setupNotes.push(doSetReminder(userId, action));
     }
     if (setupNotes.length) await safeSendMessage(bot, chatId, setupNotes.join('\n\n'));
 
@@ -1043,6 +1074,18 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       pendingTransactions.delete(key);
       await safeAnswerCallback(bot, query.id, 'Budget disimpan');
       await editMessage(chatId, messageId, budgetText(userId, category, entry.amount), { parse_mode: 'Markdown' });
+    } else if (data.startsWith('bp:') || data.startsWith('bs:')) {
+      // bp = paid (records the transaction), bs = skip this month
+      const [kind, billId, month] = data.split(':');
+      const result = doPayBill(userId, parseInt(billId, 10), month, { record: kind === 'bp' });
+      await safeAnswerCallback(bot, query.id, result.tx ? 'Tercatat' : 'OK');
+      const markup = result.tx ? txKeyboard(userId, result.tx) : undefined;
+      await editMessage(chatId, messageId, result.text, markup ? { reply_markup: markup } : {});
+    } else if (data.startsWith('rt:') || data.startsWith('rn:')) {
+      const value = data.slice(3);
+      const text = data.startsWith('rt:') ? doSetReminder(userId, { time: value }) : doSetReminder(userId, { smart: value === 'on' });
+      await safeAnswerCallback(bot, query.id, text.startsWith('❌') ? 'Tidak valid' : 'Disimpan');
+      await editMessage(chatId, messageId, remindersText(userId), { reply_markup: remindersKeyboard(userId) });
     } else if (data.startsWith('gl:') || data.startsWith('gp:')) {
       const value = data.slice(3);
       const changed = setStyle(userId, data.startsWith('gl:') ? { language: value } : { persona: value });

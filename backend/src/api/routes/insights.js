@@ -5,6 +5,7 @@ import { getMemory } from '../../db/memory.js';
 import { getBudgetsByUser } from '../../db/budgets.js';
 import { getBalance } from '../../db/transactions.js';
 import { listWallets, expenseByWallet } from '../../db/wallets.js';
+import { listBills } from '../../db/bills.js';
 import { computeInsights, todayAllowance, buildTips } from '../../ai/insights.js';
 import { getMonthStr, getMonthRange, toSqlDateTime } from '../../utils/formatter.js';
 
@@ -32,6 +33,7 @@ router.get('/', (req, res, next) => {
       percentage: budget.percentage
     };
     const wallets = listWallets(userId);
+    const bills = listBills(userId, ins.today);
     const month = getMonthRange(getMonthStr(now));
     const walletSpend = wallets.length ? expenseByWallet(userId, month.start, toSqlDateTime(now)) : [];
     res.json({
@@ -39,9 +41,10 @@ router.get('/', (req, res, next) => {
       balance: getBalance(userId),
       wallets: wallets.map(({ id, name, kind, balance, is_default }) => ({ id, name, kind, balance, is_default })),
       wallet_spend_month: walletSpend,
+      bills,
       today_allowance: today,
       budget_watch: budgetWatch,
-      tips: buildTips(ins, { today, budget: budgetWatch, walletSpend })
+      tips: buildTips(ins, { today, budget: budgetWatch, walletSpend, bills })
     });
   } catch (err) {
     next(err);

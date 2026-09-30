@@ -10,6 +10,8 @@ export const BOT_COMMANDS = [
   { command: 'kategori', description: 'Kategori & kata kunci pribadimu' },
   { command: 'dompet', description: 'Dompet/metode bayar & saldo per dompet' },
   { command: 'gaya', description: 'Bahasa & persona Panta' },
+  { command: 'tagihan', description: 'Tagihan rutin: kos, cicilan, langganan' },
+  { command: 'pengingat', description: 'Jam pengingat & pengingat pintar' },
   { command: 'memori', description: 'Lihat atau hapus ingatan asisten tentang kamu' },
   { command: 'langganan', description: 'Status paket, kuota, dan cara berlangganan' },
   { command: 'aktivasi', description: 'Aktifkan paket dengan kode: /aktivasi KODE' },

@@ -184,6 +184,20 @@ kategori yang tidak ada → 400.
 #### Bahasa & persona
 `PATCH /me/profile` juga menerima `language` (`auto|id|jawa|sunda|en|campur`) dan `persona` (`teman|konsultan|coach`); `null` = default.
 
+### Tagihan rutin & pengingat
+
+- `GET /bills` → `{ data: Bill[] }`; `Bill = { id, name, amount, type, category, day_of_month, wallet_id, last_paid_month,
+  due_date, month, days_until, paid_this_month }` (`due_date` = jatuh tempo berikutnya yang belum dibayar; tanggal 31 di bulan
+  pendek jadi tanggal terakhir; `days_until` negatif = lewat).
+- `POST /bills` `{ name, amount, day_of_month, type?, category?, wallet_id? }` → 201 `{ data }` (nama sama = diperbarui, 200).
+  Jatuh tempo bulan ini yang sudah lewat saat dibuat dianggap sudah beres bulan ini.
+- `PATCH /bills/:id` `{ name?, amount?, day_of_month?, wallet_id? }`, `DELETE /bills/:id`.
+- `POST /bills/:id/pay` `{ month?: "YYYY-MM", record?: boolean }` → `{ data, transaction }`: tandai lunas bulan itu dan catat
+  transaksinya (`record: false` = lewati bulan ini). Bulan yang sudah ditandai → 409 (aman dari dobel ketuk).
+- `GET /insights`: `bills`, dan `today_allowance.reserved_bills` (tagihan belum dibayar sebelum gajian, termasuk yang lewat,
+  disisihkan dulu dari jatah harian).
+- `PATCH /me/profile` menerima `reminder_time` (`"HH:MM"` | `"off"` | `null` = 21:00) dan `smart_nudge` (boolean).
+
 ---
 
 ### Misc

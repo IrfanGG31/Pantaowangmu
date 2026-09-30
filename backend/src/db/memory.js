@@ -9,6 +9,9 @@ export const STYLES = ['santai', 'formal', 'singkat'];
 // auto = mirror the language/dialect the user writes in.
 export const LANGUAGES = ['auto', 'id', 'jawa', 'sunda', 'en', 'campur'];
 export const PERSONAS = ['teman', 'konsultan', 'coach'];
+// Daily reminder "HH:MM" (local time), 'off', or null for the default.
+export const REMINDER_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const DEFAULT_REMINDER_TIME = '21:00';
 export const LANGUAGE_LABEL = { auto: 'Ikuti bahasaku', id: 'Indonesia', jawa: 'Jawa', sunda: 'Sunda', en: 'English', campur: 'Indo-English campur' };
 export const PERSONA_LABEL = { teman: 'Teman santai', konsultan: 'Konsultan', coach: 'Coach tegas' };
 const MAX_MONEY = 999999999999;
@@ -19,7 +22,7 @@ const MAX_MONEY = 999999999999;
  */
 export function getMemory(userId) {
   const uid = String(userId);
-  const profile = db.prepare('SELECT nickname, monthly_income, payday, style, emoji, language, persona FROM user_profile WHERE user_id = ?').get(uid);
+  const profile = db.prepare('SELECT nickname, monthly_income, payday, style, emoji, language, persona, reminder_time, smart_nudge FROM user_profile WHERE user_id = ?').get(uid);
   const facts = db.prepare('SELECT id, fact FROM user_facts WHERE user_id = ? ORDER BY id ASC').all(uid) || [];
   const goals = db.prepare('SELECT id, name, target_amount, saved_amount, target_date FROM user_goals WHERE user_id = ? ORDER BY id ASC').all(uid) || [];
   return {
@@ -30,7 +33,9 @@ export function getMemory(userId) {
       style: profile?.style || null,
       emoji: profile?.emoji === null || profile?.emoji === undefined ? null : Boolean(profile.emoji),
       language: profile?.language || null,
-      persona: profile?.persona || null
+      persona: profile?.persona || null,
+      reminder_time: profile?.reminder_time || null,
+      smart_nudge: Boolean(profile?.smart_nudge)
     },
     goals,
     facts
@@ -40,7 +45,7 @@ export function getMemory(userId) {
 /**
  * Updates the provided profile fields only. Invalid values are ignored.
  * @param {{ monthly_income?: number|null, payday?: number|null, style?: string|null, emoji?: boolean|null,
- *   language?: string|null, persona?: string|null }} changes
+ *   language?: string|null, persona?: string|null, reminder_time?: string|null, smart_nudge?: boolean }} changes
  * @returns {string[]} names of the fields that were saved
  */
 export function setProfile(userId, changes = {}) {
@@ -80,6 +85,13 @@ export function setProfile(userId, changes = {}) {
   if ('persona' in changes) {
     const v = changes.persona;
     if (v === null || PERSONAS.includes(v)) add('persona', v);
+  }
+  if ('reminder_time' in changes) {
+    const v = changes.reminder_time;
+    if (v === null || v === 'off' || REMINDER_TIME_RE.test(v)) add('reminder_time', v);
+  }
+  if ('smart_nudge' in changes && typeof changes.smart_nudge === 'boolean') {
+    add('smart_nudge', changes.smart_nudge ? 1 : 0);
   }
   if (sets.length === 0) return [];
 

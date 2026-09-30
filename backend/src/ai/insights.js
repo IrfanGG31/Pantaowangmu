@@ -2,6 +2,7 @@
 // instead of guessing them. All calendar math uses the configured timezone.
 import db from '../db/connection.js';
 import { formatRupiah, getDateStr, getDayRange, getMonthRange, toDate, toSqlDateTime } from '../utils/formatter.js';
+import { upcomingUnpaid } from '../db/bills.js';
 
 const DAY_MS = 86400000;
 const WEEKDAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -209,15 +210,25 @@ export function todayAllowance(userId, ins, now = new Date()) {
   if (cycle.remaining === null) return null;
   const { start } = getDayRange(ins.today);
   const spent = sums(String(userId), start, toSqlDateTime(now)).expense;
-  const allowance = Math.max(0, Math.floor((cycle.remaining + spent) / cycle.days_left));
+  // Unpaid bills due before the next payday (or month end) are set aside first.
+  const until = cycle.next_payday || nextMonthStart(ins.today);
+  const reserved = upcomingUnpaid(userId, until, ins.today);
+  const allowance = Math.max(0, Math.floor((cycle.remaining + spent - reserved.total) / cycle.days_left));
   return {
     allowance,
     spent,
     left: allowance - spent,
     days_left: cycle.days_left,
     next_payday: cycle.next_payday,
-    cycle_remaining: cycle.remaining
+    cycle_remaining: cycle.remaining,
+    reserved_bills: reserved.total
   };
+}
+
+function nextMonthStart(today) {
+  const t = parts(today);
+  const n = shiftMonth(t.y, t.m, 1);
+  return fmtDate({ y: n.y, m: n.m, d: 1 });
 }
 
 /**
@@ -241,9 +252,19 @@ export function paymentShareTip(walletSpend = []) {
  * @param {{ today: Object|null, budget: Object|null }} extra todayAllowance() and the most-used budget
  * @returns {Array<{ kind: 'warning'|'good'|'info', text: string }>}
  */
-export function buildTips(ins, { today = null, budget = null, walletSpend = [] } = {}) {
+export function buildTips(ins, { today = null, budget = null, walletSpend = [], bills = [] } = {}) {
   const tips = [];
   const walletTip = paymentShareTip(walletSpend);
+  const dueSoon = bills.filter((b) => b.type === 'expense' && !b.paid_this_month && b.days_until >= 0 && b.days_until <= 3);
+  if (dueSoon.length) {
+    const b = dueSoon[0];
+    const when = b.days_until === 0 ? 'hari ini' : b.days_until === 1 ? 'besok' : `${b.days_until} hari lagi`;
+    tips.push({ kind: 'warning', text: `Tagihan ${b.name} ${rp(b.amount)} jatuh tempo ${when}${dueSoon.length > 1 ? ` (+${dueSoon.length - 1} tagihan lain)` : ''}.` });
+  }
+  const overdue = bills.filter((b) => b.type === 'expense' && !b.paid_this_month && b.days_until < 0);
+  if (overdue.length) {
+    tips.push({ kind: 'warning', text: `${overdue[0].name} ${rp(overdue[0].amount)} belum ditandai lunas bulan ini. Sudah dibayar? Tandai di Beranda atau /tagihan.` });
+  }
   if (today && today.left < 0) {
     tips.push({ kind: 'warning', text: `Hari ini sudah lewat ${rp(-today.left)} dari jatah harian. Rem dulu sampai besok, ya.` });
   }
