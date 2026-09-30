@@ -18,7 +18,7 @@
     setupBackButton, haptic, showDestructivePopup,
   } from '$lib/telegram.js';
   import { txRevision, invalidateTransactions, showToast } from '$lib/stores.js';
-  import { Transaction, TxType } from '$lib/types.js';
+  import type { Transaction, TxType } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
   const LIMIT = 20;

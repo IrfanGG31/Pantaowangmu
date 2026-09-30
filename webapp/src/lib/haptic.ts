@@ -21,7 +21,7 @@ export function triggerHaptic(style: HapticStyle = 'light') {
   } else if (['error', 'success', 'warning'].includes(style)) {
     haptic(style as 'error' | 'success' | 'warning');
   } else {
-    haptic('impact', style as 'light' | 'medium' | 'heavy' | 'rigid' | 'soft');
+    haptic('impact'); // telegram.ts uses a fixed 'medium' impact
   }
 }
 

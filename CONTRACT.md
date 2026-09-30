@@ -99,6 +99,60 @@ Response: `{ data: Budget; message: string }`
 
 ---
 
+### Account & insights (Beranda)
+
+#### `GET /me`
+Response:
+```ts
+{
+  user: { user_id: string; first_name: string; nickname: string; display_name: string };  // display_name = nickname || first_name
+  profile: { monthly_income: number | null; payday: number | null; style: 'santai'|'formal'|'singkat'|null; emoji: boolean | null };
+  subscription: {
+    tier: string;              // 'trial' | 'free' | id paket (mis. 'pro')
+    state: 'active' | 'free';
+    plan_name: string;         // 'Trial' | 'Gratis' | nama paket
+    expires_at: string | null; // UTC "YYYY-MM-DD HH:MM:SS"; null = tanpa batas / sudah Gratis
+    days_left: number | null;  // dibulatkan ke atas
+    ai_daily_limit: number; ai_used_today: number;
+    receipt_monthly_limit: number; receipts_used_this_month: number;
+  };
+}
+```
+
+#### `PATCH /me/profile`
+Body (minimal satu field): `{ monthly_income?: number | null; payday?: number | null }`.
+`monthly_income` bilangan bulat rupiah 1..999_999_999_999, `payday` 1..31, `null` menghapus. Nilai tidak valid → 400.
+Response: sama dengan `GET /me`.
+
+#### `GET /insights`
+Angka dihitung server (tanpa panggilan AI) pada zona waktu `TIMEZONE`. Response:
+```ts
+{
+  today: string;                                  // "YYYY-MM-DD" lokal
+  month_to_date: { income: number; expense: number; count: number; net: number };
+  previous_month_same_period: { expense: number };
+  expense_change_pct: number | null;              // null bila bulan lalu 0
+  avg_daily_expense: number;
+  top_increases: CategoryChange[]; top_decreases: CategoryChange[];
+  biggest_expense: { amount: number; category: string; note: string; created_at: string } | null;
+  busiest_weekday: string | null;
+  cycle: { start: string; next_payday: string | null; days_left: number; expense: number; remaining: number | null; safe_per_day: number | null };
+  goals: { id: number; name: string; target_amount: number; saved_amount: number; target_date: string | null;
+           left: number; progress_pct: number; months_left: number | null; per_month: number | null }[];
+  today_allowance: {                              // null bila monthly_income belum diisi
+    allowance: number;   // (sisa siklus di awal hari ini) / days_left, dibulatkan ke bawah
+    spent: number;       // pengeluaran hari ini
+    left: number;        // allowance - spent; negatif = lewat jatah
+    days_left: number; next_payday: string | null; cycle_remaining: number;
+  } | null;
+  budget_watch: { category: string; amount: number; spent: number; remaining: number; percentage: number } | null;  // budget bulan ini dengan persentase tertinggi
+  tips: { kind: 'warning' | 'good' | 'info'; text: string }[];  // maksimal 3, berbasis aturan
+}
+// CategoryChange = { category: string; current: number; before: number; diff: number; pct: number | null }
+```
+
+---
+
 ### Misc
 
 #### `GET /categories`

@@ -197,3 +197,64 @@ export function insightsText(ins) {
   }
   return lines.join('\n');
 }
+
+/**
+ * Today's spending allowance within the pay cycle: what was left at the start of today, spread over the
+ * remaining days (today included), minus what was already spent today. Null without a monthly income.
+ * @param {Object} ins from computeInsights()
+ * @returns {{ allowance: number, spent: number, left: number, days_left: number, next_payday: string|null, cycle_remaining: number }|null}
+ */
+export function todayAllowance(userId, ins, now = new Date()) {
+  const { cycle } = ins;
+  if (cycle.remaining === null) return null;
+  const { start } = getDayRange(ins.today);
+  const spent = sums(String(userId), start, toSqlDateTime(now)).expense;
+  const allowance = Math.max(0, Math.floor((cycle.remaining + spent) / cycle.days_left));
+  return {
+    allowance,
+    spent,
+    left: allowance - spent,
+    days_left: cycle.days_left,
+    next_payday: cycle.next_payday,
+    cycle_remaining: cycle.remaining
+  };
+}
+
+/**
+ * Up to three short, rule-based tips for the Mini App home (no AI call, so it costs nothing).
+ * @param {Object} ins from computeInsights()
+ * @param {{ today: Object|null, budget: Object|null }} extra todayAllowance() and the most-used budget
+ * @returns {Array<{ kind: 'warning'|'good'|'info', text: string }>}
+ */
+export function buildTips(ins, { today = null, budget = null } = {}) {
+  const tips = [];
+  if (today && today.left < 0) {
+    tips.push({ kind: 'warning', text: `Hari ini sudah lewat ${rp(-today.left)} dari jatah harian. Rem dulu sampai besok, ya.` });
+  }
+  if (today && today.cycle_remaining < 0) {
+    tips.push({ kind: 'warning', text: `Pengeluaran siklus ini sudah melebihi penghasilan sebesar ${rp(-today.cycle_remaining)}.` });
+  }
+  if (budget && budget.percentage >= 100) {
+    tips.push({ kind: 'warning', text: `Budget ${budget.category} bulan ini sudah habis (${budget.percentage}% terpakai).` });
+  } else if (budget && budget.percentage >= 80) {
+    tips.push({ kind: 'warning', text: `Budget ${budget.category} tinggal ${rp(budget.remaining)} (${budget.percentage}% terpakai).` });
+  }
+  const up = ins.top_increases.find((c) => c.pct !== null && c.pct >= 20);
+  if (up) {
+    tips.push({ kind: 'info', text: `Pengeluaran ${up.category} naik ${up.pct}% dibanding periode yang sama bulan lalu (${rp(up.current)} vs ${rp(up.before)}).` });
+  }
+  if (ins.expense_change_pct !== null && ins.expense_change_pct <= -10) {
+    tips.push({ kind: 'good', text: `Mantap! Pengeluaran bulan ini ${-ins.expense_change_pct}% lebih hemat dari periode yang sama bulan lalu.` });
+  }
+  const goal = ins.goals.find((g) => g.per_month && g.left > 0);
+  if (goal) {
+    tips.push({ kind: 'info', text: `Untuk target ${goal.name}, sisihkan sekitar ${rp(goal.per_month)} per bulan supaya tercapai tepat waktu.` });
+  }
+  if (ins.busiest_weekday && ins.month_to_date.count > 0) {
+    tips.push({ kind: 'info', text: `Hari paling boros kamu biasanya ${ins.busiest_weekday}. Siapkan rencana belanja sebelum hari itu.` });
+  }
+  if (ins.month_to_date.count === 0) {
+    tips.push({ kind: 'info', text: 'Belum ada catatan bulan ini. Catat pengeluaran pertamamu supaya Panta bisa kasih insight.' });
+  }
+  return tips.slice(0, 3);
+}

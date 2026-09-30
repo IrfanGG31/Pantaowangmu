@@ -18,6 +18,8 @@ import type {
   TransactionCreateResponse,
   BudgetListResponse,
   CategoriesResponse,
+  MeResponse,
+  InsightsResponse,
 } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -187,6 +189,25 @@ export const budgetsApi = {
   },
 };
 
+// ── Account & insights ────────────────────────────────────────────────────────
+
+export const meApi = {
+  get(signal?: AbortSignal): Promise<MeResponse> {
+    return request<MeResponse>('GET', '/me', undefined, signal);
+  },
+
+  /** null clears a field. */
+  updateProfile(data: { monthly_income?: number | null; payday?: number | null }): Promise<MeResponse> {
+    return request<MeResponse>('PATCH', '/me/profile', data);
+  },
+};
+
+export const insightsApi = {
+  get(signal?: AbortSignal): Promise<InsightsResponse> {
+    return request<InsightsResponse>('GET', '/insights', undefined, signal);
+  },
+};
+
 // ── Categories ────────────────────────────────────────────────────────────────
 
 export const categoriesApi = {
@@ -206,6 +227,21 @@ export function formatRupiahCompact(n: number): string {
   if (Math.abs(n) >= 1_000_000) return `Rp\u00A0${(n / 1_000_000).toFixed(1)}jt`;
   if (Math.abs(n) >= 1_000) return `Rp\u00A0${(n / 1_000).toFixed(0)}rb`;
   return formatRupiah(n);
+}
+
+const COMPACT = new Intl.NumberFormat('id-ID', { notation: 'compact', maximumFractionDigits: 1 });
+
+/** "Rp 1,7 jt" for tight spaces; exact below 10.000 so small amounts stay precise. */
+export function formatRupiahShort(n: number): string {
+  const sign = n < 0 ? '−' : '';
+  const abs = Math.abs(Math.round(n));
+  return `${sign}Rp\u00A0${abs < 10_000 ? abs.toLocaleString('id-ID') : COMPACT.format(abs).replace(' ', '\u00A0')}`;
+}
+
+/** Formats a calendar date "YYYY-MM-DD" or month "YYYY-MM" from the API without timezone shifts. */
+export function formatCalendarDate(value: string, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' }): string {
+  const [y, m, d = 1] = value.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('id-ID', opts);
 }
 
 // API timestamps ("YYYY-MM-DD HH:MM:SS") are UTC but carry no zone marker.

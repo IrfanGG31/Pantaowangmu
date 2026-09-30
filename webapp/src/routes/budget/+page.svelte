@@ -20,7 +20,7 @@
     showDestructivePopup, showAlert,
   } from '$lib/telegram.js';
   import { invalidateBudgets, showToast } from '$lib/stores.js';
-  import { Budget } from '$lib/types.js';
+  import type { Budget } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
   let month = currentMonth();
