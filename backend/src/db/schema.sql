@@ -293,3 +293,25 @@ CREATE TABLE IF NOT EXISTS challenges (
 );
 
 CREATE INDEX IF NOT EXISTS idx_challenges_user ON challenges(user_id, status);
+
+-- Needs users asked for that Panta/the bot can't meet yet, kept as product ideas. Summaries are anonymized;
+-- the admin sees them grouped by topic with counts, never who asked.
+CREATE TABLE IF NOT EXISTS feature_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('ai', 'unparsed')),
+  topic TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  clustered INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_feature_requests_topic ON feature_requests(topic);
+CREATE INDEX IF NOT EXISTS idx_feature_requests_created ON feature_requests(created_at);
+
+CREATE TABLE IF NOT EXISTS idea_topics (
+  topic TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new', 'planned', 'done', 'ignored')),
+  note TEXT,
+  updated_at DATETIME DEFAULT (datetime('now'))
+);

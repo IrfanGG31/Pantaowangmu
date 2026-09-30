@@ -135,6 +135,7 @@ Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"settle_debt","person":"<nama>","direction":"owed_to_me"|"i_owe"}  (tandai lunas)
 {"type":"start_challenge","kind":"no_spend"|"limit"|"streak","category":"<kategori pengeluaran atau kosong>","days":<1-90>,"target_amount":<untuk limit>}
 Tambahkan "tags":["<tag>"] pada add_transaction bila pengguna menulis #tag (tanpa tanda #).
+{"type":"log_request","topic":"<topik singkat 2-5 kata>","summary":"<kebutuhan pengguna dalam 1 kalimat umum>"}  (lihat IDE PENGGUNA)
 
 Kategori: pakai daftar "Kategori pengeluaran/pemasukan" di DATA PENGGUNA (termasuk kategori buatan pengguna).
 
@@ -156,6 +157,11 @@ ATURAN AKSI
 - Patungan/split bill ("makan 300rb bagi 3 sama andi budi") = split_bill, BUKAN add_transaction.
   Meminjamkan/meminjam uang = add_debt (bukan pengeluaran/pemasukan). "andi bayarin aku makan 40rb" = add_transaction
   40rb (tanpa wallet) + add_debt i_owe ke Andi. Utang-piutang tidak mengubah Sisa saldo.
+- IDE PENGGUNA: jika pengguna meminta fitur/kemampuan yang belum ada di PantaUangmu (tidak ada aksinya dan bot tidak
+  bisa melakukannya, mis. "bisa connect ke rekening bank otomatis?", "pengen ada grafik tahunan"), atau mengeluhkan
+  sesuatu yang kurang, tambahkan SATU aksi log_request. topic = nama fitur umum (mis. "sinkron rekening bank"),
+  summary = kebutuhannya dalam kalimat umum TANPA nama orang, nominal, nomor, atau data pribadi. Tetap jawab dengan
+  jujur bahwa fitur itu belum ada dan beri alternatif. Jangan log_request untuk hal yang sudah bisa dilakukan.
 - Tantangan ("tantangan no jajan seminggu") = start_challenge. Saran budget dari kebiasaan: sarankan ketik "saran budget".
 - Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
@@ -255,6 +261,11 @@ export function sanitizeAction(raw, ctx = {}) {
     const wallet = cleanText(raw.wallet, 30);
     const balance = toInt(raw.balance);
     return wallet && balance !== null && Math.abs(balance) <= MAX_AMOUNT * 1000 ? { type: 'set_wallet_balance', wallet, balance } : null;
+  }
+  if (raw.type === 'log_request') {
+    const topic = cleanText(raw.topic, 60);
+    const summary = cleanText(raw.summary, 200);
+    return topic && summary && !SECRET_PATTERN.test(summary) ? { type: 'log_request', topic, summary } : null;
   }
   if (raw.type === 'split_bill') {
     const total = toInt(raw.total);
@@ -628,4 +639,38 @@ export async function writeWeeklyReport({ context, week }, { fetchImpl = fetch, 
   reportUsage(onUsage, logger, config.model, result, Boolean(text), result.ok ? 'empty weekly report' : result.error);
   if (!result.ok) logger?.warn({ status: result.status, error: result.error }, '[AI] Weekly report failed');
   return text || null;
+}
+
+// ── Idea clustering (admin) ─────────────────────────────────────────────────
+
+const CLUSTER_PROMPT = `Kamu membantu tim produk aplikasi pencatat keuangan PantaUangmu (bot Telegram + Mini App).
+Di bawah ini daftar pesan pengguna (sudah dianonimkan) yang TIDAK dipahami bot. Kelompokkan menjadi ide fitur/kebutuhan.
+Balas HANYA JSON: {"ideas":[{"topic":"<nama fitur 2-5 kata>","summary":"<kebutuhan umum 1 kalimat>","items":[<nomor pesan>]}]}
+- Abaikan pesan yang bukan kebutuhan/permintaan (sapaan, salah ketik, obrolan acak): jangan masukkan ke ideas.
+- Satu pesan hanya masuk satu ide. Maksimal 15 ide. Bahasa Indonesia.`;
+
+/**
+ * Groups unparsed user messages into product ideas with the chat model.
+ * @param {string[]} texts sanitized messages
+ * @returns {Promise<Array<{ topic: string, summary: string, texts: string[] }> | null>} null when AI is off or fails
+ */
+export async function clusterIdeas(texts, { fetchImpl = fetch, logger } = {}) {
+  const config = getAiConfig();
+  if (!config || !texts.length) return null;
+  const list = texts.slice(0, 100).map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const result = await callChat(config, [
+    { role: 'system', content: CLUSTER_PROMPT },
+    { role: 'user', content: list }
+  ], { fetchImpl });
+  if (!result.ok) {
+    logger?.warn({ status: result.status, error: result.error }, '[AI] Idea clustering failed');
+    return null;
+  }
+  const json = extractJson(stripThinking(result.content));
+  if (!json || !Array.isArray(json.ideas)) return null;
+  return json.ideas.slice(0, 15).map((idea) => ({
+    topic: cleanText(idea?.topic, 60),
+    summary: cleanText(idea?.summary, 200),
+    texts: (Array.isArray(idea?.items) ? idea.items : []).map((n) => texts[Number(n) - 1]).filter(Boolean)
+  })).filter((idea) => idea.topic && idea.summary && idea.texts.length);
 }

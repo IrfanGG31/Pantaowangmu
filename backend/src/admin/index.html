@@ -138,6 +138,31 @@
 
       <section class="card">
         <div class="section-head">
+          <h2>💡 Ide dari pengguna</h2>
+          <div class="user-filters">
+            <select id="idea-status" aria-label="Filter status ide">
+              <option value="">Semua status</option>
+              <option value="new">Baru</option>
+              <option value="planned">Direncanakan</option>
+              <option value="done">Selesai</option>
+              <option value="ignored">Diabaikan</option>
+            </select>
+          </div>
+        </div>
+        <p class="muted small">Kebutuhan yang diminta pengguna tapi belum bisa dilakukan Panta/bot. Dianonimkan: tanpa nama, angka, kontak, atau identitas peminta.</p>
+        <div class="table-wrap"><table id="ideas-table"></table></div>
+        <details class="add-plan" id="unparsed-box">
+          <summary id="unparsed-summary">Pesan yang belum dipahami bot</summary>
+          <div class="row" style="margin: 8px 0;">
+            <button id="cluster-ideas" class="btn primary" type="button">Rangkum jadi ide dengan AI</button>
+            <span id="cluster-status" class="muted small"></span>
+          </div>
+          <div class="table-wrap"><table id="unparsed-table"></table></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
           <h2>Backup database</h2>
           <button id="backup-now" class="btn primary" type="button">Backup sekarang</button>
         </div>

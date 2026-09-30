@@ -210,6 +210,19 @@ Semua opsional; pengguna yang tidak memakainya tidak melihat perubahan.
 - **Tantangan**: "tantangan no jajan seminggu", "tantangan hemat belanja maks 300rb 14 hari", "tantangan streak 30 hari",
   `/tantangan`. Pengeluaran yang melanggar langsung diberi tahu; hasil diumumkan jam 09:00.
 
+## Ide dari pengguna (untuk admin)
+
+Saat pengguna meminta sesuatu yang belum bisa dilakukan, permintaan itu dicatat sebagai bahan ide fitur:
+- **Panta (AI)** menambahkan aksi `log_request` berisi topik + ringkasan singkat (tanpa data pribadi).
+- **Bot tanpa AI**: pesan yang tidak dipahami dan berbentuk permintaan/pertanyaan disimpan (sapaan diabaikan), lalu
+  pengguna diberi tahu bahwa pesannya dicatat.
+
+Teks dianonimkan sebelum disimpan: link, email, @akun, nomor HP, dan angka/nominal diganti penanda; pesan yang memuat
+PIN/password/OTP atau nomor kartu/rekening tidak disimpan sama sekali. Batas 10 per pengguna per hari, duplikat 7 hari diabaikan.
+Admin melihatnya di bagian **💡 Ide dari pengguna**: dikelompokkan per topik dengan jumlah permintaan dan jumlah pengguna
+(tidak pernah menampilkan siapa), bisa diberi status (Baru/Direncanakan/Selesai/Diabaikan) dan catatan. Tombol
+**Rangkum jadi ide dengan AI** mengelompokkan pesan yang belum dipahami bot menjadi topik ide.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

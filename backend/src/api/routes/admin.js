@@ -23,6 +23,8 @@ import {
 import { getTrialDays } from '../../db/users.js';
 import { listBackups, backupFilePath, backupKeep, lastBackupStatus, runBackup } from '../../backup/index.js';
 import { getS3Config } from '../../backup/s3.js';
+import { listIdeas, listUnparsed, setIdeaStatus, applyClusters, IDEA_STATUSES } from '../../db/ideas.js';
+import { clusterIdeas, getAiConfig } from '../../ai/interpreter.js';
 
 const router = Router();
 
@@ -248,6 +250,45 @@ router.get('/backups/:name', (req, res) => {
   if (!file) return res.status(404).json({ error: 'Backup tidak ditemukan' });
   logAdminAction(req.admin.email, 'download_backup', null, { name: req.params.name });
   res.download(file, req.params.name, { headers: { 'Content-Type': 'application/gzip' } });
+});
+
+// ── Ideas from users (anonymized; counts only) ──────────────────────────────
+
+function ideasState(days) {
+  return { statuses: IDEA_STATUSES, ai_configured: Boolean(getAiConfig()), ideas: listIdeas({ days }), unparsed: listUnparsed({ days: Math.min(days, 90) }) };
+}
+
+router.get('/ideas', (req, res, next) => {
+  try {
+    const days = Math.min(365, Math.max(7, parseInt(req.query.days, 10) || 90));
+    res.json(ideasState(days));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/ideas/:topic', (req, res) => {
+  const { status, note } = req.body || {};
+  const result = setIdeaStatus(req.params.topic, { status, note });
+  if (result.error) return res.status(400).json({ error: result.error });
+  logAdminAction(req.admin.email, 'update_idea', null, { topic: result.topic, status: result.status });
+  res.json(result);
+});
+
+// Groups unparsed messages into ideas with the chat model (one AI call, up to 100 messages).
+router.post('/ideas/cluster', async (req, res, next) => {
+  try {
+    if (!getAiConfig()) return res.status(503).json({ error: 'AI belum dikonfigurasi' });
+    const pending = listUnparsed({ days: 90, limit: 100 });
+    if (!pending.length) return res.json({ ...ideasState(90), clustered: 0, idea_count: 0 });
+    const ideas = await clusterIdeas(pending.map((p) => p.summary));
+    if (!ideas) return res.status(502).json({ error: 'AI gagal merangkum, coba lagi nanti' });
+    const clustered = applyClusters(ideas);
+    logAdminAction(req.admin.email, 'cluster_ideas', null, { ideas: ideas.length, messages: clustered });
+    res.json({ ...ideasState(90), clustered, idea_count: ideas.length });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

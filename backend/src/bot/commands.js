@@ -59,6 +59,7 @@ import {
 } from './personal.js';
 import { detectWalletId } from './textParser.js';
 import { cancelChallenge } from '../db/challenges.js';
+import { recordRequest, looksLikeRequest } from '../db/ideas.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -454,7 +455,9 @@ _Contoh: /budget makan 1000000_
 • \`makan 300rb bagi 3 sama andi budi\` / \`pinjamin andi 200rb\`
 • \`hotel 1,2jt #bali\` / \`tantangan no jajan seminggu\` / \`saran budget\`
 
-📸 *Kirim foto nota/struk* untuk dicatat otomatis.`;
+📸 *Kirim foto nota/struk* untuk dicatat otomatis.
+
+💡 Permintaan fitur yang belum bisa kulakukan kucatat *tanpa identitas* sebagai ide pengembangan.`;
 
     await safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown' });
   });
@@ -742,7 +745,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   });
 
   // ── Free text (private chats only) ────────────────────────────────────
-  const handleRuleBased = async (chatId, userId, parsed, { upsell = false } = {}) => {
+  const handleRuleBased = async (chatId, userId, parsed, { upsell = false, text = '' } = {}) => {
     if (parsed.intent === 'nickname') {
       const nickname = setNickname(userId, parsed.nickname);
       return safeSendMessage(bot, chatId, `Siap! Mulai sekarang aku panggil kamu ${nickname} 😊`);
@@ -817,7 +820,10 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       return safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
     }
 
-    return safeSendMessage(bot, chatId, upsell ? `${FREE_TEXT_HELP}\n\n${UPSELL}` : FREE_TEXT_HELP, { parse_mode: 'Markdown' });
+    // A request the bot can't handle yet is kept (anonymized) as a product idea for the admin.
+    const noted = looksLikeRequest(text) && recordRequest(userId, { source: 'unparsed', summary: text });
+    const help = noted ? `${FREE_TEXT_HELP}\n\n📝 _Permintaanmu kucatat sebagai masukan untuk pengembangan PantaUangmu._` : FREE_TEXT_HELP;
+    return safeSendMessage(bot, chatId, upsell ? `${help}\n\n${UPSELL}` : help, { parse_mode: 'Markdown' });
   };
 
   const respondAsAssistant = async (chatId, userId, turn) => {
@@ -866,6 +872,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       else if (action.type === 'add_debt') setupNotes.push(doDebt(userId, action));
       else if (action.type === 'settle_debt') setupNotes.push(doSettle(userId, action));
       else if (action.type === 'start_challenge') setupNotes.push(doStartChallenge(userId, action));
+      else if (action.type === 'log_request') recordRequest(userId, { source: 'ai', topic: action.topic, summary: action.summary });
     }
     if (setupNotes.length) await safeSendMessage(bot, chatId, setupNotes.join('\n\n'));
 
@@ -911,7 +918,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       if (turn) return respondAsAssistant(chatId, userId, turn);
     }
 
-    return handleRuleBased(chatId, userId, parsed, { upsell: entitlement.tier === 'free' && Boolean(ai) });
+    return handleRuleBased(chatId, userId, parsed, { upsell: entitlement.tier === 'free' && Boolean(ai), text: msg.text });
   };
 
   // ── Receipt photos ────────────────────────────────────────────────────
