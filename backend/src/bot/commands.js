@@ -7,9 +7,10 @@ import {
   getTodaySummary,
   getStatsByCategory,
   getAllTransactions,
-  getTransactionById
+  getTransactionById,
+  getTransactionsByUser
 } from '../db/transactions.js';
-import { setBudget, getBudget } from '../db/budgets.js';
+import { setBudget, getBudget, getBudgetsByUser } from '../db/budgets.js';
 import {
   formatRupiah,
   parseRupiah,
@@ -17,7 +18,10 @@ import {
   formatTime,
   getMonthStr,
   getStartOfWeek,
-  getStartOfMonth
+  getStartOfMonth,
+  getDateStr,
+  getTimeZone,
+  toSqlDateTime
 } from '../utils/formatter.js';
 import {
   validateTransactionInput,
@@ -29,7 +33,7 @@ import {
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
-import { getAiConfig, takeAiQuota, interpretWithAi } from '../ai/interpreter.js';
+import { getAiConfig, takeAiQuota, runAssistant } from '../ai/interpreter.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -76,22 +80,6 @@ function pendingPrompt(entry) {
   const noteText = entry.note ? ` (${escapeMd(entry.note)})` : '';
   return `🤔 *${label} ${formatRupiah(entry.amount)}*${noteText}\n\nMasuk kategori apa?`;
 }
-
-function aiConfirmPrompt(entry) {
-  const label = entry.type === 'income' ? '💚 Pemasukan' : '💸 Pengeluaran';
-  const noteText = entry.note ? `\n📝 ${escapeMd(entry.note)}` : '';
-  return `🤖 *Aku tangkap begini:*\n\n${label} ${formatRupiah(entry.amount)}\n📁 ${capitalize(entry.category)}${noteText}\n\nSimpan?`;
-}
-
-const aiConfirmKeyboard = (key) => ({
-  inline_keyboard: [
-    [
-      { text: '✅ Simpan', callback_data: `txs:${key}` },
-      { text: '✏️ Ganti kategori', callback_data: `txk:${key}` }
-    ],
-    [{ text: '❌ Batal', callback_data: `txx:${key}` }]
-  ]
-});
 
 /**
  * Validates and saves a transaction, then builds the confirmation text (with budget alert for expenses).
@@ -196,7 +184,54 @@ ${categoryLines(today.by_category)}`;
 ${categoryLines(stats)}`;
 }
 
-const FREE_TEXT_HELP = `🤔 Aku belum paham pesan itu.
+const signedRupiah = (n) => `${n < 0 ? '-' : ''}${formatRupiah(n)}`;
+
+/**
+ * Plain-text snapshot of the user's finances for the assistant. Only this user's own data.
+ * @param {string} userId
+ * @param {{ first_name?: string }} [from]
+ * @returns {string}
+ */
+function assistantContext(userId, from = {}) {
+  const now = new Date();
+  const tz = getTimeZone();
+  const dayLabel = new Intl.DateTimeFormat('id-ID', { timeZone: tz, weekday: 'long' }).format(now);
+  const timeLabel = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+  const byCategory = (rows) => rows.length
+    ? rows.map((c) => `${c.type === 'income' ? 'masuk' : 'keluar'} ${c.category} ${formatRupiah(c.total)}`).join('; ')
+    : 'belum ada';
+
+  const today = getTodaySummary(userId);
+  const month = getMonthStr();
+  const monthStats = getStatsByCategory(userId, toSqlDateTime(getStartOfMonth(now)), toSqlDateTime(now));
+  let income = 0;
+  let expense = 0;
+  for (const s of monthStats) {
+    if (s.type === 'income') income += Number(s.total);
+    if (s.type === 'expense') expense += Number(s.total);
+  }
+
+  const budgets = getBudgetsByUser(userId, month);
+  const budgetLines = budgets.length
+    ? budgets.map((b) => `${b.category}: batas ${formatRupiah(b.amount)}, terpakai ${formatRupiah(b.spent)} (${b.percentage}%), sisa ${signedRupiah(b.remaining)}`).join('; ')
+    : 'belum ada';
+
+  const recent = getTransactionsByUser(userId, 10).data;
+  const recentLines = recent.length
+    ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}`).join('\n')
+    : 'belum ada';
+
+  return [
+    `Nama: ${from.first_name || '-'}`,
+    `Sekarang: ${getDateStr(now)} (${dayLabel}) jam ${timeLabel}, zona ${tz}`,
+    `Hari ini: pemasukan ${formatRupiah(today.income)}, pengeluaran ${formatRupiah(today.expense)}, ${today.count} transaksi; per kategori: ${byCategory(today.by_category)}`,
+    `Bulan ini (${month}): pemasukan ${formatRupiah(income)}, pengeluaran ${formatRupiah(expense)}, saldo ${signedRupiah(income - expense)}; per kategori: ${byCategory(monthStats)}`,
+    `Budget bulan ini: ${budgetLines}`,
+    `10 transaksi terakhir:\n${recentLines}`
+  ].join('\n');
+}
+
+const FREE_TEXT_HELP =`🤔 Aku belum paham pesan itu.
 
 Coba tulis seperti ini:
 • \`makan siang 25rb\`
@@ -422,26 +457,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   });
 
   // ── Free text (private chats only) ────────────────────────────────────
-  const handleFreeText = async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = ensureUser(msg);
-    let parsed = parseFreeText(msg.text);
-    let fromAi = false;
-
-    const needsAi = parsed.intent === 'unknown' || (parsed.intent === 'transaction' && !parsed.category);
-    const ai = needsAi ? getAiConfig() : null;
-    if (ai && takeAiQuota(userId, ai.dailyLimit)) {
-      bot.sendChatAction?.(chatId, 'typing').catch(() => {});
-      const aiParsed = await interpretWithAi(msg.text, { logger });
-      // Keep the rule-based amount when both found one: it is exact, the model may not be.
-      if (aiParsed && aiParsed.intent !== 'unknown') {
-        parsed = parsed.intent === 'transaction' && aiParsed.intent === 'transaction'
-          ? { ...aiParsed, amount: parsed.amount, note: parsed.note || aiParsed.note }
-          : aiParsed;
-        fromAi = true;
-      }
-    }
-
+  const handleRuleBased = async (chatId, userId, parsed) => {
     if (parsed.intent === 'summary') {
       return safeSendMessage(bot, chatId, summaryText(userId, parsed.period), { parse_mode: 'Markdown' });
     }
@@ -455,29 +471,10 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
           reply_markup: categoryKeyboard(EXPENSE_CATEGORIES, (c) => `bset:${c}:${parsed.amount}`)
         });
       }
-      if (fromAi) {
-        return safeSendMessage(bot, chatId, `🤖 Set budget *${capitalize(parsed.category)}* ${formatRupiah(parsed.amount)} untuk bulan ini?`, {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: '✅ Set budget', callback_data: `bset:${parsed.category}:${parsed.amount}` },
-              { text: '❌ Batal', callback_data: 'txx:-' }
-            ]]
-          }
-        });
-      }
       return safeSendMessage(bot, chatId, budgetText(userId, parsed.category, parsed.amount), { parse_mode: 'Markdown' });
     }
 
     if (parsed.intent === 'transaction') {
-      if (fromAi && parsed.category) {
-        const entry = { userId, type: parsed.type, amount: parsed.amount, category: parsed.category, note: parsed.note };
-        const key = putPending(entry);
-        return safeSendMessage(bot, chatId, aiConfirmPrompt(entry), {
-          parse_mode: 'Markdown',
-          reply_markup: aiConfirmKeyboard(key)
-        });
-      }
       if (!parsed.category) {
         const entry = { userId, type: parsed.type, amount: parsed.amount, note: parsed.note };
         const key = putPending(entry);
@@ -494,6 +491,43 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     }
 
     return safeSendMessage(bot, chatId, FREE_TEXT_HELP, { parse_mode: 'Markdown' });
+  };
+
+  const respondAsAssistant = async (chatId, userId, turn) => {
+    if (turn.reply) {
+      await safeSendMessage(bot, chatId, turn.reply);
+    }
+    for (const action of turn.actions) {
+      if (action.type === 'add_transaction') {
+        const saved = saveTransaction(userId, { type: action.tx_type, amount: action.amount, category: action.category, note: action.note });
+        if (saved.error) {
+          await safeSendMessage(bot, chatId, `❌ ${saved.error}`);
+        } else {
+          await safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+        }
+      } else if (action.type === 'set_budget') {
+        await safeSendMessage(bot, chatId, budgetText(userId, action.category, action.amount), { parse_mode: 'Markdown' });
+      }
+    }
+  };
+
+  // AI assistant first (when configured and within quota); rule-based parser otherwise or on failure.
+  const handleFreeText = async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const parsed = parseFreeText(msg.text);
+
+    const ai = getAiConfig();
+    if (ai && takeAiQuota(userId, ai.dailyLimit)) {
+      bot.sendChatAction?.(chatId, 'typing').catch(() => {});
+      const turn = await runAssistant(
+        { userId, text: msg.text, context: assistantContext(userId, msg.from), hint: parsed },
+        { logger }
+      );
+      if (turn) return respondAsAssistant(chatId, userId, turn);
+    }
+
+    return handleRuleBased(chatId, userId, parsed);
   };
 
   bot.on('message', async (msg) => {
@@ -544,38 +578,12 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         await safeAnswerCallback(bot, query.id, 'Transaksi sudah tidak ada');
         await editMessage(chatId, messageId, 'ℹ️ Transaksi sudah tidak ada.');
       }
-    } else if (data.startsWith('txx:')) {
-      pendingTransactions.delete(data.slice(4));
-      await safeAnswerCallback(bot, query.id, 'Dibatalkan');
-      await editMessage(chatId, messageId, '❌ Tidak jadi dicatat.');
-    } else if (data.startsWith('txc:') || data.startsWith('txt:') || data.startsWith('txs:') || data.startsWith('txk:')) {
+    } else if (data.startsWith('txc:') || data.startsWith('txt:')) {
       const [action, key, category] = data.split(':');
       const entry = getPending(key, userId);
       if (!entry) {
         await safeAnswerCallback(bot, query.id, 'Sudah kedaluwarsa');
         await editMessage(chatId, messageId, 'ℹ️ Pilihan ini sudah kedaluwarsa. Ketik ulang transaksinya.');
-        return;
-      }
-
-      if (action === 'txk') {
-        await safeAnswerCallback(bot, query.id);
-        await editMessage(chatId, messageId, pendingPrompt(entry), {
-          parse_mode: 'Markdown',
-          reply_markup: pendingKeyboard(key, entry)
-        });
-        return;
-      }
-
-      if (action === 'txs') {
-        pendingTransactions.delete(key);
-        const saved = saveTransaction(userId, entry);
-        if (saved.error) {
-          await safeAnswerCallback(bot, query.id, 'Gagal menyimpan');
-          await editMessage(chatId, messageId, `❌ ${saved.error}`);
-          return;
-        }
-        await safeAnswerCallback(bot, query.id, 'Tercatat');
-        await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
         return;
       }
 

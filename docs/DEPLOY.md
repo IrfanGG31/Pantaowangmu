@@ -33,12 +33,16 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_BASE_URL` | tidak | API kompatibel OpenAI, mis. `https://ai.sumopod.com/v1`. Tanpa tanda kutip atau `< >`. |
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
-| `AI_DAILY_LIMIT` | tidak | Maks. panggilan AI per pengguna per hari. Default `30`. |
-| `AI_TIMEOUT_MS` | tidak | Default `15000`. |
+| `AI_DAILY_LIMIT` | tidak | Maks. pesan yang dijawab AI per pengguna per hari. Default `50`. |
+| `AI_TIMEOUT_MS` | tidak | Default `20000`. |
 
-AI hanya dipanggil bila parser aturan tidak paham pesan (atau kategorinya tidak jelas), dan hasilnya selalu
-dikonfirmasi pengguna lewat tombol sebelum disimpan. Bila salah satu dari `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`
-kosong, fitur AI mati dan bot tetap berjalan dengan parser aturan saja. Teks pesan dikirim ke penyedia AI tersebut.
+**Mode asisten.** Bila `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` terisi, semua pesan teks bebas di chat pribadi
+dijawab AI sebagai asisten keuangan pribadi. AI menerima ringkasan data pengguna itu (hari ini, bulan ini, budget,
+10 transaksi terakhir) dan 10 giliran obrolan terakhir (di memori, hilang saat restart). AI boleh mengusulkan dua aksi:
+`add_transaction` dan `set_budget`. Server memvalidasi aksi itu, lalu menjalankannya. Transaksi yang tercatat
+diberi tombol Batalkan. Nominal dari parser aturan diutamakan bila tersedia. Perintah `/...` tidak lewat AI.
+Bila AI mati, gagal, lambat, atau kuota harian habis, bot memakai parser aturan. Teks pesan dan ringkasan data
+dikirim ke penyedia AI tersebut.
 
 Jangan pernah set `VITE_API_URL` atau `VITE_DEV_USER_ID` di Railway.
 

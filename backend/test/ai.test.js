@@ -4,13 +4,22 @@ import { registerHandlers } from '../src/bot/commands.js';
 import { getAllTransactions } from '../src/db/transactions.js';
 import { getBudget } from '../src/db/budgets.js';
 import { getMonthStr } from '../src/utils/formatter.js';
-import { getAiConfig, sanitizeAiResult, interpretWithAi, takeAiQuota, resetAiQuota } from '../src/ai/interpreter.js';
+import {
+  getAiConfig,
+  sanitizeAction,
+  parseAssistantOutput,
+  runAssistant,
+  takeAiQuota,
+  resetAiState
+} from '../src/ai/interpreter.js';
 
 const KEY = 'sk-test-not-real';
 
 function aiReply(content, { ok = true, status = 200 } = {}) {
   return vi.fn(async () => ({ ok, status, json: async () => ({ choices: [{ message: { content } }] }) }));
 }
+
+const asJson = (obj) => JSON.stringify(obj);
 
 function setAiEnv(extra = {}) {
   Object.assign(process.env, {
@@ -25,11 +34,10 @@ function clearAiEnv() {
   for (const k of ['AI_BASE_URL', 'AI_API_KEY', 'AI_MODEL', 'AI_DAILY_LIMIT']) delete process.env[k];
 }
 
-describe('AI interpreter', () => {
+describe('AI assistant core', () => {
   afterEach(() => {
     clearAiEnv();
-    resetAiQuota();
-    vi.unstubAllGlobals();
+    resetAiState();
   });
 
   it('is disabled until base URL, key and model are all set', () => {
@@ -44,32 +52,61 @@ describe('AI interpreter', () => {
     expect(getAiConfig()).toMatchObject({ baseUrl: 'https://ai.sumopod.com/v1', model: 'MiniMax-M3.1-Flash-Preview' });
   });
 
-  it('calls the OpenAI-compatible endpoint and reads JSON after a <think> block', async () => {
+  it('calls the OpenAI-compatible endpoint with persona, user data and parser hint', async () => {
     setAiEnv();
-    const fetchImpl = aiReply('<think>hmm</think>\n{"intent":"transaction","type":"expense","amount":55000,"category":"makan","note":"ngopi"}');
-    const result = await interpretWithAi('ngopi 55 ribu', { fetchImpl });
+    const fetchImpl = aiReply('<think>hmm</think>\n' + asJson({ reply: 'Siap!', actions: [] }));
+    const turn = await runAssistant(
+      { userId: '1', text: 'halo', context: 'Nama: Uji', hint: { intent: 'transaction', amount: 40000 } },
+      { fetchImpl }
+    );
+    expect(turn).toEqual({ reply: 'Siap!', actions: [] });
 
-    expect(result).toEqual({ intent: 'transaction', type: 'expense', amount: 55000, category: 'makan', note: 'ngopi' });
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://ai.sumopod.com/v1/chat/completions');
     expect(init.headers.Authorization).toBe(`Bearer ${KEY}`);
-    expect(JSON.parse(init.body).model).toBe('MiniMax-M3.1-Flash-Preview');
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe('MiniMax-M3.1-Flash-Preview');
+    expect(body.messages[0].content).toContain('PantaUangmu');
+    expect(body.messages[0].content).toContain('Nama: Uji');
+    expect(body.messages[0].content).toContain('"amount":40000');
+    expect(body.messages.at(-1)).toEqual({ role: 'user', content: 'halo' });
+  });
+
+  it('remembers the conversation per user', async () => {
+    setAiEnv();
+    const fetchImpl = aiReply(asJson({ reply: 'Oke', actions: [] }));
+    await runAssistant({ userId: '1', text: 'pertama', context: '' }, { fetchImpl });
+    await runAssistant({ userId: '1', text: 'kedua', context: '' }, { fetchImpl });
+    await runAssistant({ userId: '2', text: 'orang lain', context: '' }, { fetchImpl });
+
+    const second = JSON.parse(fetchImpl.mock.calls[1][1].body).messages.map((m) => m.content);
+    expect(second).toContain('pertama');
+    const other = JSON.parse(fetchImpl.mock.calls[2][1].body).messages.map((m) => m.content);
+    expect(other).not.toContain('pertama');
   });
 
   it('returns null on HTTP errors and never logs the key', async () => {
     setAiEnv();
     const logger = { warn: vi.fn() };
-    const result = await interpretWithAi('x', { fetchImpl: aiReply('', { ok: false, status: 401 }), logger });
-    expect(result).toBeNull();
+    const turn = await runAssistant({ userId: '1', text: 'x', context: '' }, { fetchImpl: aiReply('', { ok: false, status: 401 }), logger });
+    expect(turn).toBeNull();
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(KEY);
   });
 
-  it('rejects invalid model output', () => {
-    expect(sanitizeAiResult({ intent: 'transaction', type: 'expense', amount: 1.5, category: 'makan' })).toBeNull();
-    expect(sanitizeAiResult({ intent: 'transaction', type: 'expense', amount: 5e9, category: 'makan' })).toBeNull();
-    expect(sanitizeAiResult({ intent: 'transaction', type: 'hack', amount: 100, category: 'makan' })).toBeNull();
-    expect(sanitizeAiResult({ intent: 'drop_table' })).toBeNull();
-    expect(sanitizeAiResult({ intent: 'transaction', type: 'income', amount: 100, category: 'makan' }).category).toBeNull();
+  it('treats plain text output as a reply without actions', () => {
+    expect(parseAssistantOutput('Halo juga!')).toEqual({ reply: 'Halo juga!', actions: [] });
+    expect(parseAssistantOutput('<think>x</think>')).toBeNull();
+  });
+
+  it('drops invalid actions and caps them at 3', () => {
+    expect(sanitizeAction({ type: 'add_transaction', tx_type: 'expense', amount: 1.5, category: 'makan' })).toBeNull();
+    expect(sanitizeAction({ type: 'add_transaction', tx_type: 'expense', amount: 5e9, category: 'makan' })).toBeNull();
+    expect(sanitizeAction({ type: 'delete_all' })).toBeNull();
+    expect(sanitizeAction({ type: 'set_budget', category: 'gaji', amount: 1000 })).toBeNull();
+    expect(sanitizeAction({ type: 'add_transaction', tx_type: 'income', amount: 100, category: 'makan' }).category).toBe('lainnya');
+
+    const many = Array.from({ length: 5 }, () => ({ type: 'set_budget', category: 'makan', amount: 1000 }));
+    expect(parseAssistantOutput(asJson({ reply: 'ok', actions: many })).actions).toHaveLength(3);
   });
 
   it('enforces a per-user daily quota', () => {
@@ -98,11 +135,11 @@ class FakeBot {
     const query = { id: 'q', data, from: { id: 42 }, message: { chat: { id: 42 }, message_id: 9 } };
     await Promise.all((this.events.callback_query || []).map((fn) => fn(query)));
   }
+  texts() { return this.sent.map((m) => m.text); }
   last() { return this.sent[this.sent.length - 1]; }
-  buttons(entry) { return entry.options.reply_markup.inline_keyboard.flat(); }
 }
 
-describe('Bot with AI fallback', () => {
+describe('Bot in assistant mode', () => {
   let bot;
 
   beforeAll(() => initDatabase(':memory:'));
@@ -115,61 +152,66 @@ describe('Bot with AI fallback', () => {
 
   afterEach(() => {
     clearAiEnv();
-    resetAiQuota();
+    resetAiState();
     vi.unstubAllGlobals();
   });
 
-  it('asks for confirmation before saving an AI interpretation, keeping the exact parsed amount', async () => {
+  it('chats back for greetings without touching data', async () => {
     setAiEnv();
-    const fetchMock = aiReply('{"intent":"transaction","type":"expense","amount":50000,"category":"makan","note":"ngopi di starbak"}');
+    vi.stubGlobal('fetch', aiReply(asJson({ reply: 'Halo Uji! Mau catat apa hari ini?', actions: [] })));
+    await bot.message('halo ai');
+    expect(bot.texts()).toEqual(['Halo Uji! Mau catat apa hari ini?']);
+    expect(bot.last().options.parse_mode).toBeUndefined();
+    expect(getAllTransactions('42')).toHaveLength(0);
+  });
+
+  it('records a transaction the assistant proposes, using the exact parsed amount, with undo', async () => {
+    setAiEnv();
+    const fetchMock = aiReply(asJson({
+      reply: 'Siap, aku catat.',
+      actions: [{ type: 'add_transaction', tx_type: 'expense', amount: 4000, category: 'lainnya', note: 'rokok' }]
+    }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await bot.message('tadi abis ngopi di starbak 55 ribu');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(getAllTransactions('42')).toHaveLength(0);
-    expect(bot.last().text).toContain('Aku tangkap');
+    await bot.message('catat 40K uang rokok');
+    const [tx] = getAllTransactions('42');
+    expect(tx).toMatchObject({ amount: 40000, category: 'lainnya', note: 'rokok', type: 'expense' });
+    expect(bot.texts()[0]).toBe('Siap, aku catat.');
+    expect(bot.last().options.reply_markup.inline_keyboard[0][0].callback_data).toBe(`undo:${tx.id}`);
 
-    const save = bot.buttons(bot.last()).find((b) => b.text.includes('Simpan'));
-    await bot.press(save.callback_data);
-    expect(getAllTransactions('42')[0]).toMatchObject({ amount: 55000, category: 'makan', type: 'expense' });
-  });
-
-  it('lets the user cancel an AI interpretation', async () => {
-    setAiEnv();
-    vi.stubGlobal('fetch', aiReply('{"intent":"transaction","type":"expense","amount":55000,"category":"makan","note":""}'));
-    await bot.message('abis ngopi 55 ribu');
-    const cancel = bot.buttons(bot.last()).find((b) => b.text.includes('Batal'));
-    await bot.press(cancel.callback_data);
+    await bot.press(`undo:${tx.id}`);
     expect(getAllTransactions('42')).toHaveLength(0);
   });
 
-  it('confirms an AI budget before setting it', async () => {
+  it('gives the assistant this user\'s data as context', async () => {
+    await bot.message('makan siang 25rb');
     setAiEnv();
-    vi.stubGlobal('fetch', aiReply('{"intent":"budget","category":"makan","amount":300000}'));
-    await bot.message('jatah ngopi 300rb');
-    expect(getBudget('42', 'makan', getMonthStr())).toBeNull();
-    const ok = bot.buttons(bot.last()).find((b) => b.text.includes('Set budget'));
-    await bot.press(ok.callback_data);
-    expect(getBudget('42', 'makan', getMonthStr()).amount).toBe(300000);
+    const fetchMock = aiReply(asJson({ reply: 'Hari ini kamu keluar Rp 25.000 untuk makan.', actions: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await bot.message('hari ini aku habis berapa?');
+    const system = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content;
+    expect(system).toContain('Nama: Uji');
+    expect(system).toContain('pengeluaran Rp 25.000');
+    expect(system).toContain('makan Rp 25.000 (makan siang)');
   });
 
-  it('falls back to category buttons when the AI call fails', async () => {
+  it('sets a budget the assistant proposes', async () => {
+    setAiEnv();
+    vi.stubGlobal('fetch', aiReply(asJson({ reply: 'Oke!', actions: [{ type: 'set_budget', category: 'makan', amount: 1000000 }] })));
+    await bot.message('tolong batasi makan sejuta sebulan');
+    expect(getBudget('42', 'makan', getMonthStr()).amount).toBe(1000000);
+  });
+
+  it('falls back to the rule parser when the AI call fails', async () => {
     setAiEnv();
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
-    await bot.message('top up gopay 100rb');
-    expect(bot.last().text).toContain('Masuk kategori apa');
-  });
-
-  it('does not call AI when the rule parser already understood the message', async () => {
-    setAiEnv();
-    const fetchMock = aiReply('{}');
-    vi.stubGlobal('fetch', fetchMock);
     await bot.message('makan siang 25rb');
-    expect(fetchMock).not.toHaveBeenCalled();
     expect(getAllTransactions('42')).toHaveLength(1);
+    expect(bot.last().text).toContain('Tercatat');
   });
 
-  it('does not call AI when it is not configured', async () => {
+  it('uses the rule parser only when AI is not configured', async () => {
     const fetchMock = aiReply('{}');
     vi.stubGlobal('fetch', fetchMock);
     await bot.message('halo bot');
@@ -177,12 +219,13 @@ describe('Bot with AI fallback', () => {
     expect(bot.last().text).toContain('belum paham');
   });
 
-  it('stops calling AI after the daily limit', async () => {
+  it('falls back to the rule parser after the daily limit', async () => {
     setAiEnv({ AI_DAILY_LIMIT: '1' });
-    const fetchMock = aiReply('{"intent":"unknown"}');
+    const fetchMock = aiReply(asJson({ reply: 'Halo!', actions: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await bot.message('halo');
-    await bot.message('halo lagi');
+    await bot.message('makan 10rb');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getAllTransactions('42')).toHaveLength(1);
   });
 });
