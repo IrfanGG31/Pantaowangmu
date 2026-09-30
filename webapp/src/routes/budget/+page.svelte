@@ -12,14 +12,13 @@
   import { goto } from '$app/navigation';
   import {
     budgetsApi, formatRupiah, currentMonth,
-    EXPENSE_CATEGORIES, INCOME_CATEGORIES,
-    CATEGORY_ICONS, ApiError,
+    ApiError,
   } from '$lib/api.js';
   import {
     setupBackButton, haptic,
     showDestructivePopup, showAlert,
   } from '$lib/telegram.js';
-  import { invalidateBudgets, showToast } from '$lib/stores.js';
+  import { invalidateBudgets, showToast, categoryIcons, visibleCategories } from '$lib/stores.js';
   import type { Budget } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
@@ -138,7 +137,6 @@
     return 'var(--c-success)';
   }
 
-  const allCategories = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES] as string[];
 </script>
 
 <svelte:head>
@@ -189,16 +187,10 @@
         <label class="form-label" for="budget-category">Kategori</label>
         <select id="budget-category" class="form-select" bind:value={formCategory}>
           <option value="">-- Pilih Kategori --</option>
-          <optgroup label="Pengeluaran">
-            {#each EXPENSE_CATEGORIES as cat}
-              <option value={cat}>{CATEGORY_ICONS[cat] ?? '📦'} {cat}</option>
-            {/each}
-          </optgroup>
-          <optgroup label="Pemasukan">
-            {#each INCOME_CATEGORIES as cat}
-              <option value={cat}>{CATEGORY_ICONS[cat] ?? '💰'} {cat}</option>
-            {/each}
-          </optgroup>
+          <!-- Budgets apply to spending only (the API rejects income categories). -->
+          {#each $visibleCategories.expense as cat}
+            <option value={cat}>{$categoryIcons[cat] ?? '📦'} {cat}</option>
+          {/each}
         </select>
       </div>
 
@@ -268,7 +260,7 @@
         <!-- Header row -->
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 10px;">
           <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size: 26px;" aria-hidden="true">{CATEGORY_ICONS[b.category] ?? '📦'}</span>
+            <span style="font-size: 26px;" aria-hidden="true">{$categoryIcons[b.category] ?? '📦'}</span>
             <div>
               <div class="font-semibold" style="font-size:15px; text-transform:capitalize;">{b.category}</div>
               <div class="text-hint text-sm">{pct}% terpakai</div>

@@ -9,7 +9,8 @@ import {
   deleteBudgetById,
   getBudgetById
 } from '../../db/budgets.js';
-import { validateBudgetInput, EXPENSE_CATEGORIES } from '../../utils/validator.js';
+import { validateBudgetInput } from '../../utils/validator.js';
+import { isValidCategory } from '../../db/categories.js';
 import { getMonthStr } from '../../utils/formatter.js';
 
 const router = Router();
@@ -46,7 +47,7 @@ router.post('/', (req, res, next) => {
     const { category, amount } = value;
     const month = req.body.month || getMonthStr();
 
-    if (!EXPENSE_CATEGORIES.includes(category)) {
+    if (!isValidCategory(req.user.user_id, 'expense', category)) {
       return res.status(400).json({ error: 'Budget hanya dapat diatur untuk kategori pengeluaran' });
     }
 

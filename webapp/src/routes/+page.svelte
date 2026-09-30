@@ -11,12 +11,12 @@
   import { goto } from '$app/navigation';
   import {
     transactionsApi, meApi, insightsApi,
-    formatRupiah, formatRupiahShort, formatTime, formatCalendarDate, CATEGORY_ICONS,
-  } from '$lib/api.js';
+    formatRupiah, formatRupiahShort, formatTime, formatCalendarDate, WALLET_KIND_EMOJI, } from '$lib/api.js';
   import { getTelegramUser, setupMainButton, haptic } from '$lib/telegram.js';
-  import { txRevision } from '$lib/stores.js';
+  import { txRevision, categoryIcons, wallets, loadWallets } from '$lib/stores.js';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import IncomeSheet from '$lib/components/IncomeSheet.svelte';
+  import WalletSheet from '$lib/components/WalletSheet.svelte';
   import type { Summary, Transaction, MeResponse, InsightsResponse } from '$lib/types.js';
 
   let summary: Summary | null = null;
@@ -27,6 +27,7 @@
   let error = '';
   let controller: AbortController | null = null;
   let sheetOpen = false;
+  let walletSheetOpen = false;
 
   const tgUser = getTelegramUser();
 
@@ -51,8 +52,9 @@
     cleanupMainBtn?.();
   });
 
+  $: anySheetOpen = sheetOpen || walletSheetOpen;
   $: if (mounted) {
-    if (sheetOpen) {
+    if (anySheetOpen) {
       cleanupMainBtn?.();
       cleanupMainBtn = null;
     } else if (!cleanupMainBtn) {
@@ -68,6 +70,7 @@
 
     loading = true;
     error = '';
+    loadWallets();
 
     const [s, t, m, i] = await Promise.allSettled([
       transactionsApi.summary('today', sig),
@@ -193,12 +196,23 @@
   {:else}
     <!-- Hero: remaining balance first, then today's money flow and today's safe-to-spend -->
     <section class="summary-card hero" aria-labelledby="hero-label">
-      <div id="hero-label" class="hero-label">{balanceNet === null ? 'Saldo hari ini' : 'Sisa saldo'}</div>
+      <div class="hero-top">
+        <div id="hero-label" class="hero-label">{balanceNet === null ? 'Saldo hari ini' : 'Sisa saldo'}</div>
+        {#if insights}
+          <button class="hero-pill" on:click={() => { haptic('selection'); walletSheetOpen = true; }}>👛 Dompet</button>
+        {/if}
+      </div>
       <div class="hero-amount tabular">
         {shownBalance < 0 ? '−' : ''}{formatRupiah(Math.abs(shownBalance))}
       </div>
-      {#if insights && insights.balance.income === 0 && insights.balance.expense > 0}
-        <div class="hero-note">Catat pemasukan (gaji, dll.) supaya sisa saldo akurat.</div>
+      {#if $wallets.length}
+        <div class="wallet-strip" aria-label="Saldo per dompet">
+          {#each $wallets as w (w.id)}
+            <span class="wallet-chip tabular">{WALLET_KIND_EMOJI[w.kind]} {w.name} <strong>{formatRupiahShort(w.balance)}</strong></span>
+          {/each}
+        </div>
+      {:else if insights && insights.balance.income === 0 && insights.balance.expense > 0}
+        <div class="hero-note">Catat pemasukan (gaji, dll.) atau isi saldo dompet supaya sisa saldo akurat.</div>
       {/if}
 
       <div class="hero-today tabular">
@@ -336,7 +350,7 @@
       <div class="card card-list" style="margin-bottom: 8px;">
         {#each recent as tx (tx.id)}
           <div class="tx-item">
-            <div class="tx-icon">{CATEGORY_ICONS[tx.category] ?? '📦'}</div>
+            <div class="tx-icon">{$categoryIcons[tx.category] ?? '📦'}</div>
             <div class="tx-body">
               <div class="tx-category">{tx.category}</div>
               {#if tx.note}
@@ -362,6 +376,8 @@
     {/if}
   {/if}
 </main>
+
+<WalletSheet open={walletSheetOpen} on:close={() => (walletSheetOpen = false)} on:changed={loadData} />
 
 <IncomeSheet
   open={sheetOpen}
@@ -413,6 +429,39 @@
   /* Hero */
   .hero { margin-bottom: 12px; }
   .hero-label { font-size: 13px; opacity: 0.9; }
+  .hero-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: -6px -8px 0 0;
+  }
+  .hero-pill {
+    color: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    min-height: 32px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .wallet-strip {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    margin: 8px -20px 0;
+    padding: 0 20px 2px;
+    scrollbar-width: none;
+  }
+  .wallet-strip::-webkit-scrollbar { display: none; }
+  .wallet-chip {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.16);
+    white-space: nowrap;
+  }
   .hero-amount {
     font-size: clamp(28px, 9vw, 36px);
     font-weight: 800;

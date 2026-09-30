@@ -12,12 +12,12 @@
   import { goto } from '$app/navigation';
   import {
     transactionsApi, formatRupiah, formatDate, parseApiDate, localDateKey,
-    CATEGORY_ICONS, ApiError,
+    ApiError,
   } from '$lib/api.js';
   import {
     setupBackButton, haptic, showDestructivePopup,
   } from '$lib/telegram.js';
-  import { txRevision, invalidateTransactions, showToast } from '$lib/stores.js';
+  import { txRevision, invalidateTransactions, showToast, categoryIcons, visibleCategories } from '$lib/stores.js';
   import type { Transaction, TxType } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
@@ -261,13 +261,13 @@
       <div class="card card-list mb-4">
         {#each group.items as tx (tx.id)}
           <div class="tx-item" class:deleting={deletingId === tx.id}>
-            <div class="tx-icon">{CATEGORY_ICONS[tx.category] ?? '📦'}</div>
+            <div class="tx-icon">{$categoryIcons[tx.category] ?? '📦'}</div>
             <div class="tx-body">
               <div class="tx-category">{tx.category}</div>
               {#if tx.note}
                 <div class="tx-meta truncate">{tx.note}</div>
               {/if}
-              <div class="tx-meta">{formatDate(tx.created_at)}</div>
+              <div class="tx-meta">{formatDate(tx.created_at)}{tx.wallet_name ? ` · 👛 ${tx.wallet_name}` : ''}</div>
             </div>
             <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
               <div

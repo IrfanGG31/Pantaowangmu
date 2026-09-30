@@ -6,6 +6,11 @@ export const MAX_FACTS = 30;
 export const MAX_GOALS = 10;
 export const MAX_GOAL_NAME_LENGTH = 60;
 export const STYLES = ['santai', 'formal', 'singkat'];
+// auto = mirror the language/dialect the user writes in.
+export const LANGUAGES = ['auto', 'id', 'jawa', 'sunda', 'en', 'campur'];
+export const PERSONAS = ['teman', 'konsultan', 'coach'];
+export const LANGUAGE_LABEL = { auto: 'Ikuti bahasaku', id: 'Indonesia', jawa: 'Jawa', sunda: 'Sunda', en: 'English', campur: 'Indo-English campur' };
+export const PERSONA_LABEL = { teman: 'Teman santai', konsultan: 'Konsultan', coach: 'Coach tegas' };
 const MAX_MONEY = 999999999999;
 
 /**
@@ -14,7 +19,7 @@ const MAX_MONEY = 999999999999;
  */
 export function getMemory(userId) {
   const uid = String(userId);
-  const profile = db.prepare('SELECT nickname, monthly_income, payday, style, emoji FROM user_profile WHERE user_id = ?').get(uid);
+  const profile = db.prepare('SELECT nickname, monthly_income, payday, style, emoji, language, persona FROM user_profile WHERE user_id = ?').get(uid);
   const facts = db.prepare('SELECT id, fact FROM user_facts WHERE user_id = ? ORDER BY id ASC').all(uid) || [];
   const goals = db.prepare('SELECT id, name, target_amount, saved_amount, target_date FROM user_goals WHERE user_id = ? ORDER BY id ASC').all(uid) || [];
   return {
@@ -23,7 +28,9 @@ export function getMemory(userId) {
       monthly_income: profile?.monthly_income ?? null,
       payday: profile?.payday ?? null,
       style: profile?.style || null,
-      emoji: profile?.emoji === null || profile?.emoji === undefined ? null : Boolean(profile.emoji)
+      emoji: profile?.emoji === null || profile?.emoji === undefined ? null : Boolean(profile.emoji),
+      language: profile?.language || null,
+      persona: profile?.persona || null
     },
     goals,
     facts
@@ -32,7 +39,8 @@ export function getMemory(userId) {
 
 /**
  * Updates the provided profile fields only. Invalid values are ignored.
- * @param {{ monthly_income?: number|null, payday?: number|null, style?: string|null, emoji?: boolean|null }} changes
+ * @param {{ monthly_income?: number|null, payday?: number|null, style?: string|null, emoji?: boolean|null,
+ *   language?: string|null, persona?: string|null }} changes
  * @returns {string[]} names of the fields that were saved
  */
 export function setProfile(userId, changes = {}) {
@@ -64,6 +72,14 @@ export function setProfile(userId, changes = {}) {
     const v = changes.emoji;
     if (v === null) add('emoji', null);
     else if (typeof v === 'boolean') add('emoji', v ? 1 : 0);
+  }
+  if ('language' in changes) {
+    const v = changes.language;
+    if (v === null || LANGUAGES.includes(v)) add('language', v);
+  }
+  if ('persona' in changes) {
+    const v = changes.persona;
+    if (v === null || PERSONAS.includes(v)) add('persona', v);
   }
   if (sets.length === 0) return [];
 
@@ -156,4 +172,5 @@ export function clearMemory(userId) {
   db.prepare('DELETE FROM user_facts WHERE user_id = ?').run(uid);
   db.prepare('DELETE FROM user_goals WHERE user_id = ?').run(uid);
   db.prepare('DELETE FROM user_profile WHERE user_id = ?').run(uid);
+  db.prepare('DELETE FROM category_keywords WHERE user_id = ?').run(uid);
 }

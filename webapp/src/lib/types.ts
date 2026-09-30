@@ -10,6 +10,8 @@ export interface Transaction {
   amount: number;       // integer Rupiah, 1–999_999_999
   category: string;     // lowercase
   note: string;         // max 100 char
+  wallet_id?: number | null;
+  wallet_name?: string | null;
   created_at: string;   // "YYYY-MM-DD HH:MM:SS"
 }
 
@@ -79,6 +81,44 @@ export interface Profile {
   payday: number | null;        // 1–31
   style: 'santai' | 'formal' | 'singkat' | null;
   emoji: boolean | null;
+  language: 'auto' | 'id' | 'jawa' | 'sunda' | 'en' | 'campur' | null;
+  persona: 'teman' | 'konsultan' | 'coach' | null;
+}
+
+// ── Personal categories (GET /api/me/categories) ──────────────────────────────
+
+export interface UserCategory {
+  name: string;
+  emoji: string;
+  custom: boolean;
+  hidden: boolean;
+}
+
+export interface UserCategoriesResponse {
+  expense: UserCategory[];
+  income: UserCategory[];
+  keywords: { keyword: string; type: TxType; category: string }[];
+}
+
+// ── Wallets (GET /api/wallets) ────────────────────────────────────────────────
+
+export type WalletKind = 'cash' | 'bank' | 'ewallet' | 'qris' | 'credit' | 'other';
+
+export interface Wallet {
+  id: number;
+  name: string;
+  kind: WalletKind;
+  balance: number;
+  opening_balance?: number;
+  is_default: boolean;
+  archived?: boolean;
+}
+
+export interface WalletsResponse {
+  data: Wallet[];
+  kinds: WalletKind[];
+  total: number;        // all-time "Sisa saldo"
+  unassigned: number;   // part of total not in any wallet
 }
 
 export interface Subscription {
@@ -135,7 +175,8 @@ export interface Tip {
 
 export interface InsightsResponse {
   today: string;
-  balance: { income: number; expense: number; net: number };  // all time
+  balance: { income: number; expense: number; opening: number; net: number };  // all time
+  wallets: Wallet[];
   month_to_date: { income: number; expense: number; count: number; net: number };
   previous_month_same_period: { expense: number };
   expense_change_pct: number | null;

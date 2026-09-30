@@ -97,9 +97,19 @@ const ADDED_COLUMNS = {
     ['monthly_income', 'INTEGER'],
     ['payday', 'INTEGER'],
     ['style', 'TEXT'],
-    ['emoji', 'INTEGER']
+    ['emoji', 'INTEGER'],
+    ['language', 'TEXT'],
+    ['persona', 'TEXT']
+  ],
+  transactions: [
+    ['wallet_id', 'INTEGER']
   ]
 };
+
+// Indexes on columns added above (they can only be created after the columns exist).
+const POST_MIGRATION_SQL = `
+  CREATE INDEX IF NOT EXISTS idx_transactions_user_wallet ON transactions(user_id, wallet_id);
+`;
 
 function migrate(database) {
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
@@ -108,6 +118,7 @@ function migrate(database) {
       if (!existing.has(name)) database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
     }
   }
+  database.exec(POST_MIGRATION_SQL);
 }
 
 export const db = {

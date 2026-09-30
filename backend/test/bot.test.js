@@ -76,7 +76,7 @@ describe('Bot free-text flow', () => {
   it('asks for a category when it is unclear, then saves the chosen one', async () => {
     await bot.message('top up gopay 100rb');
     expect(getAllTransactions('42')).toHaveLength(0);
-    const choice = bot.buttons(bot.lastSent()).find((b) => b.text === 'Lainnya');
+    const choice = bot.buttons(bot.lastSent()).find((b) => b.text.endsWith('Lainnya'));
 
     await bot.press(choice.callback_data);
     expect(getAllTransactions('42')[0]).toMatchObject({ type: 'expense', amount: 100000, category: 'lainnya', note: 'top up gopay' });
@@ -86,7 +86,7 @@ describe('Bot free-text flow', () => {
     await bot.message('dari kantor 750rb');
     const flip = bot.buttons(bot.lastSent()).find((b) => b.text.includes('pemasukan'));
     await bot.press(flip.callback_data);
-    const bonus = bot.buttons(bot.lastEdit()).find((b) => b.text === 'Bonus');
+    const bonus = bot.buttons(bot.lastEdit()).find((b) => b.text.endsWith('Bonus'));
     await bot.press(bonus.callback_data);
     expect(getAllTransactions('42')[0]).toMatchObject({ type: 'income', category: 'bonus', amount: 750000 });
   });
@@ -104,8 +104,8 @@ describe('Bot free-text flow', () => {
     expect(getBudget('42', 'makan', getMonthStr()).amount).toBe(200000);
 
     await bot.message('budget ku 300K');
-    const transport = bot.buttons(bot.lastSent()).find((b) => b.text === 'Transport');
-    expect(transport.callback_data).toBe('bset:transport:300000');
+    const transport = bot.buttons(bot.lastSent()).find((b) => b.text.endsWith('Transport'));
+    expect(transport.callback_data).toMatch(/^bsc:[0-9a-f]{8}:1$/);
     await bot.press(transport.callback_data);
     expect(getBudget('42', 'transport', getMonthStr()).amount).toBe(300000);
   });

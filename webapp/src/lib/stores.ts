@@ -7,7 +7,8 @@
  */
 
 import { writable, derived } from 'svelte/store';
-import type { TxType } from './types.js';
+import type { TxType, UserCategoriesResponse, Wallet } from './types.js';
+import { userCategoriesApi, walletsApi, CATEGORY_ICONS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './api.js';
 
 // ── Color scheme (reactive to Telegram themeChanged) ─────────────────────────
 
@@ -59,4 +60,37 @@ export function invalidateTransactions(): void {
 
 export function invalidateBudgets(): void {
   budgetRevision.update((n) => n + 1);
+}
+
+// ── Personal categories & wallets (loaded once, refreshed after changes) ─────
+
+export const userCategories = writable<UserCategoriesResponse | null>(null);
+export const wallets = writable<Wallet[]>([]);
+
+/** Emoji per category name: built-in icons overridden by the user's own. */
+export const categoryIcons = derived(userCategories, (c) => ({
+  ...CATEGORY_ICONS,
+  ...Object.fromEntries([...(c?.expense ?? []), ...(c?.income ?? [])].map((x) => [x.name, x.emoji])),
+}) as Record<string, string>);
+
+/** Category names offered in pickers (hidden ones left out); built-in lists until loaded. */
+export const visibleCategories = derived(userCategories, (c) => ({
+  expense: c ? c.expense.filter((x) => !x.hidden).map((x) => x.name) : [...EXPENSE_CATEGORIES],
+  income: c ? c.income.filter((x) => !x.hidden).map((x) => x.name) : [...INCOME_CATEGORIES],
+}));
+
+export async function loadUserCategories(): Promise<void> {
+  try {
+    userCategories.set(await userCategoriesApi.list());
+  } catch {
+    // Keep the built-in lists when the call fails.
+  }
+}
+
+export async function loadWallets(): Promise<void> {
+  try {
+    wallets.set((await walletsApi.list()).data);
+  } catch {
+    // Wallets are optional; the app works without them.
+  }
 }

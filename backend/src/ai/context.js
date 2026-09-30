@@ -1,7 +1,9 @@
 // Plain-text snapshot of one user's finances and profile for the assistant. Only this user's own data.
-import { getTodaySummary, getStatsByCategory, getTransactionsByUser } from '../db/transactions.js';
+import { getTodaySummary, getStatsByCategory, getTransactionsByUser, getBalance } from '../db/transactions.js';
 import { getBudgetsByUser } from '../db/budgets.js';
-import { getMemory } from '../db/memory.js';
+import { getMemory, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
+import { listCategories, listKeywords } from '../db/categories.js';
+import { listWallets } from '../db/wallets.js';
 import { computeInsights, insightsText } from './insights.js';
 import {
   formatRupiah,
@@ -48,7 +50,7 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
 
   const recent = getTransactionsByUser(userId, 10).data;
   const recentLines = recent.length
-    ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}`).join('\n')
+    ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}${t.wallet_name ? ` [${t.wallet_name}]` : ''}`).join('\n')
     : 'belum ada';
 
   const memory = getMemory(userId);
@@ -58,10 +60,25 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
     : 'belum ada';
   const missing = [p.monthly_income ? null : 'penghasilan per bulan', p.payday ? null : 'tanggal gajian'].filter(Boolean);
 
+  const cats = listCategories(userId);
+  const catList = (list) => list.map((c) => `${c.name}${c.custom ? ' (buatan pengguna)' : ''}`).join(', ');
+  const wallets = listWallets(userId);
+  const walletLines = wallets.length
+    ? wallets.map((w) => `${w.name} (${w.kind}${w.is_default ? ', utama' : ''}): saldo ${signedRupiah(w.balance)}`).join('; ')
+    : 'belum pakai dompet (fitur opsional)';
+  const keywords = listKeywords(userId);
+  const balance = getBalance(userId);
+
   return [
     `Nama Telegram: ${from.first_name || '-'}`,
     `Nama panggilan: ${memory.nickname || 'belum diatur'}`,
     `Gaya bicara: ${STYLE_LABEL[p.style] || 'belum diatur'}; Emoji: ${p.emoji === null ? 'belum diatur' : p.emoji ? 'ya' : 'tidak'}`,
+    `Bahasa: ${p.language || 'auto'} (${LANGUAGE_LABEL[p.language || 'auto']}); Persona: ${p.persona || 'teman'} (${PERSONA_LABEL[p.persona || 'teman']})`,
+    `Kategori pengeluaran: ${catList(cats.expense)}`,
+    `Kategori pemasukan: ${catList(cats.income)}`,
+    `Kata yang diajarkan pengguna: ${keywords.length ? keywords.slice(0, 40).map((k) => `${k.keyword}→${k.category}`).join(', ') : 'belum ada'}`,
+    `Dompet: ${walletLines}`,
+    `Sisa saldo total (saldo awal dompet + semua pemasukan − pengeluaran tercatat): ${signedRupiah(balance.net)}`,
     `Profil keuangan: penghasilan ${p.monthly_income ? `${formatRupiah(p.monthly_income)}/bulan` : 'belum diketahui'}, gajian ${p.payday ? `tanggal ${p.payday}` : 'belum diketahui'}${missing.length ? ` (profil belum lengkap: ${missing.join(', ')})` : ''}`,
     `Ingatan tentang pengguna:\n${factLines}`,
     `Sekarang: ${getDateStr(now)} (${dayLabel}) jam ${timeLabel}, zona ${tz}`,

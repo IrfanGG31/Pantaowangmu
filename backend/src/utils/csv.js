@@ -11,7 +11,8 @@ export const CSV_COLUMNS = [
   'amount',
   'signed_amount',
   'note',
-  'created_at_utc'
+  'created_at_utc',
+  'wallet'
 ];
 
 /**
@@ -77,7 +78,8 @@ export function generateTransactionsCSV(transactions = [], { delimiter = ';' } =
       amount,
       t.type === 'expense' ? -amount : amount,
       textField(t.note, delimiter),
-      textField(t.created_at, delimiter)
+      textField(t.created_at, delimiter),
+      textField(t.wallet_name, delimiter)
     ].join(delimiter);
   });
 
