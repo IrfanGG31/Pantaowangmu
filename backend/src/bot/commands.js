@@ -53,9 +53,12 @@ import {
   parseOptionsFor, allCategoryNames, categoryLabel, pickerCategories, walletLabel, doAddCategory, doRemoveCategory,
   doLearn, categoriesText, walletsText, doAddWallet, doSetWalletBalance, doTransfer, walletSwitchRow, styleText,
   styleKeyboard, setStyle, doAddBill, billsText, billsKeyboard, doPayBill, doDeleteBill, remindersText,
-  remindersKeyboard, doSetReminder
+  remindersKeyboard, doSetReminder, debtsText, debtsKeyboard, doDebt, doSettle, doSettleOne, doSplit, doPaidByOther,
+  tagText, budgetSuggestText, budgetSuggestKeyboard, applyBudgetSuggestion, challengesText, challengesKeyboard,
+  doStartChallenge, challengeNotes
 } from './personal.js';
 import { detectWalletId } from './textParser.js';
+import { cancelChallenge } from '../db/challenges.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -111,7 +114,7 @@ function pendingPrompt(entry) {
  * @returns {{ error: string } | { tx: Object, text: string }}
  */
 function saveTransaction(userId, input) {
-  const { wallet_id: walletInput, ...rest } = input;
+  const { wallet_id: walletInput, tags = [], ...rest } = input;
   const { error, value } = validateTransactionInput(rest);
   if (error) return { error };
   if (!isValidCategory(userId, value.type, value.category)) {
@@ -123,7 +126,7 @@ function saveTransaction(userId, input) {
   if (Number.isInteger(walletInput) && getWallet(userId, walletInput)) walletId = walletInput;
   else if (walletInput === undefined) walletId = defaultWallet(userId)?.id ?? null;
 
-  const tx = createTransaction(userId, value.type, value.amount, value.category, value.note, walletId);
+  const tx = createTransaction(userId, value.type, value.amount, value.category, value.note, walletId, tags);
 
   const isExpense = tx.type === 'expense';
   const symbol = isExpense ? '💸' : '💚';
@@ -132,8 +135,9 @@ function saveTransaction(userId, input) {
   const noteText = tx.note ? `\n📝 ${escapeMd(tx.note)}` : '';
   const wallet = tx.wallet_id ? getWallet(userId, tx.wallet_id) : null;
   const walletText = wallet ? `\n👛 ${escapeMd(walletLabel(wallet))} (saldo ${wallet.balance < 0 ? '-' : ''}${formatRupiah(wallet.balance)})` : '';
+  const tagText = tx.tags?.length ? `\n🏷️ ${escapeMd(tx.tags.map((t) => `#${t}`).join(' '))}` : '';
 
-  let text = `✅ *Tercatat!*\n\n${symbol} ${formatRupiah(tx.amount)}\n📁 ${catFormatted}${noteText}${walletText}\n\n_/catat lagi atau buka mini app_`;
+  let text = `✅ *Tercatat!*\n\n${symbol} ${formatRupiah(tx.amount)}\n📁 ${catFormatted}${noteText}${walletText}${tagText}\n\n_/catat lagi atau buka mini app_`;
 
   if (isExpense) {
     const budget = getBudget(userId, tx.category, getMonthStr());
@@ -146,6 +150,8 @@ function saveTransaction(userId, input) {
       }
     }
   }
+
+  for (const note of challengeNotes(userId, tx)) text += `\n\n${escapeMd(note)}`;
 
   return { tx, text };
 }
@@ -425,6 +431,10 @@ _Contoh: /budget makan 1000000_
 /gaya - Bahasa (Jawa, Sunda, English, ...) & persona Panta
 /tagihan - Tagihan rutin (kos, cicilan, langganan)
 /pengingat - Atur jam pengingat & pengingat pintar
+/utang - Utang-piutang & patungan
+/tag - Total per tag (#bali, #kantor)
+/tantangan - Tantangan hemat & streak
+/budget saran - Saran budget dari kebiasaanmu
 /memori - Lihat atau hapus hal yang aku ingat tentang kamu
 /langganan - Status paket, kuota, dan cara berlangganan
 /aktivasi KODE - Aktifkan paket dengan kode
@@ -441,6 +451,8 @@ _Contoh: /budget makan 1000000_
 • \`tambah kategori kopi ☕\` / \`kopken masuk kopi\`
 • \`saldo BCA 4jt\` / \`kopi 25rb pakai qris\` / \`tarik tunai 500rb\`
 • \`kos 1,5jt tiap tanggal 5\` / \`ingatkan aku jam 8 malam\`
+• \`makan 300rb bagi 3 sama andi budi\` / \`pinjamin andi 200rb\`
+• \`hotel 1,2jt #bali\` / \`tantangan no jajan seminggu\` / \`saran budget\`
 
 📸 *Kirim foto nota/struk* untuk dicatat otomatis.`;
 
@@ -511,6 +523,11 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
 
     if (!rawInput) {
       return safeSendMessage(bot, chatId, BUDGET_HELP, { parse_mode: 'Markdown' });
+    }
+
+    if (/^(?:saran|rekomendasi|otomatis)$/i.test(rawInput)) {
+      const keyboard = budgetSuggestKeyboard(userId);
+      return safeSendMessage(bot, chatId, budgetSuggestText(userId), keyboard ? { reply_markup: keyboard } : {});
     }
 
     const [catToken, amountToken] = rawInput.split(/\s+/);
@@ -695,6 +712,23 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     await safeSendMessage(bot, chatId, billsText(userId), keyboard ? { reply_markup: keyboard } : {});
   });
 
+  // ── /utang, /tag, /tantangan ───────────────────────────────────────────
+  onText(/^\/utang(?:@\w+)?$/, async (msg) => {
+    const userId = ensureUser(msg);
+    const keyboard = debtsKeyboard(userId);
+    await safeSendMessage(bot, msg.chat.id, debtsText(userId), keyboard ? { reply_markup: keyboard } : {});
+  });
+
+  onText(/^\/tag(?:@\w+)?(?:\s+#?(\S+))?$/, async (msg, match) => {
+    const userId = ensureUser(msg);
+    await safeSendMessage(bot, msg.chat.id, tagText(userId, match[1]?.toLowerCase() || null));
+  });
+
+  onText(/^\/tantangan(?:@\w+)?$/, async (msg) => {
+    const userId = ensureUser(msg);
+    await safeSendMessage(bot, msg.chat.id, challengesText(userId), { reply_markup: challengesKeyboard(userId) });
+  });
+
   // ── /pengingat ─────────────────────────────────────────────────────────
   onText(/^\/pengingat(?:@\w+)?$/, async (msg) => {
     const userId = ensureUser(msg);
@@ -744,6 +778,22 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     }
     if (parsed.intent === 'transfer') return safeSendMessage(bot, chatId, doTransfer(userId, parsed));
     if (parsed.intent === 'add_bill') return safeSendMessage(bot, chatId, doAddBill(userId, parsed));
+    if (parsed.intent === 'split') {
+      const result = doSplit(userId, parsed);
+      return safeSendMessage(bot, chatId, result.text, { reply_markup: txKeyboard(userId, result.tx) });
+    }
+    if (parsed.intent === 'paid_by_other') {
+      const result = doPaidByOther(userId, parsed);
+      return safeSendMessage(bot, chatId, result.text, { reply_markup: undoKeyboard(result.tx.id) });
+    }
+    if (parsed.intent === 'debt') return safeSendMessage(bot, chatId, doDebt(userId, parsed));
+    if (parsed.intent === 'settle_debt') return safeSendMessage(bot, chatId, doSettle(userId, parsed));
+    if (parsed.intent === 'tag_summary') return safeSendMessage(bot, chatId, tagText(userId, parsed.tag));
+    if (parsed.intent === 'challenge') return safeSendMessage(bot, chatId, doStartChallenge(userId, parsed), { reply_markup: challengesKeyboard(userId) });
+    if (parsed.intent === 'budget_suggest') {
+      const keyboard = budgetSuggestKeyboard(userId);
+      return safeSendMessage(bot, chatId, budgetSuggestText(userId), keyboard ? { reply_markup: keyboard } : {});
+    }
     if (parsed.intent === 'reminder') return safeSendMessage(bot, chatId, doSetReminder(userId, { time: parsed.time }));
     if (parsed.intent === 'profile_income') {
       const changes = { monthly_income: parsed.monthly_income, ...(parsed.payday ? { payday: parsed.payday } : {}) };
@@ -813,17 +863,25 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       else if (action.type === 'add_bill') setupNotes.push(doAddBill(userId, { ...action, type: action.tx_type }));
       else if (action.type === 'delete_bill') setupNotes.push(doDeleteBill(userId, action.name));
       else if (action.type === 'set_reminder') setupNotes.push(doSetReminder(userId, action));
+      else if (action.type === 'add_debt') setupNotes.push(doDebt(userId, action));
+      else if (action.type === 'settle_debt') setupNotes.push(doSettle(userId, action));
+      else if (action.type === 'start_challenge') setupNotes.push(doStartChallenge(userId, action));
     }
     if (setupNotes.length) await safeSendMessage(bot, chatId, setupNotes.join('\n\n'));
 
     for (const action of turn.actions) {
       if (action.type === 'transfer') {
         await safeSendMessage(bot, chatId, doTransfer(userId, action));
+      } else if (action.type === 'split_bill') {
+        const wallet = action.wallet ? findWalletByName(userId, action.wallet) : null;
+        const { wallet: _w, ...split } = action;
+        const result = doSplit(userId, { ...split, ...(wallet ? { wallet_id: wallet.id } : {}) });
+        await safeSendMessage(bot, chatId, result.text, { reply_markup: txKeyboard(userId, result.tx) });
       } else if (action.type === 'add_transaction') {
         const wallet = action.wallet ? findWalletByName(userId, action.wallet) : null;
         const saved = saveTransaction(userId, {
           type: action.tx_type, amount: action.amount, category: action.category, note: action.note,
-          ...(wallet ? { wallet_id: wallet.id } : {})
+          ...(wallet ? { wallet_id: wallet.id } : {}), ...(action.tags ? { tags: action.tags } : {})
         });
         if (saved.error) {
           await safeSendMessage(bot, chatId, `❌ ${saved.error}`);
@@ -1081,6 +1139,24 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       await safeAnswerCallback(bot, query.id, result.tx ? 'Tercatat' : 'OK');
       const markup = result.tx ? txKeyboard(userId, result.tx) : undefined;
       await editMessage(chatId, messageId, result.text, markup ? { reply_markup: markup } : {});
+    } else if (data.startsWith('dl:')) {
+      const text = doSettleOne(userId, parseInt(data.slice(3), 10));
+      await safeAnswerCallback(bot, query.id, 'OK');
+      const keyboard = debtsKeyboard(userId);
+      await editMessage(chatId, messageId, `${text}\n\n${debtsText(userId)}`, keyboard ? { reply_markup: keyboard } : {});
+    } else if (data.startsWith('bsa:')) {
+      const text = applyBudgetSuggestion(userId, data.slice(4));
+      await safeAnswerCallback(bot, query.id, 'Budget disimpan');
+      await editMessage(chatId, messageId, text);
+    } else if (data.startsWith('cs:')) {
+      const [, kind, category, days] = data.split(':');
+      const text = doStartChallenge(userId, { kind, category: category || null, days: parseInt(days, 10) });
+      await safeAnswerCallback(bot, query.id, text.startsWith('❌') ? 'Tidak bisa' : 'Dimulai');
+      await editMessage(chatId, messageId, `${text}\n\n${challengesText(userId)}`, { reply_markup: challengesKeyboard(userId) });
+    } else if (data.startsWith('cc:')) {
+      const ok = cancelChallenge(userId, parseInt(data.slice(3), 10));
+      await safeAnswerCallback(bot, query.id, ok ? 'Dibatalkan' : 'Sudah selesai');
+      await editMessage(chatId, messageId, challengesText(userId), { reply_markup: challengesKeyboard(userId) });
     } else if (data.startsWith('rt:') || data.startsWith('rn:')) {
       const value = data.slice(3);
       const text = data.startsWith('rt:') ? doSetReminder(userId, { time: value }) : doSetReminder(userId, { smart: value === 'on' });

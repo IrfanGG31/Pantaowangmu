@@ -9,6 +9,9 @@ import { getUsersWithoutTransactionToday, markReminded } from '../db/reminders.j
 import { listBills, claimNudge } from '../db/bills.js';
 import { formatRupiah, getDateStr, getDayRange, getTimeZone, toDate, toSqlDateTime } from '../utils/formatter.js';
 import { safeSendMessage } from '../utils/telegram.js';
+import { listChallenges, challengeTitle } from '../db/challenges.js';
+import { getBudgetsByUser } from '../db/budgets.js';
+import { budgetSuggestText, budgetSuggestKeyboard } from './personal.js';
 
 export const TICK_MINUTES = 5;
 const DAY_MS = 86400000;
@@ -137,4 +140,36 @@ export async function runBillTick(bot, now = new Date()) {
     }
   }
   return sent;
+}
+
+/**
+ * Once a day (09:00): announce challenges that just finished or failed, and on the 1st of the month offer budget
+ * suggestions to users who have spending history but no budgets yet this month.
+ * @returns {Promise<{ challenges: number, suggestions: number }>}
+ */
+export async function runDailyTick(bot, now = new Date()) {
+  const today = getDateStr(now);
+  const month = today.slice(0, 7);
+  let challenges = 0;
+  let suggestions = 0;
+  for (const user of getAllUsers()) {
+    if (!getAccess(user, now).allowed) continue;
+    for (const c of listChallenges(user.user_id, {}, now)) {
+      if (c.status !== 'done' && c.status !== 'failed') continue;
+      if (!claimNudge(user.user_id, c.end_date, `challenge:${c.id}:${c.status}`)) continue;
+      const text = c.status === 'done'
+        ? `🎉 Selamat! Tantangan "${challengeTitle(c, formatRupiah)}" berhasil kamu selesaikan. Mau lanjut tantangan baru? /tantangan`
+        : `💔 Tantangan "${challengeTitle(c, formatRupiah)}" belum berhasil kali ini. Tidak apa-apa, coba lagi: /tantangan`;
+      await safeSendMessage(bot, user.user_id, text);
+      challenges += 1;
+    }
+    if (today.endsWith('-01') && !getBudgetsByUser(user.user_id, month).length) {
+      const keyboard = budgetSuggestKeyboard(user.user_id);
+      if (keyboard && claimNudge(user.user_id, today, `budget-suggest:${month}`)) {
+        await safeSendMessage(bot, user.user_id, `🗓️ Bulan baru!\n\n${budgetSuggestText(user.user_id)}`, { reply_markup: keyboard });
+        suggestions += 1;
+      }
+    }
+  }
+  return { challenges, suggestions };
 }

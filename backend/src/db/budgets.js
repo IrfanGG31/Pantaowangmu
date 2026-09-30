@@ -1,6 +1,6 @@
 import db from './connection.js';
 import { getUserExpenseThisMonth } from './transactions.js';
-import { getMonthStr } from '../utils/formatter.js';
+import { getMonthStr, getMonthRange } from '../utils/formatter.js';
 
 /**
  * Creates or updates a budget for a given user, category, and month.
@@ -141,4 +141,41 @@ export function getBudgetById(userId, id) {
     percentage,
     remaining
   };
+}
+
+/**
+ * Budget suggestions from the last 3 full months: the average monthly spend per category (over the months in which
+ * the user logged any spending), trimmed 10% and rounded down to Rp 10.000. Categories averaging under Rp 20.000 are skipped.
+ * @returns {{ months: string[], data: Array<{ category: string, average: number, suggested: number, current: number|null }> }}
+ */
+export function suggestBudgets(userId, now = new Date()) {
+  const uid = String(userId);
+  const thisMonth = getMonthStr(now);
+  const [y, m] = thisMonth.split('-').map(Number);
+  const months = [1, 2, 3].map((k) => {
+    const idx = y * 12 + (m - 1) - k;
+    return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+  });
+  const totals = new Map();
+  let activeMonths = 0;
+  for (const month of months) {
+    const { start, end } = getMonthRange(month);
+    const rows = db.prepare(`
+      SELECT category, SUM(amount) AS total FROM transactions
+      WHERE user_id = ? AND type = 'expense' AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)
+      GROUP BY category
+    `).all(uid, start, end);
+    if (rows.length) activeMonths += 1;
+    for (const r of rows) totals.set(r.category, (totals.get(r.category) || 0) + Number(r.total));
+  }
+  if (!activeMonths) return { months, data: [] };
+  const current = new Map(getBudgetsByUser(uid, thisMonth).map((b) => [b.category, b.amount]));
+  const data = [...totals.entries()]
+    .map(([category, total]) => {
+      const average = Math.round(total / activeMonths);
+      return { category, average, suggested: Math.max(10000, Math.floor((average * 0.9) / 10000) * 10000), current: current.get(category) ?? null };
+    })
+    .filter((s) => s.average >= 20000)
+    .sort((a, b) => b.average - a.average);
+  return { months, data };
 }

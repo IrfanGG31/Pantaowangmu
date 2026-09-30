@@ -9,13 +9,14 @@ import {
   deleteTransaction,
   getTodaySummary,
   getStatsByCategory,
-  getAllTransactions
+  getAllTransactions,
+  tagSummary
 } from '../../db/transactions.js';
 import { getBudget } from '../../db/budgets.js';
 import { isValidCategory } from '../../db/categories.js';
 import { getWallet, defaultWallet, assignTransactionWallet } from '../../db/wallets.js';
 import { validateTransactionInput, validatePeriod } from '../../utils/validator.js';
-import { getMonthStr, getStartOfWeek, getStartOfMonth, formatRupiah } from '../../utils/formatter.js';
+import { getMonthStr, getMonthRange, getStartOfWeek, getStartOfMonth, formatRupiah } from '../../utils/formatter.js';
 import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
 
 const router = Router();
@@ -165,7 +166,8 @@ router.get('/', (req, res, next) => {
     const filters = {
       type: req.query.type,
       month: req.query.month,
-      date: req.query.date
+      date: req.query.date,
+      tag: req.query.tag
     };
 
     const result = getTransactionsByUser(req.user.user_id, limit, offset, filters);
@@ -180,6 +182,18 @@ router.get('/', (req, res, next) => {
         offset
       }
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /tags?month=YYYY-MM — totals per tag (all time when month is omitted).
+ */
+router.get('/tags', (req, res, next) => {
+  try {
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? getMonthRange(req.query.month) : null;
+    res.json({ data: tagSummary(req.user.user_id, month?.start, month?.end) });
   } catch (err) {
     next(err);
   }
@@ -226,7 +240,7 @@ router.post('/', (req, res, next) => {
       walletId = defaultWallet(userId)?.id ?? null;
     }
 
-    const tx = createTransaction(userId, type, amount, category, note, walletId);
+    const tx = createTransaction(userId, type, amount, category, note, walletId, value.tags || []);
 
     // Check budget alert for expenses
     let budgetAlert = null;

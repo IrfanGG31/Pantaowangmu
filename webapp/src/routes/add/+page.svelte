@@ -29,6 +29,7 @@
   let amountRaw = '';
   let category = '';
   let note = '';
+  let tagsText = '';
   let walletId: number | null = null;
   let walletTouched = false;
   let categorySheetOpen = false;
@@ -49,6 +50,9 @@
   $: if (category && !activeCategories.includes(category)) {
     category = '';
   }
+
+  // "#bali kantor" → ["bali", "kantor"] (max 5, letters/digits/-/_)
+  $: parsedTags = [...new Set(tagsText.split(/[\s,]+/).map((t) => t.replace(/^#/, '').toLowerCase()).filter((t) => /^[\p{L}\p{N}][\p{L}\p{N}_-]{0,29}$/u.test(t)))].slice(0, 5);
 
   // Parsed amount
   $: parsedAmount = amountRaw ? parseInt(amountRaw.replace(/\D/g, ''), 10) : 0;
@@ -158,6 +162,7 @@
         category,
         note: note.trim(),
         ...($wallets.length ? { wallet_id: walletId } : {}),
+        ...(parsedTags.length ? { tags: parsedTags } : {}),
       });
       loadWallets();
 
@@ -183,6 +188,7 @@
         amountRaw = '';
         category = '';
         note = '';
+        tagsText = '';
         walletTouched = false;
       }, 1500);
     } catch (e: unknown) {
@@ -326,6 +332,19 @@
       />
       {#if note}
         <div class="form-hint">{note.length}/100</div>
+      {/if}
+    </div>
+
+    <!-- Tags -->
+    <div class="form-group">
+      <label class="form-label" for="tags">
+        Tag <span style="font-weight: 400; text-transform: none;">(opsional)</span>
+      </label>
+      <input id="tags" class="form-input" type="text" placeholder="#bali #kantor" bind:value={tagsText} autocomplete="off" />
+      {#if parsedTags.length}
+        <div class="form-hint">{parsedTags.map((t) => `#${t}`).join(' ')}</div>
+      {:else}
+        <div class="form-hint">Kelompokkan pengeluaran, misalnya satu liburan atau urusan kantor.</div>
       {/if}
     </div>
 

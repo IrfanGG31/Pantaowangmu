@@ -14,6 +14,8 @@ import meRouter from './routes/me.js';
 import insightsRouter from './routes/insights.js';
 import walletsRouter from './routes/wallets.js';
 import billsRouter from './routes/bills.js';
+import debtsRouter from './routes/debts.js';
+import challengesRouter from './routes/challenges.js';
 import adminRouter from './routes/admin.js';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
 
@@ -113,6 +115,8 @@ app.use('/api/me', meRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/wallets', walletsRouter);
 app.use('/api/bills', billsRouter);
+app.use('/api/debts', debtsRouter);
+app.use('/api/challenges', challengesRouter);
 
 // Admin dashboard (plain static page + JSON API). Stricter than the Mini App: never framed, no inline scripts.
 const adminDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../admin');

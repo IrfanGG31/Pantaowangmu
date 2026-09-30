@@ -104,7 +104,8 @@ const ADDED_COLUMNS = {
     ['smart_nudge', 'INTEGER']
   ],
   transactions: [
-    ['wallet_id', 'INTEGER']
+    ['wallet_id', 'INTEGER'],
+    ['tags', 'TEXT']
   ]
 };
 

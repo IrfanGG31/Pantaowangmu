@@ -12,6 +12,7 @@ export interface Transaction {
   note: string;         // max 100 char
   wallet_id?: number | null;
   wallet_name?: string | null;
+  tags?: string[];
   created_at: string;   // "YYYY-MM-DD HH:MM:SS"
 }
 
@@ -151,6 +152,42 @@ export interface TodayAllowance {
   reserved_bills: number;       // unpaid bills due before payday, set aside first
 }
 
+export interface Debt {
+  id: number;
+  person: string;
+  direction: 'owed_to_me' | 'i_owe';
+  amount: number;
+  note: string;
+  settled: boolean;
+}
+
+export interface DebtSummary {
+  owed_to_me: number;
+  i_owe: number;
+  people: { person: string; owed_to_me: number; i_owe: number }[];
+}
+
+export interface Challenge {
+  id: number;
+  kind: 'no_spend' | 'limit' | 'streak';
+  category: string | null;
+  target_amount: number | null;
+  start_date: string;
+  end_date: string;
+  status: 'active' | 'done' | 'failed' | 'cancelled';
+  days_total: number;
+  days_elapsed: number;
+  spent: number;
+  logged_days: number;
+}
+
+export interface BudgetSuggestion {
+  category: string;
+  average: number;
+  suggested: number;
+  current: number | null;
+}
+
 export interface Bill {
   id: number;
   name: string;
@@ -196,6 +233,8 @@ export interface InsightsResponse {
   balance: { income: number; expense: number; opening: number; net: number };  // all time
   wallets: Wallet[];
   bills: Bill[];
+  debts: DebtSummary;
+  challenges: Challenge[];
   month_to_date: { income: number; expense: number; count: number; net: number };
   previous_month_same_period: { expense: number };
   expense_change_pct: number | null;

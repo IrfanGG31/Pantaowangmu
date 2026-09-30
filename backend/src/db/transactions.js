@@ -1,7 +1,29 @@
 import db from './connection.js';
-import { getDateStr, getDayRange, getMonthRange, getMonthStr } from '../utils/formatter.js';
+import { getDateStr, getDayRange, getMonthRange, getMonthStr, toSqlDateTime } from '../utils/formatter.js';
 
 // created_at is UTC; local day/month ranges are converted to UTC bounds before comparing.
+
+export const MAX_TAGS = 5;
+
+/** Lowercase tags of letters, digits, "-" or "_" (max 30 chars), without "#", deduplicated, at most MAX_TAGS. */
+export function normalizeTags(tags = []) {
+  const out = [];
+  for (const t of Array.isArray(tags) ? tags : []) {
+    const clean = String(t ?? '').toLowerCase().replace(/^#/, '').trim();
+    if (/^[\p{L}\p{N}][\p{L}\p{N}_-]{0,29}$/u.test(clean) && !out.includes(clean)) out.push(clean);
+  }
+  return out.slice(0, MAX_TAGS);
+}
+
+// Stored as ",kantor,bali," so one tag can be matched with LIKE '%,tag,%'.
+const serializeTags = (tags) => {
+  const list = normalizeTags(tags);
+  return list.length ? `,${list.join(',')},` : null;
+};
+
+function withTags(row) {
+  return { ...row, tags: row.tags ? String(row.tags).split(',').filter(Boolean) : [] };
+}
 const IN_RANGE = 'datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)';
 
 /**
@@ -13,7 +35,7 @@ const IN_RANGE = 'datetime(created_at) >= datetime(?) AND datetime(created_at) <
  * @param {string} [note='']
  * @returns {Object} Created transaction
  */
-export function createTransaction(userId, type, amount, category, note = '', walletId = null) {
+export function createTransaction(userId, type, amount, category, note = '', walletId = null, tags = []) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
   const cleanNote = String(note || '').trim();
@@ -21,11 +43,12 @@ export function createTransaction(userId, type, amount, category, note = '', wal
   const wallet = Number.isInteger(walletId) && walletId > 0 ? walletId : null;
 
   const stmt = db.prepare(`
-    INSERT INTO transactions (user_id, type, amount, category, note, wallet_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO transactions (user_id, type, amount, category, note, wallet_id, tags, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const result = stmt.run(uid, type, cleanAmount, cleanCat, cleanNote, wallet);
+  // Same UTC format as SQLite's datetime('now'), taken from the app clock so all time math uses one source.
+  const result = stmt.run(uid, type, cleanAmount, cleanCat, cleanNote, wallet, serializeTags(tags), toSqlDateTime(new Date()));
   return getTransactionById(uid, result.lastInsertRowid);
 }
 
@@ -56,6 +79,12 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
     params.push(start, end);
   }
 
+  const tag = normalizeTags([filters.tag])[0];
+  if (tag) {
+    whereClauses.push('tags LIKE ?');
+    params.push(`%,${tag},%`);
+  }
+
   if (filters.date && /^\d{4}-\d{2}-\d{2}$/.test(filters.date)) {
     const { start, end } = getDayRange(filters.date);
     whereClauses.push(IN_RANGE);
@@ -69,14 +98,14 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
   const total = countRow ? countRow.count : 0;
 
   const dataStmt = db.prepare(`
-    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.created_at
+    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
     FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
     WHERE ${whereSql.replace(/\b(user_id|type|created_at)\b/g, 't.$1')}
     ORDER BY t.created_at DESC, t.id DESC
     LIMIT ? OFFSET ?
   `);
 
-  const data = dataStmt.all(...params, limit, offset) || [];
+  const data = (dataStmt.all(...params, limit, offset) || []).map(withTags);
   return { data, total };
 }
 
@@ -89,12 +118,12 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
 export function getTransactionById(userId, id) {
   const uid = String(userId);
   const stmt = db.prepare(`
-    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.created_at
+    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
     FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
     WHERE t.id = ? AND t.user_id = ?
   `);
   const row = stmt.get(parseInt(id, 10), uid);
-  return row || null;
+  return row ? withTags(row) : null;
 }
 
 /**
@@ -235,12 +264,12 @@ export function getUserExpenseThisMonth(userId, category, month) {
 export function getAllTransactions(userId) {
   const uid = String(userId);
   const stmt = db.prepare(`
-    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.created_at
+    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
     FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
     WHERE t.user_id = ?
     ORDER BY t.created_at DESC, t.id DESC
   `);
-  return stmt.all(uid) || [];
+  return (stmt.all(uid) || []).map(withTags);
 }
 
 /**
@@ -259,4 +288,24 @@ export function getBalance(userId) {
   const expense = Number(row?.expense || 0);
   const opening = Number(db.prepare('SELECT COALESCE(SUM(opening_balance), 0) AS n FROM wallets WHERE user_id = ?').get(String(userId)).n);
   return { income, expense, opening, net: opening + income - expense };
+}
+
+/**
+ * Totals per tag (optionally within a UTC range), biggest spending first.
+ * @returns {Array<{ tag: string, expense: number, income: number, count: number }>}
+ */
+export function tagSummary(userId, start = null, end = null) {
+  const range = start && end ? `AND ${IN_RANGE}` : '';
+  const rows = db.prepare(`SELECT type, amount, tags FROM transactions WHERE user_id = ? AND tags IS NOT NULL ${range}`)
+    .all(String(userId), ...(start && end ? [start, end] : []));
+  const totals = new Map();
+  for (const r of rows) {
+    for (const tag of String(r.tags).split(',').filter(Boolean)) {
+      const t = totals.get(tag) || { tag, expense: 0, income: 0, count: 0 };
+      t[r.type] += Number(r.amount);
+      t.count += 1;
+      totals.set(tag, t);
+    }
+  }
+  return [...totals.values()].sort((a, b) => b.expense - a.expense || b.count - a.count);
 }

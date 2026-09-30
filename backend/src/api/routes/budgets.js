@@ -7,7 +7,8 @@ import {
   getBudget,
   deleteBudget,
   deleteBudgetById,
-  getBudgetById
+  getBudgetById,
+  suggestBudgets
 } from '../../db/budgets.js';
 import { validateBudgetInput } from '../../utils/validator.js';
 import { isValidCategory } from '../../db/categories.js';
@@ -29,6 +30,32 @@ router.get('/', (req, res, next) => {
       month,
       data
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /suggestions — budget suggestions from the last 3 months.
+ */
+router.get('/suggestions', (req, res, next) => {
+  try {
+    res.json(suggestBudgets(req.user.user_id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /suggestions/apply — { categories?: string[] }: sets this month's budgets to the suggestions (all when omitted).
+ */
+router.post('/suggestions/apply', (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+    const wanted = Array.isArray(req.body?.categories) ? req.body.categories.map((c) => String(c).toLowerCase()) : null;
+    const picked = suggestBudgets(userId).data.filter((s) => !wanted || wanted.includes(s.category));
+    const month = getMonthStr();
+    res.json({ month, data: picked.map((s) => setBudget(userId, s.category, s.suggested, month)) });
   } catch (err) {
     next(err);
   }

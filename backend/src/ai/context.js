@@ -1,10 +1,12 @@
 // Plain-text snapshot of one user's finances and profile for the assistant. Only this user's own data.
-import { getTodaySummary, getStatsByCategory, getTransactionsByUser, getBalance } from '../db/transactions.js';
+import { getTodaySummary, getStatsByCategory, getTransactionsByUser, getBalance, tagSummary } from '../db/transactions.js';
 import { getBudgetsByUser } from '../db/budgets.js';
 import { getMemory, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
 import { listCategories, listKeywords } from '../db/categories.js';
 import { listWallets } from '../db/wallets.js';
 import { listBills } from '../db/bills.js';
+import { debtSummary } from '../db/debts.js';
+import { listChallenges, challengeTitle } from '../db/challenges.js';
 import { computeInsights, insightsText } from './insights.js';
 import {
   formatRupiah,
@@ -69,6 +71,16 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
     : 'belum pakai dompet (fitur opsional)';
   const keywords = listKeywords(userId);
   const balance = getBalance(userId);
+  const debts = debtSummary(userId);
+  const debtLine = debts.people.length
+    ? debts.people.map((d) => `${d.person}${d.owed_to_me ? ` utang ke pengguna ${formatRupiah(d.owed_to_me)}` : ''}${d.i_owe ? ` (pengguna utang ${formatRupiah(d.i_owe)})` : ''}`).join('; ')
+    : 'tidak ada';
+  const challenges = listChallenges(userId, {}, now);
+  const challengeLine = challenges.length
+    ? challenges.map((c) => `${challengeTitle(c, formatRupiah)} [${c.status}, hari ${c.days_elapsed}/${c.days_total}${c.kind === 'limit' ? `, terpakai ${formatRupiah(c.spent)}` : ''}]`).join('; ')
+    : 'tidak ada';
+  const tags = tagSummary(userId).slice(0, 8);
+  const tagLine = tags.length ? tags.map((t) => `#${t.tag} keluar ${formatRupiah(t.expense)}`).join(', ') : 'belum ada';
   const bills = listBills(userId);
   const billLines = bills.length
     ? bills.map((b) => `${b.name} ${formatRupiah(b.amount)} tgl ${b.day_of_month} (${b.paid_this_month ? 'lunas bulan ini' : b.days_until < 0 ? `lewat ${-b.days_until} hari` : `${b.days_until} hari lagi`})`).join('; ')
@@ -85,6 +97,9 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
     `Dompet: ${walletLines}`,
     `Tagihan rutin bulanan: ${billLines}`,
     `Pengingat harian: ${p.reminder_time === 'off' ? 'mati' : p.reminder_time || '21:00 (default)'}; pengingat pintar: ${p.smart_nudge ? 'aktif' : 'mati'}`,
+    `Utang-piutang terbuka: ${debtLine}`,
+    `Tantangan: ${challengeLine}`,
+    `Tag teratas: ${tagLine}`,
     `Sisa saldo total (saldo awal dompet + semua pemasukan − pengeluaran tercatat): ${signedRupiah(balance.net)}`,
     `Profil keuangan: penghasilan ${p.monthly_income ? `${formatRupiah(p.monthly_income)}/bulan` : 'belum diketahui'}, gajian ${p.payday ? `tanggal ${p.payday}` : 'belum diketahui'}${missing.length ? ` (profil belum lengkap: ${missing.join(', ')})` : ''}`,
     `Ingatan tentang pengguna:\n${factLines}`,

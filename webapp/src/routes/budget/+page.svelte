@@ -11,7 +11,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    budgetsApi, formatRupiah, currentMonth,
+    budgetsApi, budgetSuggestionsApi, formatRupiah, currentMonth,
     ApiError,
   } from '$lib/api.js';
   import {
@@ -19,7 +19,7 @@
     showDestructivePopup, showAlert,
   } from '$lib/telegram.js';
   import { invalidateBudgets, showToast, categoryIcons, visibleCategories } from '$lib/stores.js';
-  import type { Budget } from '$lib/types.js';
+  import type { Budget, BudgetSuggestion } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
   let month = currentMonth();
@@ -38,9 +38,39 @@
   // ── Lifecycle ──────────────────────────────────────────────────
   let cleanupBack: (() => void) | null = null;
 
+  // Budget suggestions from the last 3 months ("Saran Panta")
+  let suggestions: BudgetSuggestion[] = [];
+  let applying = false;
+
+  async function loadSuggestions() {
+    try {
+      suggestions = (await budgetSuggestionsApi.list()).data.slice(0, 6);
+    } catch {
+      suggestions = [];
+    }
+  }
+
+  async function applySuggestions(categories?: string[]) {
+    if (applying) return;
+    applying = true;
+    try {
+      await budgetSuggestionsApi.apply(categories);
+      haptic('success');
+      showToast('Budget dari saran Panta disimpan', 'success');
+      invalidateBudgets();
+      await Promise.all([loadData(), loadSuggestions()]);
+    } catch (e: unknown) {
+      haptic('error');
+      showToast(e instanceof ApiError ? e.message : 'Gagal menyimpan', 'error');
+    } finally {
+      applying = false;
+    }
+  }
+
   onMount(() => {
     cleanupBack = setupBackButton(() => goto('/'));
     loadData();
+    loadSuggestions();
   });
 
   onDestroy(() => {
@@ -175,6 +205,27 @@
   </div>
 
   <!-- Add form (inline accordion) -->
+  {#if suggestions.length && month === currentMonth()}
+    <section class="card mb-4 suggest" aria-labelledby="suggest-title">
+      <div class="flex justify-between items-center gap-2 mb-2">
+        <div id="suggest-title" class="font-bold">💡 Saran Panta</div>
+        <button class="btn btn-primary btn-sm" disabled={applying} on:click={() => applySuggestions()}>Pakai semua</button>
+      </div>
+      <div class="text-hint text-sm mb-2">Dari rata-rata 3 bulan terakhir, dihemat 10%.</div>
+      {#each suggestions as sg (sg.category)}
+        <div class="suggest-row">
+          <div class="min-w-0">
+            <div class="truncate font-medium">{$categoryIcons[sg.category] ?? '📦'} {sg.category}</div>
+            <div class="text-hint text-sm tabular">rata-rata {formatRupiah(sg.average)}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm tabular" disabled={applying} on:click={() => applySuggestions([sg.category])}>
+            {sg.current === sg.suggested ? '✓ ' : ''}{formatRupiah(sg.suggested)}
+          </button>
+        </div>
+      {/each}
+    </section>
+  {/if}
+
   {#if showForm}
     <div
       class="card mb-4"
@@ -324,6 +375,16 @@
 </main>
 
 <style>
+  .min-w-0 { min-width: 0; }
+  .suggest-row .btn { border: 1px solid var(--tg-link); color: var(--tg-link); background: transparent; }
+  .suggest-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+  }
+
   .deleting {
     opacity: 0.45;
     pointer-events: none;

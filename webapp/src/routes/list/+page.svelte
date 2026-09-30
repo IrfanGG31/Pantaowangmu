@@ -267,7 +267,7 @@
               {#if tx.note}
                 <div class="tx-meta truncate">{tx.note}</div>
               {/if}
-              <div class="tx-meta">{formatDate(tx.created_at)}{tx.wallet_name ? ` · 👛 ${tx.wallet_name}` : ''}</div>
+              <div class="tx-meta">{formatDate(tx.created_at)}{tx.wallet_name ? ` · 👛 ${tx.wallet_name}` : ''}{tx.tags?.length ? ` · ${tx.tags.map((t) => `#${t}`).join(' ')}` : ''}</div>
             </div>
             <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
               <div

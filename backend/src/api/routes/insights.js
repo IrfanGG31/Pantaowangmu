@@ -6,6 +6,8 @@ import { getBudgetsByUser } from '../../db/budgets.js';
 import { getBalance } from '../../db/transactions.js';
 import { listWallets, expenseByWallet } from '../../db/wallets.js';
 import { listBills } from '../../db/bills.js';
+import { debtSummary } from '../../db/debts.js';
+import { listChallenges } from '../../db/challenges.js';
 import { computeInsights, todayAllowance, buildTips } from '../../ai/insights.js';
 import { getMonthStr, getMonthRange, toSqlDateTime } from '../../utils/formatter.js';
 
@@ -42,6 +44,8 @@ router.get('/', (req, res, next) => {
       wallets: wallets.map(({ id, name, kind, balance, is_default }) => ({ id, name, kind, balance, is_default })),
       wallet_spend_month: walletSpend,
       bills,
+      debts: debtSummary(userId),
+      challenges: listChallenges(userId, {}, now),
       today_allowance: today,
       budget_watch: budgetWatch,
       tips: buildTips(ins, { today, budget: budgetWatch, walletSpend, bills })

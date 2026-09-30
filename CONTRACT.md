@@ -198,6 +198,23 @@ kategori yang tidak ada → 400.
   disisihkan dulu dari jatah harian).
 - `PATCH /me/profile` menerima `reminder_time` (`"HH:MM"` | `"off"` | `null` = 21:00) dan `smart_nudge` (boolean).
 
+### Tag, utang-piutang, saran budget, tantangan
+
+- Tag: `POST /transactions` menerima `tags: string[]` (maks 5; huruf/angka/"-"/"_", tanpa "#", disimpan lowercase).
+  `Transaction.tags: string[]`. `GET /transactions?tag=bali`. `GET /transactions/tags?month=YYYY-MM` → `{ data: [{ tag, expense, income, count }] }`.
+- Utang-piutang (buku terpisah, **tidak mengubah Sisa saldo**):
+  `GET /debts` → `{ data: Debt[], summary: { owed_to_me, i_owe, people[] } }`; `Debt = { id, person, direction: 'owed_to_me'|'i_owe', amount, note, settled }`.
+  `POST /debts` `{ person, direction, amount, note? }`; `POST /debts/:id/settle` (409 bila sudah lunas);
+  `POST /debts/split` `{ total, people, names?, category?, note?, wallet_id? }` → bagian pengguna dicatat sebagai pengeluaran,
+  sisanya jadi piutang (sisa pembulatan ikut bagian pengguna) → `{ transaction, data, summary }`.
+- Saran budget: `GET /budgets/suggestions` → `{ months, data: [{ category, average, suggested, current }] }` (rata-rata 3 bulan
+  penuh terakhir yang ada pengeluarannya, dihemat 10%, dibulatkan ke Rp 10.000; rata-rata < Rp 20.000 dilewati).
+  `POST /budgets/suggestions/apply` `{ categories?: string[] }` → budget bulan ini.
+- Tantangan: `GET /challenges` → `{ data: Challenge[] }` (aktif + yang selesai ≤ 7 hari); `Challenge = { id, kind: 'no_spend'|'limit'|'streak',
+  category, target_amount, start_date, end_date, status: 'active'|'done'|'failed', days_total, days_elapsed, spent, logged_days }`.
+  `POST /challenges` `{ kind, category?, days? (1–90), target_amount? (wajib untuk limit) }` (maks 3 aktif); `DELETE /challenges/:id`.
+- `GET /insights` menambah `debts` (summary) dan `challenges`.
+
 ---
 
 ### Misc

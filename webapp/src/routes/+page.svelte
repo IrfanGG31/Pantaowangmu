@@ -10,7 +10,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    transactionsApi, meApi, insightsApi, billsApi, ApiError,
+    transactionsApi, meApi, insightsApi, billsApi, debtsApi, challengesApi, ApiError,
     formatRupiah, formatRupiahShort, formatTime, formatCalendarDate, WALLET_KIND_EMOJI, } from '$lib/api.js';
   import { getTelegramUser, setupMainButton, haptic } from '$lib/telegram.js';
   import { txRevision, categoryIcons, wallets, loadWallets } from '$lib/stores.js';
@@ -18,7 +18,7 @@
   import IncomeSheet from '$lib/components/IncomeSheet.svelte';
   import WalletSheet from '$lib/components/WalletSheet.svelte';
   import BillSheet from '$lib/components/BillSheet.svelte';
-  import type { Summary, Transaction, MeResponse, InsightsResponse, Bill } from '$lib/types.js';
+  import type { Summary, Transaction, MeResponse, InsightsResponse, Bill, Challenge } from '$lib/types.js';
   import { showToast } from '$lib/stores.js';
 
   let summary: Summary | null = null;
@@ -128,6 +128,39 @@
   $: goals = (insights?.goals ?? []).slice(0, 2);
 
   $: bills = (insights?.bills ?? []).slice(0, 4);
+  $: challenges = insights?.challenges ?? [];
+  $: debts = insights?.debts ?? null;
+  let busy = false;
+
+  function challengeTitle(c: Challenge): string {
+    const cat = c.category ?? 'apa pun';
+    if (c.kind === 'no_spend') return `🚫 Tanpa jajan ${cat} ${c.days_total} hari`;
+    if (c.kind === 'limit') return `💰 Hemat ${c.category ?? 'semua'} maks ${formatRupiahShort(c.target_amount ?? 0)}`;
+    return `🔥 Catat tiap hari ${c.days_total} hari`;
+  }
+
+  async function act(fn: () => Promise<unknown>, ok: string) {
+    if (busy) return;
+    busy = true;
+    try {
+      await fn();
+      haptic('success');
+      showToast(ok, 'success');
+      loadData();
+    } catch (e: unknown) {
+      haptic('error');
+      showToast(e instanceof ApiError ? e.message : 'Gagal, coba lagi', 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  const startChallenge = (kind: Challenge['kind'], category: string | null, days: number) =>
+    act(() => challengesApi.start({ kind, category, days }), 'Tantangan dimulai. Semangat!');
+  const settleDebt = (id: number, person: string) => act(() => debtsApi.settle(id), `${person} lunas`);
+  let openDebts: import('$lib/types.js').Debt[] = [];
+  $: if (debts && (debts.owed_to_me || debts.i_owe)) debtsApi.list().then((r) => (openDebts = r.data.slice(0, 4))).catch(() => {});
+  $: if (debts && !debts.owed_to_me && !debts.i_owe) openDebts = [];
 
   function billDue(b: Bill): string {
     if (b.paid_this_month) return `Lunas · berikutnya ${formatCalendarDate(b.due_date)}`;
@@ -363,6 +396,60 @@
       {:else}
         <div class="card goal-empty mb-4">
           Kos, cicilan, atau langganan? Simpan sekali, Panta ingatkan tiap bulan. Bisa juga lewat chat: <em>“kos 1,5jt tiap tanggal 5”</em>.
+        </div>
+      {/if}
+
+      <!-- Challenges -->
+      <div class="section-title">Tantangan</div>
+      {#if challenges.length}
+        <div class="card card-list mb-4">
+          {#each challenges as c (c.id)}
+            <div class="goal">
+              <div class="flex justify-between items-center gap-2">
+                <div class="font-semibold truncate">{challengeTitle(c)}</div>
+                <div class="text-sm font-semibold" class:text-income={c.status === 'done'} class:text-expense={c.status === 'failed'}>
+                  {c.status === 'done' ? '🎉 Berhasil' : c.status === 'failed' ? 'Gagal' : `Hari ${c.days_elapsed}/${c.days_total}`}
+                </div>
+              </div>
+              {#if c.kind === 'limit' && c.target_amount}
+                <ProgressBar percentage={(c.spent / c.target_amount) * 100} height={6} label="Terpakai {Math.round((c.spent / c.target_amount) * 100)}%" />
+                <div class="text-hint text-sm tabular">Terpakai {formatRupiahShort(c.spent)} dari {formatRupiahShort(c.target_amount)}</div>
+              {:else}
+                <ProgressBar percentage={(c.days_elapsed / c.days_total) * 100} height={6} color={c.status === 'failed' ? 'var(--tg-destructive)' : 'var(--c-success)'} label="Hari {c.days_elapsed} dari {c.days_total}" />
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="card mb-4 challenge-empty">
+          <div class="text-hint text-sm mb-2">Mulai tantangan kecil, Panta yang pantau:</div>
+          <div class="chip-group">
+            <button class="chip" disabled={busy} on:click={() => startChallenge('no_spend', 'makan', 7)}>🚫 No jajan 7 hari</button>
+            <button class="chip" disabled={busy} on:click={() => startChallenge('streak', null, 30)}>🔥 Catat tiap hari 30 hari</button>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Debts -->
+      {#if debts && (debts.owed_to_me || debts.i_owe)}
+        <div class="section-title">Utang-piutang</div>
+        <div class="card card-list mb-4">
+          <div class="debt-head text-sm">
+            {#if debts.owed_to_me}<span>⬅️ Piutang <strong class="tabular">{formatRupiahShort(debts.owed_to_me)}</strong></span>{/if}
+            {#if debts.i_owe}<span>➡️ Utang <strong class="tabular">{formatRupiahShort(debts.i_owe)}</strong></span>{/if}
+          </div>
+          {#each openDebts as d (d.id)}
+            <div class="bill">
+              <div class="bill-body">
+                <div class="font-semibold truncate">{d.person}</div>
+                <div class="text-sm text-hint truncate">{d.direction === 'owed_to_me' ? 'utang ke kamu' : 'kamu utang'}{d.note ? ` · ${d.note}` : ''}</div>
+              </div>
+              <div class="bill-side">
+                <div class="font-bold tabular">{formatRupiahShort(d.amount)}</div>
+                <button class="btn btn-secondary btn-sm bill-pay" disabled={busy} on:click={() => settleDebt(d.id, d.person)}>Lunas</button>
+              </div>
+            </div>
+          {/each}
         </div>
       {/if}
 
@@ -672,6 +759,14 @@
   .bill-body { flex: 1; min-width: 0; }
   .bill-side { display: flex; align-items: center; gap: 10px; }
   .bill-pay { min-height: 36px; }
+
+  .challenge-empty .chip { min-height: 40px; }
+  .debt-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding-bottom: 8px;
+  }
 
   /* Goals */
   .goal { display: grid; gap: 6px; padding: 10px 0; }

@@ -47,6 +47,10 @@ const transactionSchema = Joi.object({
   }),
   wallet_id: Joi.number().integer().min(1).allow(null).optional().messages({
     'number.base': 'wallet_id harus berupa angka'
+  }),
+  tags: Joi.array().items(Joi.string().trim().lowercase().pattern(/^#?[\p{L}\p{N}][\p{L}\p{N}_-]{0,29}$/u)).max(5).optional().messages({
+    'array.max': 'Maksimal 5 tag',
+    'string.pattern.base': 'Tag hanya huruf, angka, "-" atau "_" (maks 30)'
   })
 });
 

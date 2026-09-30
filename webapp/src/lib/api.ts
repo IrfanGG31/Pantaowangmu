@@ -27,6 +27,10 @@ import type {
   WalletKind,
   TxType,
   Bill,
+  Debt,
+  DebtSummary,
+  Challenge,
+  BudgetSuggestion,
 } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -132,6 +136,7 @@ export const transactionsApi = {
     category: string;
     note?: string;
     wallet_id?: number | null;   // omitted = the default wallet (if any)
+    tags?: string[];
   }): Promise<TransactionCreateResponse> {
     return request<TransactionCreateResponse>('POST', '/transactions', data);
   },
@@ -255,6 +260,33 @@ export const billsApi = {
   },
   remove(id: number): Promise<{ success: boolean }> {
     return request('DELETE', `/bills/${id}`);
+  },
+};
+
+export const debtsApi = {
+  list(signal?: AbortSignal): Promise<{ data: Debt[]; summary: DebtSummary }> {
+    return request('GET', '/debts', undefined, signal);
+  },
+  settle(id: number): Promise<{ data: Debt[]; summary: DebtSummary }> {
+    return request('POST', `/debts/${id}/settle`, {});
+  },
+};
+
+export const challengesApi = {
+  start(data: { kind: Challenge['kind']; category?: string | null; days?: number; target_amount?: number | null }): Promise<{ data: Challenge }> {
+    return request('POST', '/challenges', data);
+  },
+  cancel(id: number): Promise<{ success: boolean }> {
+    return request('DELETE', `/challenges/${id}`);
+  },
+};
+
+export const budgetSuggestionsApi = {
+  list(signal?: AbortSignal): Promise<{ months: string[]; data: BudgetSuggestion[] }> {
+    return request('GET', '/budgets/suggestions', undefined, signal);
+  },
+  apply(categories?: string[]): Promise<{ month: string; data: Budget[] }> {
+    return request('POST', '/budgets/suggestions/apply', categories ? { categories } : {});
   },
 };
 

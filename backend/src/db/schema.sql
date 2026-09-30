@@ -261,3 +261,35 @@ CREATE TABLE IF NOT EXISTS nudge_log (
   created_at DATETIME DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, date, kind)
 );
+
+-- Debts and receivables (split bills, lending). A separate ledger: it never changes "Sisa saldo";
+-- a split bill records only the user's own share as spending.
+CREATE TABLE IF NOT EXISTS debts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  person TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK(direction IN ('owed_to_me', 'i_owe')),
+  amount INTEGER NOT NULL CHECK(amount > 0 AND amount <= 999999999),
+  note TEXT DEFAULT '',
+  settled INTEGER NOT NULL DEFAULT 0,
+  source_tx_id INTEGER,
+  created_at DATETIME DEFAULT (datetime('now')),
+  settled_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_debts_user ON debts(user_id, settled);
+
+-- Personal challenges: no_spend (nothing in a category), limit (spend at most X), streak (log every day)
+CREATE TABLE IF NOT EXISTS challenges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('no_spend', 'limit', 'streak')),
+  category TEXT,
+  target_amount INTEGER,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'done', 'failed', 'cancelled')),
+  created_at DATETIME DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_challenges_user ON challenges(user_id, status);
