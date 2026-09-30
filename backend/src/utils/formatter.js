@@ -66,7 +66,7 @@ export function getTimeZone() {
 // SQLite datetime('now') values ("YYYY-MM-DD HH:MM:SS") are UTC but carry no zone marker.
 const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
-function toDate(date) {
+export function toDate(date) {
   if (typeof date === 'string' && SQL_DATETIME.test(date)) {
     return new Date(`${date.replace(' ', 'T')}Z`);
   }

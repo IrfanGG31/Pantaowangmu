@@ -168,8 +168,8 @@ describe('Finance Bot Backend — Comprehensive Test Suite', () => {
       const sample = [
         { id: 1, created_at: '2026-08-30 10:00:00', type: 'expense', amount: 25000, category: 'makan', note: 'siang, padang' }
       ];
-      const csv = generateTransactionsCSV(sample);
-      expect(csv).toContain('id,date,type,amount,category,note');
+      const csv = generateTransactionsCSV(sample, { delimiter: ',' });
+      expect(csv).toContain('id,date,time,month,weekday,type,category,amount,signed_amount,note,created_at_utc');
       expect(csv).toContain('"siang, padang"');
     });
 

@@ -14,7 +14,7 @@ import {
 import { getBudget } from '../../db/budgets.js';
 import { validateTransactionInput, validatePeriod } from '../../utils/validator.js';
 import { getMonthStr, getStartOfWeek, getStartOfMonth, formatRupiah } from '../../utils/formatter.js';
-import { generateTransactionsCSV } from '../../utils/csv.js';
+import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
 
 const router = Router();
 
@@ -119,7 +119,7 @@ router.get('/stats', (req, res, next) => {
 router.get('/export', (req, res, next) => {
   try {
     const rows = getAllTransactions(req.user.user_id);
-    const csv = generateTransactionsCSV(rows);
+    const csv = generateTransactionsCSV(rows, { delimiter: delimiterFromQuery(req.query.delimiter) });
     const month = getMonthStr();
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
