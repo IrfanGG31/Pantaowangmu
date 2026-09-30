@@ -1,3 +1,7 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -16,17 +20,60 @@ export const logger = pino({
   } : undefined
 });
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+const webappDir = path.resolve(
+  process.env.WEBAPP_BUILD_DIR ||
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../webapp/build')
+);
+const webappIndex = path.join(webappDir, 'index.html');
+const hasWebapp = fs.existsSync(webappIndex);
+
+// SvelteKit writes an inline bootstrap <script> into index.html; allow exactly that script by hash.
+function inlineScriptHashes(htmlFile) {
+  if (!hasWebapp) return [];
+  const html = fs.readFileSync(htmlFile, 'utf8');
+  return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(
+    ([, body]) => `'sha256-${crypto.createHash('sha256').update(body).digest('base64')}'`
+  );
+}
+
 const app = express();
 
-// Security headers
+// Railway terminates TLS at one proxy hop; needed for correct req.ip in rate limiting.
+app.set('trust proxy', 1);
+
+// Security headers. The Mini App is framed by Telegram Web, so X-Frame-Options must be off
+// and frame-ancestors must list Telegram's origins instead.
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  frameguard: false,
+  contentSecurityPolicy: {
+    directives: {
+      'script-src': ["'self'", 'https://telegram.org', ...inlineScriptHashes(webappIndex)],
+      'connect-src': ["'self'"],
+      'frame-ancestors': ["'self'", 'https://web.telegram.org', 'https://*.telegram.org']
+    }
+  }
 }));
 
-// CORS configuration
-const corsOrigin = process.env.WEBAPP_URL
-  ? [process.env.WEBAPP_URL, 'http://localhost:5173', 'https://web.telegram.org']
-  : '*';
+// CORS configuration. The Mini App is served from this same origin, so production never needs '*'.
+let webappOrigin = null;
+if (process.env.WEBAPP_URL) {
+  try {
+    webappOrigin = new URL(process.env.WEBAPP_URL).origin;
+  } catch {
+    logger.warn('[Server] WEBAPP_URL is not a valid URL (expected https://...); CORS allows same-origin only.');
+  }
+}
+let corsOrigin;
+if (isProduction) {
+  corsOrigin = webappOrigin ? [webappOrigin] : false;
+} else {
+  corsOrigin = process.env.WEBAPP_URL
+    ? [process.env.WEBAPP_URL, 'http://localhost:5173', 'https://web.telegram.org']
+    : '*';
+}
 
 app.use(cors({
   origin: corsOrigin,
@@ -57,6 +104,30 @@ app.use(['/health', '/api/health'], healthRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/budgets', budgetsRouter);
 app.use('/api/export', exportRouter);
+
+// Mini App (static SPA build). Mounted after the API so /api/* never falls through to index.html.
+if (hasWebapp) {
+  app.use(express.static(webappDir, {
+    setHeaders(res, filePath) {
+      if (filePath.includes(`${path.sep}_app${path.sep}immutable${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    }
+  }));
+
+  app.get('*', (req, res, next) => {
+    const isApiPath = req.path === '/api' || req.path.startsWith('/api/') ||
+      req.path === '/health' || req.path.startsWith('/health/');
+    // Paths with a file extension are missing assets: let them 404 instead of returning HTML.
+    if (isApiPath || path.extname(req.path)) return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(webappIndex);
+  });
+} else {
+  logger.warn({ webappDir }, '[Server] Mini App build not found; serving API only.');
+}
 
 // 404 handler
 app.use((req, res) => {

@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { registerHandlers } from './commands.js';
+import { BOT_COMMANDS } from './commandList.js';
 import { startScheduler } from './scheduler.js';
 import { logger } from '../api/server.js';
 
@@ -25,17 +26,7 @@ export async function initBot() {
     registerHandlers(bot);
 
     // Register BotFather commands list
-    bot.setMyCommands([
-      { command: 'start', description: 'Mulai & buka Mini App' },
-      { command: 'catat', description: 'Catat transaksi: /catat <nominal> <kategori> [catatan]' },
-      { command: 'hari', description: 'Ringkasan transaksi hari ini' },
-      { command: 'minggu', description: 'Ringkasan transaksi 7 hari terakhir' },
-      { command: 'bulan', description: 'Ringkasan transaksi bulan ini' },
-      { command: 'budget', description: 'Atur batas budget bulanan: /budget <kategori> <nominal>' },
-      { command: 'hapus', description: 'Hapus transaksi terakhir' },
-      { command: 'export', description: 'Unduh riwayat transaksi CSV' },
-      { command: 'help', description: 'Panduan dan daftar perintah' }
-    ]).catch((err) => {
+    bot.setMyCommands(BOT_COMMANDS).catch((err) => {
       logger.warn({ err: err.message }, '[Bot] Failed to set bot commands with Telegram API');
     });
 
