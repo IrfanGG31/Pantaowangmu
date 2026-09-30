@@ -135,6 +135,8 @@ describe('GET /api/insights', () => {
     expect(res.body.budget_watch).toEqual({ category: 'makan', amount: 300000, spent: 400000, remaining: -100000, percentage: 133 });
     expect(res.body.goals[0]).toMatchObject({ name: 'Laptop', progress_pct: 17, per_month: 1666667 });
     expect(res.body.month_to_date).toMatchObject({ expense: 400000 });
+    // All time: no income logged yet, 600.000 spent.
+    expect(res.body.balance).toEqual({ income: 0, expense: 600000, net: -600000 });
     expect(res.body.tips.length).toBeLessThanOrEqual(3);
     expect(res.body.tips[0]).toEqual({ kind: 'warning', text: 'Budget makan bulan ini sudah habis (133% terpakai).' });
   });

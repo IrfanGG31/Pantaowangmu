@@ -241,3 +241,20 @@ export function getAllTransactions(userId) {
   `);
   return stmt.all(uid) || [];
 }
+
+/**
+ * All-time recorded balance: every income minus every expense the user has logged.
+ * @param {string|number} userId
+ * @returns {{ income: number, expense: number, net: number }}
+ */
+export function getBalance(userId) {
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+      COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+    FROM transactions WHERE user_id = ?
+  `).get(String(userId));
+  const income = Number(row?.income || 0);
+  const expense = Number(row?.expense || 0);
+  return { income, expense, net: income - expense };
+}

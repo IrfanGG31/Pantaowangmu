@@ -2,8 +2,8 @@
   // webapp/src/routes/+page.svelte — Beranda: personal dashboard.
   //
   // UX decisions:
-  // - The hero answers one question: "how much can I still spend today?" (from income + payday).
-  //   Without an income it shows today's spending and invites the user to set it (bottom sheet).
+  // - The hero leads with the remaining balance (all recorded income − expenses), then today's spending and
+  //   income. With an income + payday it also shows today's safe-to-spend; without, it invites the user to set it.
   // - Account/insight calls are optional: if they fail, the page still shows today's summary and history.
   // - Numbers come from the server (GET /api/insights); the page only formats them.
 
@@ -110,6 +110,8 @@
     sub.plan_name;
   $: expiringSoon = !!sub && sub.state === 'active' && sub.days_left !== null && sub.days_left <= 3;
 
+  $: balanceNet = insights?.balance?.net ?? null;
+  $: shownBalance = balanceNet ?? summary?.balance ?? 0;
   $: allowance = insights?.today_allowance ?? null;
   $: over = !!allowance && allowance.left < 0;
   $: spentPct = allowance ? (allowance.allowance > 0 ? (allowance.spent / allowance.allowance) * 100 : 100) : 0;
@@ -189,57 +191,58 @@
       <button class="btn btn-primary mt-4" on:click={loadData}>Coba Lagi</button>
     </div>
   {:else}
-    <!-- Hero: safe to spend today -->
-    {#if allowance}
-      <section class="summary-card hero" aria-labelledby="hero-label">
-        <div class="hero-top">
-          <div id="hero-label" class="hero-label">
-            {over ? 'Lewat jatah hari ini' : 'Aman dibelanjakan hari ini'}
+    <!-- Hero: remaining balance first, then today's money flow and today's safe-to-spend -->
+    <section class="summary-card hero" aria-labelledby="hero-label">
+      <div id="hero-label" class="hero-label">{balanceNet === null ? 'Saldo hari ini' : 'Sisa saldo'}</div>
+      <div class="hero-amount tabular">
+        {shownBalance < 0 ? '−' : ''}{formatRupiah(Math.abs(shownBalance))}
+      </div>
+      {#if insights && insights.balance.income === 0 && insights.balance.expense > 0}
+        <div class="hero-note">Catat pemasukan (gaji, dll.) supaya sisa saldo akurat.</div>
+      {/if}
+
+      <div class="hero-today tabular">
+        <div>
+          <div class="hero-mini-label">Pengeluaran hari ini</div>
+          <div class="hero-today-value">−{formatRupiah(summary?.expense ?? 0)}</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="hero-mini-label">Pemasukan hari ini</div>
+          <div class="hero-today-value">+{formatRupiah(summary?.income ?? 0)}</div>
+        </div>
+      </div>
+
+      {#if allowance}
+        <div class="hero-allow">
+          <div class="hero-allow-top">
+            <span>{over ? 'Lewat jatah hari ini' : 'Aman dibelanjakan hari ini'}</span>
+            <strong class="tabular">{over ? '−' : ''}{formatRupiah(Math.abs(allowance.left))}</strong>
           </div>
-          <button class="hero-edit" on:click={openSheet}>Ubah gaji</button>
-        </div>
-        <div class="hero-amount tabular">
-          {over ? '−' : ''}{formatRupiah(Math.abs(allowance.left))}
-        </div>
-        <div
-          class="hero-track"
-          role="progressbar"
-          aria-label="Jatah hari ini terpakai"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.min(100, Math.round(spentPct))}
-        >
-          <div class="hero-fill" class:over style="width: {Math.min(100, spentPct)}%;"></div>
-        </div>
-        <div class="hero-sub tabular">
-          Terpakai {formatRupiah(allowance.spent)} dari jatah {formatRupiah(allowance.allowance)}
-        </div>
-        <div class="hero-foot tabular">
-          <div>
-            <div class="hero-foot-label">{allowance.next_payday ? 'Gajian' : 'Akhir bulan'}</div>
-            <div class="hero-foot-value">
-              {allowance.next_payday ? `${formatCalendarDate(allowance.next_payday)} · ` : ''}{daysLabel(allowance.days_left)}
-            </div>
+          <div
+            class="hero-track"
+            role="progressbar"
+            aria-label="Jatah hari ini terpakai"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.min(100, Math.round(spentPct))}
+          >
+            <div class="hero-fill" class:over style="width: {Math.min(100, spentPct)}%;"></div>
           </div>
-          <div style="text-align: right;">
-            <div class="hero-foot-label">Sisa siklus ini</div>
-            <div class="hero-foot-value">{formatRupiahShort(allowance.cycle_remaining)}</div>
+          <div class="hero-allow-sub tabular">
+            <span>
+              Jatah {formatRupiahShort(allowance.allowance)}/hari ·
+              {allowance.next_payday ? 'gajian' : 'akhir bulan'} {daysLabel(allowance.days_left)}
+            </span>
+            <button class="hero-link" on:click={openSheet}>Ubah gaji</button>
           </div>
         </div>
-      </section>
-    {:else}
-      <section class="summary-card hero" aria-labelledby="hero-label">
-        <div id="hero-label" class="hero-label">Pengeluaran hari ini</div>
-        <div class="hero-amount tabular">{formatRupiah(summary?.expense ?? 0)}</div>
-        <div class="hero-sub tabular">Pemasukan hari ini {formatRupiah(summary?.income ?? 0)}</div>
-        {#if insights}
-          <button class="hero-cta" on:click={openSheet}>
-            <span>Atur gaji untuk lihat jatah aman harian</span>
-            <span aria-hidden="true">→</span>
-          </button>
-        {/if}
-      </section>
-    {/if}
+      {:else if insights}
+        <button class="hero-cta" on:click={openSheet}>
+          <span>Atur gaji untuk lihat jatah aman harian</span>
+          <span aria-hidden="true">→</span>
+        </button>
+      {/if}
+    </section>
 
     <!-- Kata Panta -->
     {#if insights && insights.tips.length > 0}
@@ -409,31 +412,41 @@
 
   /* Hero */
   .hero { margin-bottom: 12px; }
-  .hero-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin: -6px -8px 0 0;
-  }
   .hero-label { font-size: 13px; opacity: 0.9; }
-  .hero-edit {
-    color: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 8px 10px;
-    min-height: 32px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.18);
-  }
   .hero-amount {
-    font-size: clamp(26px, 8.5vw, 34px);
+    font-size: clamp(28px, 9vw, 36px);
     font-weight: 800;
     letter-spacing: -0.5px;
     line-height: 1.15;
-    margin: 4px 0 12px;
+    margin-top: 2px;
     overflow-wrap: anywhere;
   }
+  .hero-note { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+  .hero-today {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  .hero-mini-label { font-size: 12px; opacity: 0.8; }
+  .hero-today-value { font-size: 17px; font-weight: 700; }
+  .hero-allow {
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .hero-allow-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .hero-allow-top strong { font-size: 17px; }
   .hero-track {
     height: 6px;
     border-radius: 3px;
@@ -447,17 +460,24 @@
     transition: width 0.5s ease;
   }
   .hero-fill.over { background: #ffc9c9; }
-  .hero-sub { font-size: 13px; opacity: 0.9; margin-top: 8px; }
-  .hero-foot {
+  .hero-allow-sub {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    gap: 8px;
+    font-size: 12px;
+    opacity: 0.9;
+    margin-top: 6px;
   }
-  .hero-foot-label { font-size: 11px; opacity: 0.8; }
-  .hero-foot-value { font-size: 14px; font-weight: 700; }
+  .hero-link {
+    flex-shrink: 0;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: underline;
+    padding: 10px 0 10px 8px;
+    margin: -10px 0;
+  }
   .hero-cta {
     display: flex;
     align-items: center;

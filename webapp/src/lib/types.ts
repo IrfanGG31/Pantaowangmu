@@ -135,6 +135,7 @@ export interface Tip {
 
 export interface InsightsResponse {
   today: string;
+  balance: { income: number; expense: number; net: number };  // all time
   month_to_date: { income: number; expense: number; count: number; net: number };
   previous_month_same_period: { expense: number };
   expense_change_pct: number | null;
