@@ -187,7 +187,7 @@ interface Summary {
 { error: string }
 ```
 
-HTTP status: 400 (validation), 401 (auth), 403 (langganan tidak aktif, `code: "subscription_inactive"`), 404 (not found), 500 (server)
+HTTP status: 400 (validation), 401 (auth), 403 (akun dinonaktifkan admin, `code: "subscription_inactive"`), 404 (not found), 500 (server)
 
 ---
 
@@ -205,4 +205,9 @@ Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
 | `GET /api/admin/overview?days=7..90` | `{ users, ai, transactions, daily[] }` (agregat) |
 | `GET /api/admin/users?search=&state=active\|expired\|suspended&plan=trial\|pro&limit=&offset=` | `{ total, data[] }` dengan `state`, `ai_daily_limit_effective`, `ai_calls_today`, `ai_calls_30d`, `ai_tokens_30d`, `tx_count_30d` |
 | `PATCH /api/admin/users/:user_id` | Salah satu/lebih: `plan`, `status`, `extend_days` (1..3650) **atau** `plan_expires_at` (`"never"` / tanggal), `ai_daily_limit` (0..10000 / `null` = default paket). Dicatat di audit log. |
+| `POST /api/admin/users/:user_id/payments` | `{ plan_id, days?, amount?, note? }`: catat pembayaran manual dan aktifkan paket (default durasi/harga dari paket) |
+| `GET /api/admin/plans`, `POST /api/admin/plans`, `PATCH /api/admin/plans/:id` | Paket: `name`, `price` (rupiah, `null` = tanya admin), `period_days`, `ai_daily_limit`, `receipt_monthly_limit`, `active` |
+| `GET /api/admin/vouchers`, `POST /api/admin/vouchers`, `PATCH /api/admin/vouchers/:code` | Buat `{ plan_id, count, days?, price?, max_uses?, expires_in_days?, note? }` → `{ codes }`; ubah `{ disabled }` |
+| `GET /api/admin/payments?limit=` | Riwayat pembayaran (voucher dan manual) |
+| `GET /api/admin/settings`, `PUT /api/admin/settings` | `{ payment_instructions }` (tampil di /langganan) |
 | `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |

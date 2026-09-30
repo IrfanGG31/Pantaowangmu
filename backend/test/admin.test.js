@@ -73,7 +73,8 @@ describe('Admin password and session', () => {
     const [payload, sig] = token.split('.');
     const forged = Buffer.from(JSON.stringify({ sub: EMAIL, exp: Date.now() + 1e12 })).toString('base64url');
     expect(readSession(`${forged}.${sig}`)).toBeNull();
-    expect(readSession(`${payload}.x${sig.slice(1)}`)).toBeNull();
+    const tampered = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
+    expect(readSession(`${payload}.${tampered}`)).toBeNull();
     expect(readSession(createSession(EMAIL, Date.now() - 13 * 3600 * 1000))).toBeNull();
   });
 });
@@ -148,7 +149,7 @@ describe('Admin API', () => {
 
     const cookie = await login();
     const { body } = await request(app).get('/api/admin/overview').set('Cookie', cookie);
-    expect(body.users).toMatchObject({ total: 3, active_access: 1, expired: 1, suspended: 1, active_today: 1, new_in_period: 3 });
+    expect(body.users).toMatchObject({ total: 3, active_access: 1, free: 1, suspended: 1, trial: 1, paying: 0, active_today: 1, new_in_period: 3 });
     expect(body.ai).toMatchObject({ calls_today: 2, calls: 2, errors: 1, prompt_tokens: 1000000, completion_tokens: 500000, avg_latency_ms: 800 });
     expect(body.ai.cost).toEqual({ amount: 3000, currency: 'IDR' });
     expect(body.ai.recent_errors[0]).toMatchObject({ http_status: 401, error: 'invalid key' });
@@ -194,15 +195,16 @@ describe('Subscription access', () => {
     expect(getAccess({ status: 'active', plan_expires_at: null }).allowed).toBe(true);
   });
 
-  it('TRIAL_DAYS=0 blocks new users in the Mini App API until an admin activates them', async () => {
+  it('TRIAL_DAYS=0 puts new users straight on the free tier; only suspended accounts get 403', async () => {
     process.env.TRIAL_DAYS = '0';
+    const free = await request(app).get('/api/transactions').set('x-dev-user-id', '55');
+    expect(free.status).toBe(200);
+    expect(getAccess(getUser('55'))).toMatchObject({ allowed: true, state: 'free', tier: 'free' });
+
+    db.prepare("UPDATE users SET status = 'suspended' WHERE user_id = '55'").run();
     const blocked = await request(app).get('/api/transactions').set('x-dev-user-id', '55');
     expect(blocked.status).toBe(403);
     expect(blocked.body.code).toBe('subscription_inactive');
-
-    const cookie = await login();
-    await request(app).patch('/api/admin/users/55').set('Cookie', cookie).send({ plan: 'pro', extend_days: 30 });
-    expect((await request(app).get('/api/transactions').set('x-dev-user-id', '55')).status).toBe(200);
   });
 
   it('blocks every bot path for suspended users and tells them their ID', async () => {

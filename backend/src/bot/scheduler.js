@@ -1,12 +1,13 @@
 import cron from 'node-cron';
 import { getAllUsers } from '../db/users.js';
-import { getAccess, hasAccess, aiDailyLimit, countAiCallsToday, recordAiUsage } from '../db/subscriptions.js';
+import { getAccess, hasAccess, getEntitlement, countAiCallsToday, recordAiUsage, TRIAL_PLAN } from '../db/subscriptions.js';
+import { takeDueNotices, listPlans } from '../db/billing.js';
 import { getMemory } from '../db/memory.js';
 import { getAiConfig, writeWeeklyReport } from '../ai/interpreter.js';
 import { buildUserContext } from '../ai/context.js';
 import { getUsersWithoutTransactionToday, markReminded } from '../db/reminders.js';
 import { getBudgetsByUser } from '../db/budgets.js';
-import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr } from '../utils/formatter.js';
+import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr, formatDateShort } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
 import { safeSendMessage } from '../utils/telegram.js';
 import { logger } from '../api/server.js';
@@ -73,6 +74,20 @@ Yuk catat pengeluaran atau pemasukanmu hari ini agar keuangan tetap terkontrol:
         }
       } catch (err) {
         logger.error({ err: err.message }, 'Weekly summary job error');
+      }
+    },
+    { timezone: TIMEZONE }
+  );
+
+  // ── Subscription reminders: every day at 10:00 WIB ────────────────────
+  cron.schedule(
+    '0 10 * * *',
+    async () => {
+      logger.info('[Scheduler] Running subscription reminders (10:00 WIB)...');
+      try {
+        await sendSubscriptionNotices(bot);
+      } catch (err) {
+        logger.error({ err: err.message }, 'Subscription reminder job error');
       }
     },
     { timezone: TIMEZONE }
@@ -145,14 +160,15 @@ export async function buildWeeklyReport(user, now = new Date(), { fetchImpl } = 
     .map((c) => `• ${c.category.charAt(0).toUpperCase() + c.category.slice(1)}: ${formatRupiah(c.total)}`)
     .join('\n');
 
-  if (getAiConfig() && countAiCallsToday(user.user_id) < aiDailyLimit(user)) {
+  const entitlement = getEntitlement(user, now);
+  if (getAiConfig() && entitlement.ai && countAiCallsToday(user.user_id) < entitlement.ai_daily_limit) {
     const week = [
       `Pemasukan ${formatRupiah(income)}, pengeluaran ${formatRupiah(expense)}, saldo ${income - expense < 0 ? '-' : ''}${formatRupiah(income - expense)}, ${count} transaksi`,
       `Per kategori: ${stats.map((c) => `${c.type === 'income' ? 'masuk' : 'keluar'} ${c.category} ${formatRupiah(c.total)}`).join('; ')}`
     ].join('\n');
     const text = await writeWeeklyReport(
       { context: buildUserContext(user.user_id, { first_name: user.first_name }, now), week },
-      { fetchImpl, logger, onUsage: (usage) => recordAiUsage({ user_id: user.user_id, ...usage }) }
+      { fetchImpl, logger, onUsage: (usage) => recordAiUsage({ user_id: user.user_id, kind: 'weekly', ...usage }) }
     );
     if (text) return { text: `📊 Laporan Mingguan\n\n${text}`, options: {} };
   }
@@ -173,4 +189,33 @@ ${topCategories}
 
 Ketik /minggu atau buka Mini App untuk detail lebih lengkap! ✨`;
   return { text, options: { parse_mode: 'Markdown' } };
+}
+
+/**
+ * Text for an expiry reminder ('h3' | 'h1') or the notice after a plan ended ('expired').
+ */
+export function subscriptionNoticeText(user, kind) {
+  const plan = user.plan === TRIAL_PLAN ? 'Trial' : listPlans({ includeInactive: true }).find((p) => p.id === user.plan)?.name || user.plan;
+  const date = formatDateShort(user.plan_expires_at);
+  if (kind === 'expired') {
+    return `ℹ️ Paket ${plan} kamu sudah berakhir (${date}).\n\nKamu sekarang di paket Gratis: tetap bisa mencatat transaksi, budget, ringkasan, dan export. Asisten AI dan baca foto nota nonaktif.\n\nAktifkan lagi kapan saja: /langganan`;
+  }
+  const when = kind === 'h1' ? 'besok' : 'dalam 3 hari';
+  return `⏰ Paket ${plan} kamu berakhir ${when} (${date}).\n\nPerpanjang supaya asisten AI dan baca foto nota tetap aktif: /langganan`;
+}
+
+/**
+ * Sends due expiry reminders once each. Returns how many were sent.
+ */
+export async function sendSubscriptionNotices(bot, now = new Date()) {
+  let sent = 0;
+  for (const { user, kind } of takeDueNotices(now)) {
+    try {
+      await safeSendMessage(bot, user.user_id, subscriptionNoticeText(user, kind));
+      sent++;
+    } catch (err) {
+      logger.warn({ userId: user.user_id, err: err.message }, 'Failed to send subscription reminder');
+    }
+  }
+  return sent;
 }

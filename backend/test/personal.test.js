@@ -69,7 +69,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const k of ['AI_BASE_URL', 'AI_API_KEY', 'AI_MODEL', 'AI_VISION_MODEL', 'PLAN_TRIAL_AI_LIMIT']) delete process.env[k];
+  for (const k of ['AI_BASE_URL', 'AI_API_KEY', 'AI_MODEL', 'AI_VISION_MODEL', 'PLAN_TRIAL_AI_LIMIT', 'PLAN_TRIAL_RECEIPT_LIMIT']) delete process.env[k];
   resetAiState();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -149,16 +149,16 @@ describe('Receipt photos', () => {
     expect(getAllTransactions('42')).toHaveLength(0);
   });
 
-  it('does not download or call AI when the daily quota is used up', async () => {
+  it('does not download or call AI when the monthly receipt quota is used up', async () => {
     setAiEnv();
-    process.env.PLAN_TRIAL_AI_LIMIT = '0';
+    process.env.PLAN_TRIAL_RECEIPT_LIMIT = '0';
     const calls = stubNetwork(RECEIPT);
     const bot = new FakeBot();
     registerHandlers(bot);
     await bot.photo();
     expect(calls.telegram).toBe(0);
     expect(calls.ai).toHaveLength(0);
-    expect(bot.last().text).toContain('Kuota AI');
+    expect(bot.last().text).toContain('Kuota foto nota');
   });
 
   it('validates what the model read', () => {

@@ -2,13 +2,13 @@ import { validateInitData } from '../../utils/telegram.js';
 import { upsertUser } from '../../db/users.js';
 import { getAccess, touchActivity } from '../../db/subscriptions.js';
 
-// Blocks users whose subscription is suspended or expired; records activity for the rest.
+// Blocks suspended accounts (expired plans fall back to the free tier); records activity for the rest.
 function admit(req, res, next, userObj) {
   const row = upsertUser(userObj);
   const access = getAccess(row);
   if (!access.allowed) {
     return res.status(403).json({
-      error: access.state === 'suspended' ? 'Akun kamu dinonaktifkan. Hubungi admin.' : 'Langganan kamu sudah berakhir. Hubungi admin untuk berlangganan.',
+      error: 'Akun kamu dinonaktifkan. Hubungi admin.',
       code: 'subscription_inactive'
     });
   }
