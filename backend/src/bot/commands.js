@@ -33,7 +33,8 @@ import {
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
-import { getAiConfig, takeAiQuota, runAssistant } from '../ai/interpreter.js';
+import { getAiConfig, takeAiQuota, runAssistant, forgetConversation } from '../ai/interpreter.js';
+import { getMemory, setNickname, addFact, removeFact, clearMemory } from '../db/memory.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -221,8 +222,15 @@ function assistantContext(userId, from = {}) {
     ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}`).join('\n')
     : 'belum ada';
 
+  const memory = getMemory(userId);
+  const factLines = memory.facts.length
+    ? memory.facts.map((f) => `- [id ${f.id}] ${f.fact}`).join('\n')
+    : 'belum ada';
+
   return [
-    `Nama: ${from.first_name || '-'}`,
+    `Nama Telegram: ${from.first_name || '-'}`,
+    `Nama panggilan: ${memory.nickname || 'belum diatur'}`,
+    `Ingatan tentang pengguna:\n${factLines}`,
     `Sekarang: ${getDateStr(now)} (${dayLabel}) jam ${timeLabel}, zona ${tz}`,
     `Hari ini: pemasukan ${formatRupiah(today.income)}, pengeluaran ${formatRupiah(today.expense)}, ${today.count} transaksi; per kategori: ${byCategory(today.by_category)}`,
     `Bulan ini (${month}): pemasukan ${formatRupiah(income)}, pengeluaran ${formatRupiah(expense)}, saldo ${signedRupiah(income - expense)}; per kategori: ${byCategory(monthStats)}`,
@@ -307,9 +315,10 @@ _Contoh: /budget makan 1000000_
 
 /hapus - Hapus transaksi terakhir
 /export - Unduh riwayat transaksi dalam format CSV
+/memori - Lihat atau hapus hal yang aku ingat tentang kamu
 /help - Tampilkan bantuan ini
 
-💬 *Tanpa perintah juga bisa:*
+💬 *Tanpa perintah juga bisa, ngobrol biasa saja:*
 • \`makan siang 25rb\`
 • \`bensin 50k\` / \`Rp 15.000 parkir\`
 • \`gaji 5jt\` / \`terima jualan 150rb\`
@@ -456,8 +465,33 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     }
   });
 
+  // ── /memori ───────────────────────────────────────────────────────────
+  bot.onText(/^\/memori(?:@\w+)?$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const memory = getMemory(userId);
+
+    if (!memory.nickname && memory.facts.length === 0) {
+      return safeSendMessage(bot, chatId, '🧠 Aku belum menyimpan ingatan apa pun tentang kamu.\n\nCeritakan saja, misalnya "panggil aku Boss" atau "aku gajian tiap tanggal 25".');
+    }
+
+    const lines = ['🧠 Yang aku ingat tentang kamu:', ''];
+    if (memory.nickname) lines.push(`• Nama panggilan: ${memory.nickname}`);
+    for (const f of memory.facts) lines.push(`• ${f.fact}`);
+    lines.push('', 'Mau aku lupakan sesuatu? Bilang saja, misalnya "lupakan soal gajian".');
+
+    await safeSendMessage(bot, chatId, lines.join('\n'), {
+      reply_markup: { inline_keyboard: [[{ text: '🗑️ Hapus semua ingatan', callback_data: 'mem_clear' }]] }
+    });
+  });
+
   // ── Free text (private chats only) ────────────────────────────────────
   const handleRuleBased = async (chatId, userId, parsed) => {
+    if (parsed.intent === 'nickname') {
+      const nickname = setNickname(userId, parsed.nickname);
+      return safeSendMessage(bot, chatId, `Siap! Mulai sekarang aku panggil kamu ${nickname} 😊`);
+    }
+
     if (parsed.intent === 'summary') {
       return safeSendMessage(bot, chatId, summaryText(userId, parsed.period), { parse_mode: 'Markdown' });
     }
@@ -497,6 +531,22 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     if (turn.reply) {
       await safeSendMessage(bot, chatId, turn.reply);
     }
+
+    const memoryNotes = [];
+    for (const action of turn.actions) {
+      if (action.type === 'set_nickname') {
+        setNickname(userId, action.nickname);
+      } else if (action.type === 'remember') {
+        const saved = addFact(userId, action.fact);
+        if (saved) memoryNotes.push(`🧠 Aku ingat: ${saved.fact}`);
+      } else if (action.type === 'forget') {
+        if (removeFact(userId, action.fact_id)) memoryNotes.push('🧹 Satu ingatan dihapus.');
+      }
+    }
+    if (memoryNotes.length) {
+      await safeSendMessage(bot, chatId, `${memoryNotes.join('\n')}\n\nLihat atau hapus ingatan: /memori`);
+    }
+
     for (const action of turn.actions) {
       if (action.type === 'add_transaction') {
         const saved = saveTransaction(userId, { type: action.tx_type, amount: action.amount, category: action.category, note: action.note });
@@ -612,6 +662,11 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       }
       await safeAnswerCallback(bot, query.id, 'Tercatat');
       await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+    } else if (data === 'mem_clear') {
+      clearMemory(userId);
+      forgetConversation(userId);
+      await safeAnswerCallback(bot, query.id, 'Ingatan dihapus');
+      await editMessage(chatId, messageId, '🧹 Semua ingatan dan riwayat obrolan sudah dihapus.');
     } else if (data.startsWith('bset:')) {
       const [, category, amountStr] = data.split(':');
       const amount = parseInt(amountStr, 10);

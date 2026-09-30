@@ -4,11 +4,13 @@ import { registerHandlers } from '../src/bot/commands.js';
 import { getAllTransactions } from '../src/db/transactions.js';
 import { getBudget } from '../src/db/budgets.js';
 import { getMonthStr } from '../src/utils/formatter.js';
+import { getMemory } from '../src/db/memory.js';
 import {
   getAiConfig,
   sanitizeAction,
   parseAssistantOutput,
   runAssistant,
+  callChat,
   takeAiQuota,
   resetAiState
 } from '../src/ai/interpreter.js';
@@ -105,8 +107,25 @@ describe('AI assistant core', () => {
     expect(sanitizeAction({ type: 'set_budget', category: 'gaji', amount: 1000 })).toBeNull();
     expect(sanitizeAction({ type: 'add_transaction', tx_type: 'income', amount: 100, category: 'makan' }).category).toBe('lainnya');
 
-    const many = Array.from({ length: 5 }, () => ({ type: 'set_budget', category: 'makan', amount: 1000 }));
-    expect(parseAssistantOutput(asJson({ reply: 'ok', actions: many })).actions).toHaveLength(3);
+    const many = Array.from({ length: 8 }, () => ({ type: 'set_budget', category: 'makan', amount: 1000 }));
+    expect(parseAssistantOutput(asJson({ reply: 'ok', actions: many })).actions).toHaveLength(5);
+  });
+
+  it('never stores secrets as memories', () => {
+    expect(sanitizeAction({ type: 'remember', fact: 'PIN ATM aku 123456' })).toBeNull();
+    expect(sanitizeAction({ type: 'remember', fact: 'kartu 4111111111111111' })).toBeNull();
+    expect(sanitizeAction({ type: 'remember', fact: 'Gajian tiap tanggal 25' })).toEqual({ type: 'remember', fact: 'Gajian tiap tanggal 25' });
+    expect(sanitizeAction({ type: 'set_nickname', nickname: '  Boss  ' })).toEqual({ type: 'set_nickname', nickname: 'Boss' });
+    expect(sanitizeAction({ type: 'forget', fact_id: 'x' })).toBeNull();
+  });
+
+  it('reports provider errors with the key redacted', async () => {
+    setAiEnv();
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({ error: { message: `model not found for ${KEY}` } }) }));
+    const result = await callChat(getAiConfig(), [], { fetchImpl });
+    expect(result).toMatchObject({ ok: false, status: 404 });
+    expect(result.error).toContain('model not found');
+    expect(result.error).not.toContain(KEY);
   });
 
   it('enforces a per-user daily quota', () => {
@@ -145,7 +164,7 @@ describe('Bot in assistant mode', () => {
   beforeAll(() => initDatabase(':memory:'));
 
   beforeEach(() => {
-    db.exec('DELETE FROM transactions; DELETE FROM budgets;');
+    db.exec('DELETE FROM transactions; DELETE FROM budgets; DELETE FROM user_facts; DELETE FROM user_profile;');
     bot = new FakeBot();
     registerHandlers(bot);
   });
@@ -191,7 +210,7 @@ describe('Bot in assistant mode', () => {
 
     await bot.message('hari ini aku habis berapa?');
     const system = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content;
-    expect(system).toContain('Nama: Uji');
+    expect(system).toContain('Nama Telegram: Uji');
     expect(system).toContain('pengeluaran Rp 25.000');
     expect(system).toContain('makan Rp 25.000 (makan siang)');
   });
@@ -201,6 +220,46 @@ describe('Bot in assistant mode', () => {
     vi.stubGlobal('fetch', aiReply(asJson({ reply: 'Oke!', actions: [{ type: 'set_budget', category: 'makan', amount: 1000000 }] })));
     await bot.message('tolong batasi makan sejuta sebulan');
     expect(getBudget('42', 'makan', getMonthStr()).amount).toBe(1000000);
+  });
+
+  it('remembers a nickname and facts, feeds them back as context, and can forget', async () => {
+    setAiEnv();
+    vi.stubGlobal('fetch', aiReply(asJson({
+      reply: 'Siap, kinkIrfUnK!',
+      actions: [
+        { type: 'set_nickname', nickname: 'kinkIrfUnK' },
+        { type: 'remember', fact: 'Gajian setiap tanggal 25' },
+        { type: 'remember', fact: 'password email aku rahasia123' }
+      ]
+    })));
+    await bot.message('panggil aku kinkIrfUnK, aku gajian tanggal 25');
+
+    const memory = getMemory('42');
+    expect(memory.nickname).toBe('kinkIrfUnK');
+    expect(memory.facts.map((f) => f.fact)).toEqual(['Gajian setiap tanggal 25']);
+    expect(bot.texts()).toContain('🧠 Aku ingat: Gajian setiap tanggal 25\n\nLihat atau hapus ingatan: /memori');
+
+    const fetchMock = aiReply(asJson({ reply: 'Oke, sudah aku lupakan.', actions: [{ type: 'forget', fact_id: memory.facts[0].id }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await bot.message('lupakan soal gajian');
+    const system = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content;
+    expect(system).toContain('Nama panggilan: kinkIrfUnK');
+    expect(system).toContain(`[id ${memory.facts[0].id}] Gajian setiap tanggal 25`);
+    expect(getMemory('42').facts).toHaveLength(0);
+  });
+
+  it('/memori lists memories and can clear them', async () => {
+    await bot.message('panggil aku Boss');
+    await bot.message('/memori');
+    expect(bot.last().text).toContain('Nama panggilan: Boss');
+    await bot.press('mem_clear');
+    expect(getMemory('42')).toEqual({ nickname: '', facts: [] });
+  });
+
+  it('handles "panggil aku ..." without AI', async () => {
+    await bot.message('panggil aku kinkIrfUnK');
+    expect(bot.last().text).toContain('aku panggil kamu kinkIrfUnK');
+    expect(getMemory('42').nickname).toBe('kinkIrfUnK');
   });
 
   it('falls back to the rule parser when the AI call fails', async () => {

@@ -34,7 +34,15 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
 | `AI_DAILY_LIMIT` | tidak | Maks. pesan yang dijawab AI per pengguna per hari. Default `50`. |
-| `AI_TIMEOUT_MS` | tidak | Default `20000`. |
+| `AI_TIMEOUT_MS` | tidak | Default `30000`. |
+| `AI_MAX_TOKENS` | tidak | Default `4000`. Naikkan bila model "thinking" sering membalas kosong. |
+
+**Cek koneksi AI** (Railway → Console): `node scripts/check-ai.js`. Skrip ini menampilkan nilai URL dan model yang terbaca,
+apakah model ada di daftar penyedia, lalu satu tes chat beserta status/pesan error. Key tidak pernah dicetak.
+
+**Ingatan asisten.** Nama panggilan dan fakta yang diminta pengguna untuk diingat disimpan di tabel `user_profile`
+dan `user_facts` (maks. 30 fakta per pengguna). PIN, password, OTP, dan nomor kartu ditolak. Pengguna bisa melihat
+dan menghapus semuanya lewat `/memori`.
 
 **Mode asisten.** Bila `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` terisi, semua pesan teks bebas di chat pribadi
 dijawab AI sebagai asisten keuangan pribadi. AI menerima ringkasan data pengguna itu (hari ini, bulan ini, budget,

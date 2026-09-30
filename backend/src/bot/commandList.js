@@ -7,5 +7,6 @@ export const BOT_COMMANDS = [
   { command: 'budget', description: 'Atur batas budget bulanan: /budget <kategori> <nominal>' },
   { command: 'hapus', description: 'Hapus transaksi terakhir' },
   { command: 'export', description: 'Unduh riwayat transaksi CSV' },
+  { command: 'memori', description: 'Lihat atau hapus ingatan asisten tentang kamu' },
   { command: 'help', description: 'Panduan dan daftar perintah' }
 ];

@@ -46,3 +46,21 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_created ON transactions(user_id
 CREATE INDEX IF NOT EXISTS idx_transactions_user_type ON transactions(user_id, type);
 CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON budgets(user_id, month);
 CREATE INDEX IF NOT EXISTS idx_reminder_log_user_date ON reminder_log(user_id, reminder_date);
+
+-- Assistant memory: preferred nickname and facts the user asked the assistant to remember
+CREATE TABLE IF NOT EXISTS user_profile (
+  user_id TEXT PRIMARY KEY,
+  nickname TEXT DEFAULT '',
+  updated_at DATETIME DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_facts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  fact TEXT NOT NULL,
+  created_at DATETIME DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_facts_user ON user_facts(user_id);

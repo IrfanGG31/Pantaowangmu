@@ -34,6 +34,12 @@ describe('parseFreeText', () => {
     expect(parseFreeText('total bulan ini berapa')).toEqual({ intent: 'summary', period: 'month' });
   });
 
+  it('recognises nickname requests', () => {
+    expect(parseFreeText('panggil aku kinkIrfUnK')).toEqual({ intent: 'nickname', nickname: 'kinkIrfUnK' });
+    expect(parseFreeText('Panggil saya Pak Budi.')).toEqual({ intent: 'nickname', nickname: 'Pak Budi' });
+    expect(parseFreeText('nama panggilanku Irfan')).toEqual({ intent: 'nickname', nickname: 'Irfan' });
+  });
+
   it('returns unknown when there is no amount and no known intent', () => {
     expect(parseFreeText('halo')).toEqual({ intent: 'unknown' });
     expect(parseFreeText('2x makan')).toEqual({ intent: 'unknown' });

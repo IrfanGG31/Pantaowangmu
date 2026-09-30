@@ -11,7 +11,8 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "test": "vitest run",
-    "setup-telegram": "node scripts/setup-telegram.js"
+    "setup-telegram": "node scripts/setup-telegram.js",
+    "check-ai": "node scripts/check-ai.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
