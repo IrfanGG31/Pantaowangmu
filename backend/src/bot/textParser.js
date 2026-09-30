@@ -42,7 +42,7 @@ const INCOME_HINTS = [
   'untung', 'refund', 'kiriman'
 ];
 
-const BUDGET_WORDS = ['budget', 'budgetku', 'anggaran', 'batas', 'limit'];
+const BUDGET_WORDS = ['budget', 'budgetku', 'anggaran', 'batas', 'batasi', 'membatasi', 'limit'];
 const SUMMARY_WORDS = ['ringkasan', 'rekap', 'laporan', 'total', 'pengeluaran', 'pemasukan', 'saldo', 'berapa'];
 
 const MAX_NOTE_LENGTH = 200;

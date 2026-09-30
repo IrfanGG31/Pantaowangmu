@@ -29,6 +29,7 @@ import {
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
+import { getAiConfig, takeAiQuota, interpretWithAi } from '../ai/interpreter.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -75,6 +76,22 @@ function pendingPrompt(entry) {
   const noteText = entry.note ? ` (${escapeMd(entry.note)})` : '';
   return `🤔 *${label} ${formatRupiah(entry.amount)}*${noteText}\n\nMasuk kategori apa?`;
 }
+
+function aiConfirmPrompt(entry) {
+  const label = entry.type === 'income' ? '💚 Pemasukan' : '💸 Pengeluaran';
+  const noteText = entry.note ? `\n📝 ${escapeMd(entry.note)}` : '';
+  return `🤖 *Aku tangkap begini:*\n\n${label} ${formatRupiah(entry.amount)}\n📁 ${capitalize(entry.category)}${noteText}\n\nSimpan?`;
+}
+
+const aiConfirmKeyboard = (key) => ({
+  inline_keyboard: [
+    [
+      { text: '✅ Simpan', callback_data: `txs:${key}` },
+      { text: '✏️ Ganti kategori', callback_data: `txk:${key}` }
+    ],
+    [{ text: '❌ Batal', callback_data: `txx:${key}` }]
+  ]
+});
 
 /**
  * Validates and saves a transaction, then builds the confirmation text (with budget alert for expenses).
@@ -408,7 +425,22 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   const handleFreeText = async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
-    const parsed = parseFreeText(msg.text);
+    let parsed = parseFreeText(msg.text);
+    let fromAi = false;
+
+    const needsAi = parsed.intent === 'unknown' || (parsed.intent === 'transaction' && !parsed.category);
+    const ai = needsAi ? getAiConfig() : null;
+    if (ai && takeAiQuota(userId, ai.dailyLimit)) {
+      bot.sendChatAction?.(chatId, 'typing').catch(() => {});
+      const aiParsed = await interpretWithAi(msg.text, { logger });
+      // Keep the rule-based amount when both found one: it is exact, the model may not be.
+      if (aiParsed && aiParsed.intent !== 'unknown') {
+        parsed = parsed.intent === 'transaction' && aiParsed.intent === 'transaction'
+          ? { ...aiParsed, amount: parsed.amount, note: parsed.note || aiParsed.note }
+          : aiParsed;
+        fromAi = true;
+      }
+    }
 
     if (parsed.intent === 'summary') {
       return safeSendMessage(bot, chatId, summaryText(userId, parsed.period), { parse_mode: 'Markdown' });
@@ -423,10 +455,29 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
           reply_markup: categoryKeyboard(EXPENSE_CATEGORIES, (c) => `bset:${c}:${parsed.amount}`)
         });
       }
+      if (fromAi) {
+        return safeSendMessage(bot, chatId, `🤖 Set budget *${capitalize(parsed.category)}* ${formatRupiah(parsed.amount)} untuk bulan ini?`, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Set budget', callback_data: `bset:${parsed.category}:${parsed.amount}` },
+              { text: '❌ Batal', callback_data: 'txx:-' }
+            ]]
+          }
+        });
+      }
       return safeSendMessage(bot, chatId, budgetText(userId, parsed.category, parsed.amount), { parse_mode: 'Markdown' });
     }
 
     if (parsed.intent === 'transaction') {
+      if (fromAi && parsed.category) {
+        const entry = { userId, type: parsed.type, amount: parsed.amount, category: parsed.category, note: parsed.note };
+        const key = putPending(entry);
+        return safeSendMessage(bot, chatId, aiConfirmPrompt(entry), {
+          parse_mode: 'Markdown',
+          reply_markup: aiConfirmKeyboard(key)
+        });
+      }
       if (!parsed.category) {
         const entry = { userId, type: parsed.type, amount: parsed.amount, note: parsed.note };
         const key = putPending(entry);
@@ -493,12 +544,38 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         await safeAnswerCallback(bot, query.id, 'Transaksi sudah tidak ada');
         await editMessage(chatId, messageId, 'ℹ️ Transaksi sudah tidak ada.');
       }
-    } else if (data.startsWith('txc:') || data.startsWith('txt:')) {
+    } else if (data.startsWith('txx:')) {
+      pendingTransactions.delete(data.slice(4));
+      await safeAnswerCallback(bot, query.id, 'Dibatalkan');
+      await editMessage(chatId, messageId, '❌ Tidak jadi dicatat.');
+    } else if (data.startsWith('txc:') || data.startsWith('txt:') || data.startsWith('txs:') || data.startsWith('txk:')) {
       const [action, key, category] = data.split(':');
       const entry = getPending(key, userId);
       if (!entry) {
         await safeAnswerCallback(bot, query.id, 'Sudah kedaluwarsa');
         await editMessage(chatId, messageId, 'ℹ️ Pilihan ini sudah kedaluwarsa. Ketik ulang transaksinya.');
+        return;
+      }
+
+      if (action === 'txk') {
+        await safeAnswerCallback(bot, query.id);
+        await editMessage(chatId, messageId, pendingPrompt(entry), {
+          parse_mode: 'Markdown',
+          reply_markup: pendingKeyboard(key, entry)
+        });
+        return;
+      }
+
+      if (action === 'txs') {
+        pendingTransactions.delete(key);
+        const saved = saveTransaction(userId, entry);
+        if (saved.error) {
+          await safeAnswerCallback(bot, query.id, 'Gagal menyimpan');
+          await editMessage(chatId, messageId, `❌ ${saved.error}`);
+          return;
+        }
+        await safeAnswerCallback(bot, query.id, 'Tercatat');
+        await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
         return;
       }
 
