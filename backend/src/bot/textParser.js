@@ -6,7 +6,7 @@ const CATEGORY_KEYWORDS = {
   makan: [
     'makan', 'makanan', 'minum', 'minuman', 'sarapan', 'jajan', 'snack', 'camilan', 'kopi', 'teh', 'boba',
     'nasi', 'bakso', 'mie', 'mi', 'ayam', 'sate', 'soto', 'martabak', 'roti', 'resto', 'restoran', 'warung',
-    'warteg', 'kafe', 'cafe', 'gofood', 'grabfood', 'shopeefood', 'galon'
+    'warteg', 'kafe', 'cafe', 'gofood', 'grabfood', 'shopeefood', 'galon', 'pizza', 'burger', 'seblak', 'kfc', 'mcd', 'bakmi', 'dimsum'
   ],
   transport: [
     'transport', 'transportasi', 'bensin', 'bbm', 'pertalite', 'pertamax', 'solar', 'parkir', 'tol', 'ojol',
@@ -182,6 +182,57 @@ const RECURRING_RE = /\b(?:tiap|setiap|per|rutin)\s+(?:bulan(?:nya)?(?:\s+(?:tan
 const REMINDER_RE = /^(?:tolong\s+)?(?:ingatkan|ingetin|ingatin|pengingat|reminder)(?:\s+(?:aku|saya|gue|gw))?(?:\s+(?:catat|nyatat|buat\s+catat))?(?:\s+(?:tiap\s+hari|setiap\s+hari))?\s+(?:jam|pukul|pkl)\s+(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
 const REMINDER_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)(?:\s+harian)?\b/i;
 
+// ── v3: tags, split bills, debts, challenges ───────────────────────────────
+
+const TAG_RE = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_-]{0,29})/gu;
+const SPLIT_RE = /\b(?:dibagi|bagi|patungan|split(?:\s+bill)?|ber|berdua|bertiga|berempat|berlima)\s*(\d{1,2})?\s*(?:orang)?\b/gi;
+const SPLIT_WORDS = { berdua: 2, bertiga: 3, berempat: 4, berlima: 5 };
+const WITH_RE = /\b(?:sama|bareng|dengan|bersama)\s+(.+)$/i;
+const LEND_RE = /^(?:aku\s+|saya\s+)?(?:pinjamin|pinjemin|minjemin|minjamin|meminjamkan|kasih\s+pinjam(?:an)?(?:\s+ke)?)\s+/i;
+const BORROW_RE = /^(?:aku\s+|saya\s+)?(?:pinjam|minjem|minjam|ngutang|utang|hutang)\s+(?:uang\s+|duit\s+)?(?:ke|dari|sama|ama)\s+/i;
+const OWES_ME_RE = /^(.{1,30}?)\s+(?:utang|hutang|ngutang|minjem|pinjam)(?:\s+(?:ke|sama|ama)\s+(?:aku|saya|gue|gw))?\b/i;
+const PAID_FOR_ME_RE = /^(.{1,30}?)\s+(?:bayarin|nraktir|traktir|nalangin|talangin)\s+(?:aku|saya|gue|gw)?\s*/i;
+const SETTLED_BY_RE = /^(.{1,30}?)\s+(?:sudah|udah|dah|sdh|udh)\s+(?:bayar|lunas|lunasin|balikin|ngembaliin|transfer|ganti)\b/i;
+const SETTLED_TO_RE = /^(?:aku\s+|saya\s+)?(?:sudah|udah|dah|sdh|udh)\s+(?:bayar|lunasin|balikin|ngembaliin|transfer)\s+(?:utang\s+|hutang\s+)?(?:ke\s+|sama\s+)?(.{1,30})$/i;
+const CHALLENGE_RE = /^(?:mulai\s+|ikut\s+|bikin\s+|buat\s+)?(?:tantangan|challenge)\s+(.+)$/i;
+const BUDGET_SUGGEST_RE = /^(?:(?:saran|rekomendasi|usul(?:an)?|bikinin|buatin)\s+budget|budget\s+(?:saran|rekomendasi|otomatis|ideal))\b/i;
+
+function extractTags(text) {
+  const tags = [];
+  for (const m of text.matchAll(TAG_RE)) if (!tags.includes(m[1].toLowerCase())) tags.push(m[1].toLowerCase());
+  return { tags: tags.slice(0, 5), text: text.replace(TAG_RE, ' ').replace(/\s+/g, ' ').trim() };
+}
+
+function splitNames(text) {
+  return text.split(/\s*(?:,|\bdan\b|\b&\b|\+)\s*|\s+/i).map((n) => n.trim()).filter((n) => n && !/^(aku|saya|gue|gw|teman|temen|orang)$/i.test(n)).slice(0, 10);
+}
+
+function daysFrom(text, fallback) {
+  const n = /(\d{1,2})\s*hari/i.exec(text);
+  if (n) return Number(n[1]);
+  if (/\b(?:seminggu|1\s*minggu|sepekan)\b/i.test(text)) return 7;
+  if (/\b2\s*minggu\b/i.test(text)) return 14;
+  if (/\b(?:sebulan|1\s*bulan|30\s*hari)\b/i.test(text)) return 30;
+  return fallback;
+}
+
+function parseChallenge(original, found) {
+  const m = CHALLENGE_RE.exec(original);
+  if (!m) return null;
+  const rest = m[1].toLowerCase();
+  if (/streak|catat\s+tiap\s+hari|rajin\s+catat|nyatat\s+tiap\s+hari/.test(rest)) {
+    return { intent: 'challenge', kind: 'streak', category: null, days: daysFrom(rest, 30), target_amount: null };
+  }
+  const category = detectCategory(rest, EXPENSE_CATEGORIES);
+  if (found && /\b(?:hemat|maks|max|maksimal|batas|paling\s+banyak)\b/.test(rest)) {
+    return { intent: 'challenge', kind: 'limit', category, days: daysFrom(rest, 7), target_amount: found.amount };
+  }
+  if (/\b(?:no|tanpa|puasa|stop|ga|gak|nggak|tidak)\b/.test(rest)) {
+    return { intent: 'challenge', kind: 'no_spend', category, days: daysFrom(rest, 7), target_amount: null };
+  }
+  return { intent: 'challenge', kind: null };
+}
+
 function to24h(hour, part) {
   let h = hour;
   if ((part === 'sore' || part === 'malam') && h < 12) h += 12;
@@ -292,6 +343,30 @@ export function parseFreeText(input, options = {}) {
 
   const found = extractAmount(original);
 
+  const tagOnly = /^(?:(?:total|rekap|ringkasan|pengeluaran|laporan)\s+)?#([\p{L}\p{N}][\p{L}\p{N}_-]{0,29})\s*$/iu.exec(original);
+  if (tagOnly) return { intent: 'tag_summary', tag: tagOnly[1].toLowerCase() };
+  if (!found && /^(?:\/)?(?:daftar\s+|semua\s+)?tag(?:s)?$/i.test(original)) return { intent: 'tag_summary', tag: null };
+
+  if (BUDGET_SUGGEST_RE.test(original)) return { intent: 'budget_suggest' };
+
+  const challenge = parseChallenge(original, found);
+  if (challenge) {
+    if (challenge.kind && challenge.kind !== 'streak') {
+      const personal = detectPersonal(original.toLowerCase(), options, 'expense');
+      if (personal) challenge.category = personal.category;
+    }
+    return challenge;
+  }
+
+  if (!found) {
+    const settledBy = SETTLED_BY_RE.exec(original);
+    if (settledBy && !/^(aku|saya|gue|gw)$/i.test(settledBy[1].trim())) {
+      return { intent: 'settle_debt', person: settledBy[1].trim(), direction: 'owed_to_me' };
+    }
+    const settledTo = SETTLED_TO_RE.exec(original);
+    if (settledTo) return { intent: 'settle_debt', person: settledTo[1].replace(/[.!]+$/, '').trim(), direction: 'i_owe' };
+  }
+
   const addCat = ADD_CATEGORY_RE.exec(original);
   if (addCat && !found) {
     const kind = (addCat[1] || addCat[3] || '').toLowerCase();
@@ -358,6 +433,9 @@ export function parseFreeText(input, options = {}) {
   const transfer = parseTransfer(original, text, found, wallets);
   if (transfer) return transfer;
 
+  const debt = parseDebt(original, found, options);
+  if (debt) return debt;
+
   if (hasWord(BUDGET_WORDS, text)) {
     const personal = detectPersonal(text, options, 'expense');
     return {
@@ -371,7 +449,8 @@ export function parseFreeText(input, options = {}) {
     return hasWord(SUMMARY_WORDS, text) ? { intent: 'summary', period: detectPeriod(text) } : { intent: 'unknown' };
   }
 
-  let rest = original.slice(0, found.start) + ' ' + original.slice(found.end);
+  const tagged = extractTags(original.slice(0, found.start) + ' ' + original.slice(found.end));
+  let rest = tagged.text;
   const walletHit = detectWallet(rest.toLowerCase(), wallets);
   if (walletHit) rest = rest.slice(0, walletHit.start) + ' ' + rest.slice(walletHit.end);
 
@@ -392,6 +471,67 @@ export function parseFreeText(input, options = {}) {
     amount: found.amount,
     category,
     note: category && noteLower === category ? '' : note,
-    ...(walletHit ? { wallet_id: walletHit.wallet.id } : {})
+    ...(walletHit ? { wallet_id: walletHit.wallet.id } : {}),
+    ...(tagged.tags.length ? { tags: tagged.tags } : {})
   };
+}
+
+/**
+ * Split bills and debts (all need an amount):
+ * "makan 300rb bagi 3 sama andi budi", "pinjamin andi 200rb", "pinjam ke budi 1jt", "andi utang 50rb",
+ * "andi bayarin aku makan 40rb".
+ */
+function parseDebt(original, found, options) {
+  if (!found) return null;
+  const tagged = extractTags(stripAmount(original, found));
+  const rest = tagged.text;
+  const tags = tagged.tags.length ? { tags: tagged.tags } : {};
+
+  // The first split word that carries a head count ("patungan pizza ber 4" → "ber 4").
+  const split = [...rest.matchAll(SPLIT_RE)].find((m) => m[1] || SPLIT_WORDS[m[0].toLowerCase().trim()]);
+  if (split) {
+    const people = Number(split[1]) || SPLIT_WORDS[split[0].toLowerCase().trim()];
+    if (people >= 2 && people <= 50) {
+      const before = rest.slice(0, split.index);
+      const after = rest.slice(split.index + split[0].length);
+      const withMatch = WITH_RE.exec(after) || WITH_RE.exec(before);
+      const names = withMatch ? splitNames(withMatch[1]) : [];
+      const note = cleanNote((before + ' ' + after).replace(WITH_RE, '').replace(/\b(?:patungan|split(?:\s+bill)?)\b/gi, ''));
+      const lower = note.toLowerCase();
+      const personal = detectPersonal(lower, options, 'expense');
+      return {
+        intent: 'split', total: found.amount, people, names,
+        category: personal ? personal.category : detectCategory(lower, EXPENSE_CATEGORIES), note, ...tags
+      };
+    }
+  }
+
+  const person = (s) => cleanNote(s.replace(/\b(?:untuk|buat|utk)\b.*$/i, '')).slice(0, 40);
+  const noteOf = (s) => (/\b(?:untuk|buat|utk)\s+(.+)$/i.exec(s)?.[1] || '').trim().slice(0, 100);
+
+  if (LEND_RE.test(rest)) {
+    const body = rest.replace(LEND_RE, '');
+    const who = person(body);
+    if (who) return { intent: 'debt', direction: 'owed_to_me', person: who, amount: found.amount, note: noteOf(body) };
+  }
+  if (BORROW_RE.test(rest)) {
+    const body = rest.replace(BORROW_RE, '');
+    const who = person(body);
+    if (who) return { intent: 'debt', direction: 'i_owe', person: who, amount: found.amount, note: noteOf(body) };
+  }
+  const paidForMe = PAID_FOR_ME_RE.exec(rest);
+  if (paidForMe) {
+    const note = cleanNote(rest.slice(paidForMe[0].length));
+    const lower = note.toLowerCase();
+    const personal = detectPersonal(lower, options, 'expense');
+    return {
+      intent: 'paid_by_other', person: paidForMe[1].trim(), amount: found.amount,
+      category: personal ? personal.category : detectCategory(lower, EXPENSE_CATEGORIES), note, ...tags
+    };
+  }
+  const owesMe = OWES_ME_RE.exec(rest);
+  if (owesMe && !/^(aku|saya|gue|gw)$/i.test(owesMe[1].trim())) {
+    return { intent: 'debt', direction: 'owed_to_me', person: owesMe[1].trim(), amount: found.amount, note: noteOf(rest) };
+  }
+  return null;
 }

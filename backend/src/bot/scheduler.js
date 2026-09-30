@@ -5,7 +5,7 @@ import { takeDueNotices, listPlans } from '../db/billing.js';
 import { getMemory } from '../db/memory.js';
 import { getAiConfig, writeWeeklyReport } from '../ai/interpreter.js';
 import { buildUserContext } from '../ai/context.js';
-import { runReminderTick, runBillTick, TICK_MINUTES } from './nudges.js';
+import { runReminderTick, runBillTick, runDailyTick, TICK_MINUTES } from './nudges.js';
 import { getBudgetsByUser } from '../db/budgets.js';
 import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr, formatDateShort } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
@@ -30,6 +30,20 @@ export function startScheduler(bot) {
         if (reminders || nudges) logger.info({ reminders, nudges }, '[Scheduler] Reminders sent');
       } catch (err) {
         logger.error({ err: err.message }, 'Reminder tick error');
+      }
+    },
+    { timezone: TIMEZONE }
+  );
+
+  // ── 1c. Challenge results and monthly budget suggestions: every day at 09:00 ──
+  cron.schedule(
+    '0 9 * * *',
+    async () => {
+      try {
+        const result = await runDailyTick(bot);
+        logger.info(result, '[Scheduler] Daily personal nudges');
+      } catch (err) {
+        logger.error({ err: err.message }, 'Daily nudge job error');
       }
     },
     { timezone: TIMEZONE }

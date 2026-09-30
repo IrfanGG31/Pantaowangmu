@@ -130,6 +130,11 @@ Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"add_bill","name":"<nama tagihan>","amount":<bilangan bulat>,"day_of_month":<1-31>,"category":"<kategori>","tx_type":"expense"|"income","wallet":"<nama dompet>"}  (tagihan/langganan/cicilan bulanan; wallet opsional)
 {"type":"delete_bill","name":"<nama tagihan>"}
 {"type":"set_reminder","time":"HH:MM"|"off","smart":true|false}  (jam pengingat harian; smart = pengingat pintar sesuai kebiasaan; isi yang disebut saja)
+{"type":"split_bill","total":<total tagihan>,"people":<jumlah orang termasuk pengguna>,"names":["<nama teman>"],"category":"<kategori>","note":"<catatan>","wallet":"<nama dompet>"}  (patungan: bagian pengguna dicatat, sisanya piutang)
+{"type":"add_debt","person":"<nama>","direction":"owed_to_me"|"i_owe","amount":<bilangan bulat>,"note":"<catatan>"}  (owed_to_me = orang itu utang ke pengguna)
+{"type":"settle_debt","person":"<nama>","direction":"owed_to_me"|"i_owe"}  (tandai lunas)
+{"type":"start_challenge","kind":"no_spend"|"limit"|"streak","category":"<kategori pengeluaran atau kosong>","days":<1-90>,"target_amount":<untuk limit>}
+Tambahkan "tags":["<tag>"] pada add_transaction bila pengguna menulis #tag (tanpa tanda #).
 
 Kategori: pakai daftar "Kategori pengeluaran/pemasukan" di DATA PENGGUNA (termasuk kategori buatan pengguna).
 
@@ -148,6 +153,10 @@ ATURAN AKSI
   Saat pengguna bilang sudah membayar tagihan rutin, catat dengan add_transaction biasa (bot menandainya lewat tombol).
   Gaji tetap ("gajiku 8jt tiap tanggal 25") = set_profile, bukan add_bill.
 - "ingatkan aku jam 8 malam" = set_reminder time "20:00". "jangan ingatkan lagi" = set_reminder time "off".
+- Patungan/split bill ("makan 300rb bagi 3 sama andi budi") = split_bill, BUKAN add_transaction.
+  Meminjamkan/meminjam uang = add_debt (bukan pengeluaran/pemasukan). "andi bayarin aku makan 40rb" = add_transaction
+  40rb (tanpa wallet) + add_debt i_owe ke Andi. Utang-piutang tidak mengubah Sisa saldo.
+- Tantangan ("tantangan no jajan seminggu") = start_challenge. Saran budget dari kebiasaan: sarankan ketik "saran budget".
 - Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
 - Untuk hapus transaksi, sarankan /hapus. Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
@@ -247,6 +256,42 @@ export function sanitizeAction(raw, ctx = {}) {
     const balance = toInt(raw.balance);
     return wallet && balance !== null && Math.abs(balance) <= MAX_AMOUNT * 1000 ? { type: 'set_wallet_balance', wallet, balance } : null;
   }
+  if (raw.type === 'split_bill') {
+    const total = toInt(raw.total);
+    const people = toInt(raw.people);
+    if (total === null || !validAmount(total) || people === null || people < 2 || people > 50) return null;
+    const category = cleanText(raw.category, 30).toLowerCase();
+    const wallet = cleanText(raw.wallet, 30);
+    return {
+      type: 'split_bill', total, people,
+      names: (Array.isArray(raw.names) ? raw.names : []).map((n) => cleanText(n, 40)).filter(Boolean).slice(0, people - 1),
+      category: categories.expense.includes(category) ? category : null,
+      note: cleanText(raw.note, 60),
+      ...(wallet ? { wallet } : {})
+    };
+  }
+  if (raw.type === 'add_debt') {
+    const person = cleanText(raw.person, 40);
+    const amount = toInt(raw.amount);
+    if (!person || amount === null || !validAmount(amount) || !['owed_to_me', 'i_owe'].includes(raw.direction)) return null;
+    return { type: 'add_debt', person, direction: raw.direction, amount, note: cleanText(raw.note, 100) };
+  }
+  if (raw.type === 'settle_debt') {
+    const person = cleanText(raw.person, 40);
+    return person ? { type: 'settle_debt', person, direction: ['owed_to_me', 'i_owe'].includes(raw.direction) ? raw.direction : null } : null;
+  }
+  if (raw.type === 'start_challenge') {
+    if (!['no_spend', 'limit', 'streak'].includes(raw.kind)) return null;
+    const days = toInt(raw.days);
+    const target = toInt(raw.target_amount);
+    const category = cleanText(raw.category, 30).toLowerCase();
+    return {
+      type: 'start_challenge', kind: raw.kind,
+      category: raw.kind !== 'streak' && categories.expense.includes(category) ? category : null,
+      days: days !== null && days >= 1 && days <= 90 ? days : raw.kind === 'streak' ? 30 : 7,
+      target_amount: raw.kind === 'limit' && target !== null && validAmount(target) ? target : null
+    };
+  }
   if (raw.type === 'add_bill') {
     const name = cleanText(raw.name, 40);
     const amount = toInt(raw.amount);
@@ -334,7 +379,8 @@ export function sanitizeAction(raw, ctx = {}) {
       amount,
       category: categories[txType].includes(category) ? category : 'lainnya',
       note: typeof raw.note === 'string' ? raw.note.trim().slice(0, MAX_NOTE_LENGTH) : '',
-      ...(wallet ? { wallet } : {})
+      ...(wallet ? { wallet } : {}),
+      ...(Array.isArray(raw.tags) && raw.tags.length ? { tags: raw.tags.map((t) => cleanText(t, 30).replace(/^#/, '').toLowerCase()).filter(Boolean).slice(0, 5) } : {})
     };
   }
   const budgetCategory = cleanText(raw.category, 30).toLowerCase();

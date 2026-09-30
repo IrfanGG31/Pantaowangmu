@@ -202,6 +202,14 @@ Semua opsional; pengguna yang tidak memakainya tidak melihat perubahan.
 - **Tagihan rutin**: "kos 1,5jt tiap tanggal 5", `/tagihan`, atau kartu Tagihan di Beranda. Jam 08:00 dikirim pengingat H-1,
   hari-H (tombol ✅ Sudah bayar / ⏭️ Lewati), dan 3 hari terlambat. Jatah harian menyisihkan tagihan yang belum dibayar.
 
+- **Tag**: "hotel 1,2jt #bali", `/tag`, ketik "#bali" untuk rinciannya; input Tag di halaman Catat.
+- **Patungan & utang-piutang**: "makan 300rb bagi 3 sama andi budi" (bagianmu dicatat, sisanya piutang), "pinjamin andi 200rb",
+  "pinjam ke budi 1jt", "andi bayarin aku makan 40rb", "andi udah bayar", `/utang`. Buku terpisah: tidak mengubah Sisa saldo.
+- **Budget adaptif**: "saran budget" / `/budget saran` / kartu Saran Panta di halaman Budget; tanggal 1 jam 09:00 dikirim otomatis
+  bila bulan itu belum ada budget.
+- **Tantangan**: "tantangan no jajan seminggu", "tantangan hemat belanja maks 300rb 14 hari", "tantangan streak 30 hari",
+  `/tantangan`. Pengeluaran yang melanggar langsung diberi tahu; hasil diumumkan jam 09:00.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

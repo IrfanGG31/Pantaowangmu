@@ -9,10 +9,13 @@ import {
   listWallets, getWallet, findWalletByName, defaultWallet, createWallet, setWalletBalance,
   transferBetweenWallets, walletParserOptions, KIND_EMOJI, KIND_LABEL
 } from '../db/wallets.js';
-import { getBalance } from '../db/transactions.js';
+import { getBalance, createTransaction, tagSummary, getTransactionsByUser } from '../db/transactions.js';
+import { addDebt, getDebt, listDebts, debtSummary, settleDebt, settlePerson, splitShares } from '../db/debts.js';
+import { suggestBudgets, setBudget } from '../db/budgets.js';
+import { startChallenge, listChallenges, challengesHitBy, challengeTitle } from '../db/challenges.js';
 import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL, DEFAULT_REMINDER_TIME } from '../db/memory.js';
 import { listBills, createBill, payBill, deleteBill, findBillByName } from '../db/bills.js';
-import { formatRupiah, getDateStr } from '../utils/formatter.js';
+import { formatRupiah, getDateStr, getMonthStr } from '../utils/formatter.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const signed = (n) => `${n < 0 ? '-' : ''}${formatRupiah(n)}`;
@@ -339,4 +342,182 @@ export function doSetReminder(userId, { time, smart }) {
   if (time === 'off') return '🔕 Pengingat harian dimatikan. Nyalakan lagi: "ingatkan aku jam 9 malam" atau /pengingat';
   if (time) return `🔔 Siap! Aku ingatkan jam ${time} kalau hari itu kamu belum mencatat. Atur lagi: /pengingat`;
   return smart ? '🧠 Pengingat pintar aktif. Aku pelajari jam kamu biasanya jajan.' : '🧠 Pengingat pintar dimatikan.';
+}
+
+// ── v3: split bills, debts, tags, budget suggestions, challenges ───────────
+
+export function debtsText(userId) {
+  const debts = listDebts(userId);
+  const sum = debtSummary(userId);
+  if (!debts.length) {
+    return [
+      '🤝 Tidak ada utang-piutang yang belum lunas.',
+      '',
+      'Contoh chat:',
+      '• makan 300rb bagi 3 sama andi budi   (patungan)',
+      '• pinjamin andi 200rb   /   pinjam ke budi 1jt',
+      '• andi bayarin aku makan 40rb',
+      '• andi udah bayar   /   aku udah bayar utang ke budi'
+    ].join('\n');
+  }
+  const lines = ['🤝 Utang-piutang', ''];
+  if (sum.owed_to_me) lines.push(`Orang lain utang ke kamu: ${formatRupiah(sum.owed_to_me)}`);
+  if (sum.i_owe) lines.push(`Kamu utang: ${formatRupiah(sum.i_owe)}`);
+  lines.push('');
+  for (const d of debts) {
+    lines.push(`${d.direction === 'owed_to_me' ? '⬅️' : '➡️'} ${d.person} ${formatRupiah(d.amount)}${d.note ? ` (${d.note})` : ''}`);
+  }
+  lines.push('', 'ℹ️ Utang-piutang dicatat terpisah dan tidak mengubah Sisa saldo. Ketuk tombol saat sudah lunas.');
+  return lines.join('\n');
+}
+
+export function debtsKeyboard(userId) {
+  const rows = listDebts(userId).slice(0, 8).map((d) => [{
+    text: `✅ ${d.person} ${d.direction === 'owed_to_me' ? 'sudah bayar' : 'sudah kubayar'} ${formatRupiah(d.amount)}`,
+    callback_data: `dl:${d.id}`
+  }]);
+  return rows.length ? { inline_keyboard: rows } : undefined;
+}
+
+export function doDebt(userId, { direction, person, amount, note = '' }) {
+  const result = addDebt(userId, { person, direction, amount, note });
+  if (result.error) return `❌ ${result.error}`;
+  const d = result.debt;
+  const s = debtSummary(userId);
+  return direction === 'owed_to_me'
+    ? `🤝 Dicatat: ${d.person} utang ke kamu ${formatRupiah(d.amount)}${d.note ? ` (${d.note})` : ''}.\nTotal piutangmu: ${formatRupiah(s.owed_to_me)}. Tandai lunas: "${d.person.toLowerCase()} udah bayar" atau /utang`
+    : `🤝 Dicatat: kamu utang ke ${d.person} ${formatRupiah(d.amount)}${d.note ? ` (${d.note})` : ''}.\nTotal utangmu: ${formatRupiah(s.i_owe)}. Tandai lunas: "udah bayar ke ${d.person.toLowerCase()}" atau /utang`;
+}
+
+export function doSettle(userId, { person, direction = null }) {
+  const result = settlePerson(userId, person, direction);
+  if (!result.count) return `🤔 Tidak ada utang-piutang terbuka dengan ${person}. Lihat /utang`;
+  return `✅ Lunas: ${result.person} ${formatRupiah(result.amount)}${result.count > 1 ? ` (${result.count} catatan)` : ''}.`;
+}
+
+export function doSettleOne(userId, id) {
+  const debt = getDebt(userId, id);
+  if (!debt || debt.settled) return 'ℹ️ Catatan ini sudah lunas atau tidak ada.';
+  settleDebt(userId, debt.id);
+  return `✅ Lunas: ${debt.person} ${formatRupiah(debt.amount)}.`;
+}
+
+/**
+ * Records the user's own share of a split bill and one receivable per friend.
+ * @returns {{ text: string, tx: Object|null }}
+ */
+export function doSplit(userId, { total, people, names = [], category = null, note = '', tags = [], wallet_id }) {
+  const shares = splitShares(total, people, names);
+  const cat = category && categoryNames(userId, 'expense').includes(category) ? category : 'lainnya';
+  const walletId = wallet_id !== undefined ? wallet_id : defaultWallet(userId)?.id ?? null;
+  const tx = createTransaction(userId, 'expense', shares.mine, cat, `${note || capitalize(cat)} (patungan ${shares.people} orang)`.trim(), walletId, tags);
+  for (const r of shares.receivables) addDebt(userId, { person: r.person, direction: 'owed_to_me', amount: r.amount, note: note || cat, source_tx_id: tx.id });
+  const friends = shares.receivables.map((r) => `${capitalize(r.person)} ${formatRupiah(r.amount)}`).join(', ');
+  return {
+    tx,
+    text: [
+      `🍕 Patungan ${formatRupiah(total)} ÷ ${shares.people} orang`,
+      `💸 Bagianmu dicatat: ${formatRupiah(shares.mine)} (${categoryLabel(userId, cat)})`,
+      `🤝 Piutang: ${friends}`,
+      'Tandai lunas: "andi udah bayar" atau /utang'
+    ].join('\n')
+  };
+}
+
+/** Someone paid for the user: the spending is recorded (no wallet: no cash left yet) plus a debt to them. */
+export function doPaidByOther(userId, { person, amount, category = null, note = '', tags = [] }) {
+  const cat = category && categoryNames(userId, 'expense').includes(category) ? category : 'lainnya';
+  const tx = createTransaction(userId, 'expense', amount, cat, `${note || capitalize(cat)} (dibayarin ${person})`, null, tags);
+  const debt = addDebt(userId, { person, direction: 'i_owe', amount, note: note || cat, source_tx_id: tx.id });
+  return { tx, text: `💸 ${formatRupiah(amount)} ${categoryLabel(userId, cat)} dicatat.\n🤝 Kamu utang ke ${debt.debt?.person || person} ${formatRupiah(amount)}. Kalau sudah dibayar: "udah bayar ke ${person.toLowerCase()}" atau /utang` };
+}
+
+export function tagText(userId, tag = null) {
+  if (!tag) {
+    const tags = tagSummary(userId);
+    if (!tags.length) return '🏷️ Belum ada tag. Tambahkan # saat mencatat, misalnya "hotel 1,2jt #bali" atau "ojol 25rb #kantor".';
+    return ['🏷️ Tag kamu', '', ...tags.slice(0, 15).map((t) => `#${t.tag}: keluar ${formatRupiah(t.expense)}${t.income ? `, masuk ${formatRupiah(t.income)}` : ''} (${t.count}×)`), '', 'Rincian satu tag: ketik #namatag'].join('\n');
+  }
+  const t = tagSummary(userId).find((x) => x.tag === tag);
+  if (!t) return `🏷️ Belum ada transaksi dengan #${tag}.`;
+  const recent = getTransactionsByUser(userId, 5, 0, { tag }).data;
+  return [
+    `🏷️ #${tag}`,
+    `Keluar ${formatRupiah(t.expense)}${t.income ? ` · Masuk ${formatRupiah(t.income)}` : ''} · ${t.count} transaksi`,
+    '',
+    ...recent.map((r) => `• ${r.type === 'income' ? '+' : '−'}${formatRupiah(r.amount)} ${r.category}${r.note ? ` (${r.note})` : ''}`)
+  ].join('\n');
+}
+
+export function budgetSuggestText(userId) {
+  const { data } = suggestBudgets(userId);
+  if (!data.length) return '📊 Belum cukup data untuk saran budget. Catat pengeluaran minimal sebulan dulu, ya.';
+  return [
+    '📊 Saran budget bulan ini (dari rata-rata 3 bulan terakhir, dihemat 10%)',
+    '',
+    ...data.slice(0, 8).map((s) => `• ${categoryLabel(userId, s.category)}: rata-rata ${formatRupiah(s.average)} → saran ${formatRupiah(s.suggested)}${s.current ? ` (sekarang ${formatRupiah(s.current)})` : ''}`),
+    '',
+    'Pakai semua atau pilih satu per satu:'
+  ].join('\n');
+}
+
+export function budgetSuggestKeyboard(userId) {
+  const { data } = suggestBudgets(userId);
+  if (!data.length) return undefined;
+  const rows = [[{ text: '✅ Pakai semua saran', callback_data: 'bsa:all' }]];
+  const list = data.slice(0, 8);
+  for (let i = 0; i < list.length; i += 2) {
+    rows.push(list.slice(i, i + 2).map((s, j) => ({ text: `${capitalize(s.category)} ${formatRupiah(s.suggested)}`, callback_data: `bsa:${i + j}` })));
+  }
+  return { inline_keyboard: rows };
+}
+
+/** Applies all suggestions, or one by its index in the current list. */
+export function applyBudgetSuggestion(userId, which = 'all') {
+  const { data } = suggestBudgets(userId);
+  const picked = which === 'all' ? data.slice(0, 8) : [data[Number(which)]].filter(Boolean);
+  for (const s of picked) setBudget(userId, s.category, s.suggested, getMonthStr());
+  if (!picked.length) return 'ℹ️ Saran sudah berubah. Ketik "saran budget" lagi.';
+  return `✅ Budget bulan ini diatur: ${picked.map((s) => `${s.category} ${formatRupiah(s.suggested)}`).join(', ')}. Pantau di Mini App → Budget.`;
+}
+
+export function challengesText(userId) {
+  const list = listChallenges(userId);
+  const lines = ['🏆 Tantangan', ''];
+  if (!list.length) lines.push('Belum ada tantangan. Pilih di bawah, atau chat misalnya "tantangan no jajan seminggu", "tantangan hemat belanja maks 300rb 14 hari".');
+  for (const c of list) {
+    const status = { active: '⏳', done: '🎉 Berhasil', failed: '❌ Gagal', cancelled: '🚫' }[c.status];
+    let progress = `hari ${c.days_elapsed}/${c.days_total}`;
+    if (c.kind === 'limit') progress += ` · terpakai ${formatRupiah(c.spent)} dari ${formatRupiah(c.target_amount)}`;
+    if (c.kind === 'streak') progress += ` · ${c.logged_days} hari tercatat`;
+    lines.push(`${status} ${challengeTitle(c, formatRupiah)}: ${progress}`);
+  }
+  return lines.join('\n');
+}
+
+export function challengesKeyboard(userId) {
+  const active = listChallenges(userId).filter((c) => c.status === 'active');
+  const rows = [
+    [{ text: '🚫 No jajan 7 hari', callback_data: 'cs:no_spend:makan:7' }, { text: '🔥 Catat tiap hari 30 hari', callback_data: 'cs:streak::30' }],
+    [{ text: '🚫 Tanpa belanja online 14 hari', callback_data: 'cs:no_spend:belanja:14' }]
+  ];
+  for (const c of active) rows.push([{ text: `Batalkan: ${challengeTitle(c, formatRupiah).slice(0, 40)}`, callback_data: `cc:${c.id}` }]);
+  return { inline_keyboard: rows };
+}
+
+export function doStartChallenge(userId, { kind, category = null, days = 7, target_amount = null }) {
+  if (!kind) return '🤔 Tantangan apa? Contoh: "tantangan no jajan seminggu", "tantangan streak 30 hari", "tantangan hemat makan maks 500rb 14 hari". Atau pilih lewat /tantangan';
+  const result = startChallenge(userId, { kind, category, days, target_amount });
+  if (result.error) return `❌ ${result.error}`;
+  const c = result.challenge;
+  return `🏆 Tantangan dimulai: ${challengeTitle(c, formatRupiah)} (sampai ${c.end_date}). Semangat! Progres: /tantangan`;
+}
+
+/** Notes appended after saving an expense that affects an active challenge. */
+export function challengeNotes(userId, tx) {
+  return challengesHitBy(userId, tx).map((c) => {
+    if (c.status === 'failed') return `💔 Tantangan "${challengeTitle(c, formatRupiah)}" gagal di hari ${c.days_elapsed}. Coba lagi: /tantangan`;
+    if (c.kind === 'limit' && c.spent >= c.target_amount * 0.8) return `⚠️ Tantangan hemat: sudah ${formatRupiah(c.spent)} dari ${formatRupiah(c.target_amount)}.`;
+    return null;
+  }).filter(Boolean);
 }
