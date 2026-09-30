@@ -26,6 +26,7 @@ import type {
   Wallet,
   WalletKind,
   TxType,
+  Bill,
 } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -239,6 +240,21 @@ export const walletsApi = {
   },
   transfer(data: { from_wallet_id: number; to_wallet_id: number; amount: number; note?: string }): Promise<WalletsResponse> {
     return request('POST', '/wallets/transfer', data);
+  },
+};
+
+export const billsApi = {
+  list(signal?: AbortSignal): Promise<{ data: Bill[] }> {
+    return request('GET', '/bills', undefined, signal);
+  },
+  create(data: { name: string; amount: number; day_of_month: number; type?: TxType; wallet_id?: number | null }): Promise<{ data: Bill }> {
+    return request('POST', '/bills', data);
+  },
+  pay(id: number, data: { month?: string; record?: boolean } = {}): Promise<{ data: Bill; transaction: Transaction | null }> {
+    return request('POST', `/bills/${id}/pay`, data);
+  },
+  remove(id: number): Promise<{ success: boolean }> {
+    return request('DELETE', `/bills/${id}`);
   },
 };
 

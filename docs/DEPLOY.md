@@ -197,6 +197,11 @@ Semua opsional; pengguna yang tidak memakainya tidak melihat perubahan.
 - **Bahasa & persona**: `/gaya` atau chat "ngomong jowo ae", "jadi coach yang galak". Bahasa: ikuti bahasaku, Indonesia,
   Jawa, Sunda, English, campur. Persona: teman, konsultan, coach.
 
+- **Pengingat**: jam sendiri ("ingatkan aku jam 8 malam", `/pengingat`), dicek tiap 5 menit dan hanya dikirim bila hari itu
+  belum ada catatan. **Pengingat pintar** (opsional) menyapa satu jam setelah jam biasanya pengguna jajan (dari 30 hari terakhir).
+- **Tagihan rutin**: "kos 1,5jt tiap tanggal 5", `/tagihan`, atau kartu Tagihan di Beranda. Jam 08:00 dikirim pengingat H-1,
+  hari-H (tombol ✅ Sudah bayar / ⏭️ Lewati), dan 3 hari terlambat. Jatah harian menyisihkan tagihan yang belum dibayar.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

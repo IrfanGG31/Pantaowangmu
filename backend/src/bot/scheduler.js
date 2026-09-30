@@ -1,11 +1,11 @@
 import cron from 'node-cron';
 import { getAllUsers } from '../db/users.js';
-import { getAccess, hasAccess, getEntitlement, countAiCallsToday, recordAiUsage, TRIAL_PLAN } from '../db/subscriptions.js';
+import { getAccess, getEntitlement, countAiCallsToday, recordAiUsage, TRIAL_PLAN } from '../db/subscriptions.js';
 import { takeDueNotices, listPlans } from '../db/billing.js';
 import { getMemory } from '../db/memory.js';
 import { getAiConfig, writeWeeklyReport } from '../ai/interpreter.js';
 import { buildUserContext } from '../ai/context.js';
-import { getUsersWithoutTransactionToday, markReminded } from '../db/reminders.js';
+import { runReminderTick, runBillTick, TICK_MINUTES } from './nudges.js';
 import { getBudgetsByUser } from '../db/budgets.js';
 import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr, formatDateShort } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
@@ -21,35 +21,29 @@ const TIMEZONE = process.env.TIMEZONE || 'Asia/Jakarta';
 export function startScheduler(bot) {
   logger.info(`[Scheduler] Initializing cron jobs with timezone ${TIMEZONE}`);
 
-  // ── 1. Daily Reminder: Every day at 21:00 WIB ───────────────────────────
+  // ── 1. Daily reminder at each user's own time (default 21:00), smart habit nudges ──
   cron.schedule(
-    '0 21 * * *',
+    `*/${TICK_MINUTES} * * * *`,
     async () => {
-      logger.info('[Scheduler] Running daily reminder job (21:00 WIB)...');
       try {
-        const todayStr = getDateStr();
-        const inactiveUsers = getUsersWithoutTransactionToday(todayStr);
-
-        for (const user of inactiveUsers) {
-          if (!hasAccess(user.user_id)) continue;
-          const name = user.first_name || 'Kak';
-          const text = `🔔 *Pengingat Keuangan Harian*
-
-Halo ${name}! Kamu belum mencatat transaksi keuangan hari ini.
-
-Yuk catat pengeluaran atau pemasukanmu hari ini agar keuangan tetap terkontrol:
-• Ketik \`/catat <jumlah> <kategori> [catatan]\`
-• Atau buka Mini App di menu bawah 📱`;
-
-          try {
-            await safeSendMessage(bot, user.user_id, text, { parse_mode: 'Markdown' });
-            markReminded(user.user_id, todayStr);
-          } catch (err) {
-            logger.warn({ userId: user.user_id, err: err.message }, 'Failed to send daily reminder');
-          }
-        }
+        const { reminders, nudges } = await runReminderTick(bot);
+        if (reminders || nudges) logger.info({ reminders, nudges }, '[Scheduler] Reminders sent');
       } catch (err) {
-        logger.error({ err: err.message }, 'Daily reminder job error');
+        logger.error({ err: err.message }, 'Reminder tick error');
+      }
+    },
+    { timezone: TIMEZONE }
+  );
+
+  // ── 1b. Recurring bill reminders: every day at 08:00 ──
+  cron.schedule(
+    '0 8 * * *',
+    async () => {
+      try {
+        const sent = await runBillTick(bot);
+        logger.info({ sent }, '[Scheduler] Bill reminders');
+      } catch (err) {
+        logger.error({ err: err.message }, 'Bill reminder job error');
       }
     },
     { timezone: TIMEZONE }

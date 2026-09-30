@@ -83,6 +83,8 @@ export interface Profile {
   emoji: boolean | null;
   language: 'auto' | 'id' | 'jawa' | 'sunda' | 'en' | 'campur' | null;
   persona: 'teman' | 'konsultan' | 'coach' | null;
+  reminder_time: string | null; // "HH:MM", "off", or null (default 21:00)
+  smart_nudge: boolean;
 }
 
 // ── Personal categories (GET /api/me/categories) ──────────────────────────────
@@ -146,6 +148,22 @@ export interface TodayAllowance {
   days_left: number;
   next_payday: string | null;   // "YYYY-MM-DD"; null = cycle ends at month end
   cycle_remaining: number;
+  reserved_bills: number;       // unpaid bills due before payday, set aside first
+}
+
+export interface Bill {
+  id: number;
+  name: string;
+  amount: number;
+  type: TxType;
+  category: string;
+  day_of_month: number;
+  wallet_id: number | null;
+  last_paid_month: string | null;
+  due_date: string;             // next unpaid due date "YYYY-MM-DD"
+  month: string;                // "YYYY-MM" that due date belongs to
+  days_until: number;           // negative = overdue
+  paid_this_month: boolean;
 }
 
 export interface BudgetWatch {
@@ -177,6 +195,7 @@ export interface InsightsResponse {
   today: string;
   balance: { income: number; expense: number; opening: number; net: number };  // all time
   wallets: Wallet[];
+  bills: Bill[];
   month_to_date: { income: number; expense: number; count: number; net: number };
   previous_month_same_period: { expense: number };
   expense_change_pct: number | null;

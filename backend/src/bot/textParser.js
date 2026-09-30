@@ -31,7 +31,7 @@ const CATEGORY_KEYWORDS = {
   pendidikan: [
     'pendidikan', 'buku', 'kursus', 'sekolah', 'kuliah', 'spp', 'ukt', 'les', 'seminar', 'pelatihan', 'kelas online'
   ],
-  gaji: ['gaji', 'gajian', 'salary', 'upah'],
+  gaji: ['gaji', 'gajiku', 'gajian', 'salary', 'upah'],
   bonus: ['bonus', 'thr', 'insentif', 'komisi'],
   freelance: ['freelance', 'proyek', 'project', 'honor', 'fee', 'job'],
   investasi: ['investasi', 'dividen', 'deviden', 'bunga deposito', 'imbal hasil', 'profit trading']
@@ -176,6 +176,20 @@ export function detectWalletId(text, wallets = []) {
   return walletByWord(String(text || '').toLowerCase(), wallets)?.id ?? null;
 }
 
+// "kos 1,5jt tiap tanggal 5", "netflix 54rb setiap bulan tgl 12", "cicilan motor 800rb tiap bulan"
+const RECURRING_RE = /\b(?:tiap|setiap|per|rutin)\s+(?:bulan(?:nya)?(?:\s+(?:tanggal|tgl\.?|tg)\s*(\d{1,2}))?|(?:tanggal|tgl\.?|tg)\s*(\d{1,2}))(?![\p{L}\p{N}])/iu;
+// "ingatkan aku jam 8 malam", "pengingat jam 20.30", "matikan pengingat"
+const REMINDER_RE = /^(?:tolong\s+)?(?:ingatkan|ingetin|ingatin|pengingat|reminder)(?:\s+(?:aku|saya|gue|gw))?(?:\s+(?:catat|nyatat|buat\s+catat))?(?:\s+(?:tiap\s+hari|setiap\s+hari))?\s+(?:jam|pukul|pkl)\s+(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
+const REMINDER_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)(?:\s+harian)?\b/i;
+
+function to24h(hour, part) {
+  let h = hour;
+  if ((part === 'sore' || part === 'malam') && h < 12) h += 12;
+  if (part === 'siang' && h < 11) h += 12;
+  if (part === 'pagi' && h === 12) h = 0;
+  return h;
+}
+
 const LEARN_RE = /^(?:kalau\s+|kalo\s+)?["'“]?(.{2,40}?)["'”]?\s+(?:itu\s+)?(?:masuk(?:in)?(?:\s+ke)?(?:\s+kategori)?|masukkan\s+ke(?:\s+kategori)?|termasuk(?:\s+kategori)?|kategori(?:nya)?)\s+([\p{L}\p{N} -]{1,30}?)[.!]?$/iu;
 const ADD_CATEGORY_RE = /^(?:tolong\s+)?(?:tambah(?:kan|in)?|buat(?:kan|in)?|bikin(?:in)?)\s+kategori(?:\s+baru)?(?:\s+(pemasukan|pengeluaran))?\s+(.{1,40})$|^kategori\s+baru(?:\s+(pemasukan|pengeluaran))?\s+(.{1,40})$/iu;
 const ADD_WALLET_RE = /^(?:tolong\s+)?(?:tambah(?:kan|in)?|buat(?:kan|in)?|bikin(?:in)?)\s+(?:dompet|rekening|akun|e-?wallet)(?:\s+baru)?\s+(.{1,40})$/iu;
@@ -256,6 +270,9 @@ function parseWalletBalance(original, text, found, wallets) {
  *   { intent: 'add_wallet', name: string, balance: number|null } |
  *   { intent: 'wallet_balance', amount: number, wallet_id: number|null, wallet_name: string } |
  *   { intent: 'transfer', kind: string, amount: number, from_wallet_id: number|null, to_wallet_id: number|null } |
+ *   { intent: 'add_bill', name: string, amount: number, day_of_month: number|null, type: 'income'|'expense', category: string|null } |
+ *   { intent: 'profile_income', monthly_income: number, payday: number|null } |
+ *   { intent: 'reminder', time: string } |
  *   { intent: 'unknown' }
  * )}
  */
@@ -282,6 +299,40 @@ export function parseFreeText(input, options = {}) {
     const emoji = [...raw.matchAll(/\p{Extended_Pictographic}️?/gu)].map((m) => m[0])[0] || null;
     const name = raw.replace(/\p{Extended_Pictographic}️?|‍/gu, '').replace(/[.!]+$/, '').trim().toLowerCase();
     if (name) return { intent: 'add_category', name, type: kind === 'pemasukan' ? 'income' : 'expense', emoji };
+  }
+
+  if (REMINDER_OFF_RE.test(original)) return { intent: 'reminder', time: 'off' };
+  const rem = REMINDER_RE.exec(original);
+  if (rem) {
+    const hour = to24h(Number(rem[1]), rem[3]?.toLowerCase());
+    const minute = rem[2] ? Number(rem[2]) : 0;
+    if (hour <= 23 && minute <= 59) {
+      return { intent: 'reminder', time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` };
+    }
+  }
+
+  const recurring = found ? RECURRING_RE.exec(original) : null;
+  if (recurring) {
+    const dayText = recurring[1] || recurring[2];
+    const day = dayText ? Number(dayText) : null;
+    if (day === null || (day >= 1 && day <= 31)) {
+      const without = (original.slice(0, recurring.index) + ' ' + original.slice(recurring.index + recurring[0].length));
+      const amt = extractAmount(without);
+      const name = cleanNote(amt ? without.slice(0, amt.start) + ' ' + without.slice(amt.end) : without)
+        .replace(/^(?:bayar|tagihan|langganan)\s+/i, '');
+      if (name) {
+        const lower = name.toLowerCase();
+        const personal = detectPersonal(lower, options);
+        const category = personal ? personal.category : detectCategory(lower);
+        const incomeOnly = INCOME_CATEGORIES.filter((c) => !EXPENSE_CATEGORIES.includes(c));
+        const type = personal ? personal.type : category && incomeOnly.includes(category) ? 'income' : 'expense';
+        // "gaji 8jt tiap tanggal 25" is the pay profile (drives the daily allowance), not a bill.
+        if (category === 'gaji' && type === 'income') {
+          return { intent: 'profile_income', monthly_income: found.amount, payday: day };
+        }
+        return { intent: 'add_bill', name: name.slice(0, 40), amount: found.amount, day_of_month: day, type, category };
+      }
+    }
   }
 
   const addWallet = ADD_WALLET_RE.exec(original);

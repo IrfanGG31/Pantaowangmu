@@ -10,14 +10,16 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    transactionsApi, meApi, insightsApi,
+    transactionsApi, meApi, insightsApi, billsApi, ApiError,
     formatRupiah, formatRupiahShort, formatTime, formatCalendarDate, WALLET_KIND_EMOJI, } from '$lib/api.js';
   import { getTelegramUser, setupMainButton, haptic } from '$lib/telegram.js';
   import { txRevision, categoryIcons, wallets, loadWallets } from '$lib/stores.js';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import IncomeSheet from '$lib/components/IncomeSheet.svelte';
   import WalletSheet from '$lib/components/WalletSheet.svelte';
-  import type { Summary, Transaction, MeResponse, InsightsResponse } from '$lib/types.js';
+  import BillSheet from '$lib/components/BillSheet.svelte';
+  import type { Summary, Transaction, MeResponse, InsightsResponse, Bill } from '$lib/types.js';
+  import { showToast } from '$lib/stores.js';
 
   let summary: Summary | null = null;
   let recent: Transaction[] = [];
@@ -28,6 +30,8 @@
   let controller: AbortController | null = null;
   let sheetOpen = false;
   let walletSheetOpen = false;
+  let billSheetOpen = false;
+  let payingBill: number | null = null;
 
   const tgUser = getTelegramUser();
 
@@ -52,7 +56,7 @@
     cleanupMainBtn?.();
   });
 
-  $: anySheetOpen = sheetOpen || walletSheetOpen;
+  $: anySheetOpen = sheetOpen || walletSheetOpen || billSheetOpen;
   $: if (mounted) {
     if (anySheetOpen) {
       cleanupMainBtn?.();
@@ -122,6 +126,32 @@
   $: change = insights?.expense_change_pct ?? null;
   $: budget = insights?.budget_watch ?? null;
   $: goals = (insights?.goals ?? []).slice(0, 2);
+
+  $: bills = (insights?.bills ?? []).slice(0, 4);
+
+  function billDue(b: Bill): string {
+    if (b.paid_this_month) return `Lunas · berikutnya ${formatCalendarDate(b.due_date)}`;
+    if (b.days_until < 0) return `Lewat ${-b.days_until} hari`;
+    if (b.days_until === 0) return 'Jatuh tempo hari ini';
+    if (b.days_until === 1) return 'Besok';
+    return `${formatCalendarDate(b.due_date)} · ${b.days_until} hari lagi`;
+  }
+
+  async function payBill(b: Bill) {
+    if (payingBill) return;
+    payingBill = b.id;
+    try {
+      await billsApi.pay(b.id, { month: b.month });
+      haptic('success');
+      showToast(`${b.name} dicatat lunas`, 'success');
+      loadData();
+    } catch (e: unknown) {
+      haptic('error');
+      showToast(e instanceof ApiError ? e.message : 'Gagal menyimpan', 'error');
+    } finally {
+      payingBill = null;
+    }
+  }
 
   function daysLabel(n: number): string {
     if (n <= 0) return 'hari ini';
@@ -244,6 +274,7 @@
           </div>
           <div class="hero-allow-sub tabular">
             <span>
+              {#if allowance.reserved_bills > 0}Tagihan {formatRupiahShort(allowance.reserved_bills)} sudah disisihkan ·{/if}
               Jatah {formatRupiahShort(allowance.allowance)}/hari ·
               {allowance.next_payday ? 'gajian' : 'akhir bulan'} {daysLabel(allowance.days_left)}
             </span>
@@ -302,6 +333,38 @@
           {/if}
         </button>
       </div>
+
+      <!-- Recurring bills -->
+      <div class="section-head">
+        <div class="section-title" style="margin-bottom: 0;">Tagihan rutin</div>
+        <button class="btn btn-ghost btn-sm" on:click={() => { haptic('selection'); billSheetOpen = true; }}>＋ Tambah</button>
+      </div>
+      {#if bills.length}
+        <div class="card card-list mb-4">
+          {#each bills as b (b.id)}
+            <div class="bill">
+              <div class="bill-body">
+                <div class="font-semibold truncate">{b.name}</div>
+                <div class="text-sm" class:text-hint={b.days_until > 3 || b.paid_this_month} class:text-warning={!b.paid_this_month && b.days_until >= 0 && b.days_until <= 3} class:text-expense={!b.paid_this_month && b.days_until < 0}>
+                  {billDue(b)}
+                </div>
+              </div>
+              <div class="bill-side">
+                <div class="font-bold tabular">{formatRupiahShort(b.amount)}</div>
+                {#if !b.paid_this_month && b.days_until <= 7}
+                  <button class="btn btn-secondary btn-sm bill-pay" disabled={payingBill === b.id} on:click={() => payBill(b)}>
+                    {b.type === 'income' ? 'Diterima' : 'Bayar'}
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="card goal-empty mb-4">
+          Kos, cicilan, atau langganan? Simpan sekali, Panta ingatkan tiap bulan. Bisa juga lewat chat: <em>“kos 1,5jt tiap tanggal 5”</em>.
+        </div>
+      {/if}
 
       <!-- Goals -->
       <div class="section-title">Target tabungan</div>
@@ -376,6 +439,8 @@
     {/if}
   {/if}
 </main>
+
+<BillSheet open={billSheetOpen} on:close={() => (billSheetOpen = false)} on:saved={() => { billSheetOpen = false; loadData(); }} />
 
 <WalletSheet open={walletSheetOpen} on:close={() => (walletSheetOpen = false)} on:changed={loadData} />
 
@@ -588,6 +653,25 @@
   .stat-label { font-size: 12px; color: var(--tg-hint); }
   .stat-value { font-size: 18px; font-weight: 700; line-height: 1.25; }
   .stat-sub { font-size: 12px; font-weight: 500; }
+
+  /* Bills */
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .bill {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+  }
+  .bill:first-child { padding-top: 0; }
+  .bill:last-child { padding-bottom: 0; }
+  .bill-body { flex: 1; min-width: 0; }
+  .bill-side { display: flex; align-items: center; gap: 10px; }
+  .bill-pay { min-height: 36px; }
 
   /* Goals */
   .goal { display: grid; gap: 6px; padding: 10px 0; }

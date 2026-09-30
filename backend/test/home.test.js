@@ -39,7 +39,7 @@ describe('GET /api/me', () => {
     const res = await as(request(app).get('/api/me'));
     expect(res.status).toBe(200);
     expect(res.body.user).toEqual({ user_id: '42', first_name: 'Dev User', nickname: '', display_name: 'Dev User' });
-    expect(res.body.profile).toEqual({ monthly_income: null, payday: null, style: null, emoji: null, language: null, persona: null });
+    expect(res.body.profile).toEqual({ monthly_income: null, payday: null, style: null, emoji: null, language: null, persona: null, reminder_time: null, smart_nudge: false });
     expect(res.body.subscription).toMatchObject({
       tier: 'trial', state: 'active', plan_name: 'Trial', days_left: 7,
       ai_daily_limit: 20, ai_used_today: 0, receipt_monthly_limit: 10, receipts_used_this_month: 0
@@ -130,7 +130,7 @@ describe('GET /api/insights', () => {
     // Cycle 25 Aug → 25 Sep: 8.000.000 − 600.000 = 7.400.000 left, 5 days to go (today included).
     // At the start of today 7.500.000 was left → 1.500.000/day; 100.000 already spent today.
     expect(res.body.today_allowance).toEqual({
-      allowance: 1500000, spent: 100000, left: 1400000, days_left: 5, next_payday: '2026-09-25', cycle_remaining: 7400000
+      allowance: 1500000, spent: 100000, left: 1400000, days_left: 5, next_payday: '2026-09-25', cycle_remaining: 7400000, reserved_bills: 0
     });
     expect(res.body.budget_watch).toEqual({ category: 'makan', amount: 300000, spent: 400000, remaining: -100000, percentage: 133 });
     expect(res.body.goals[0]).toMatchObject({ name: 'Laptop', progress_pct: 17, per_month: 1666667 });

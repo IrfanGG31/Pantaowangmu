@@ -235,3 +235,29 @@ CREATE TABLE IF NOT EXISTS wallet_transfers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_wallet_transfers_user ON wallet_transfers(user_id, created_at);
+
+-- Monthly recurring bills / income (kos, Netflix, cicilan, gaji tetap), with the month last paid
+CREATE TABLE IF NOT EXISTS recurring_bills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  amount INTEGER NOT NULL CHECK(amount > 0 AND amount <= 999999999),
+  type TEXT NOT NULL DEFAULT 'expense' CHECK(type IN ('income', 'expense')),
+  category TEXT NOT NULL DEFAULT 'tagihan',
+  day_of_month INTEGER NOT NULL CHECK(day_of_month BETWEEN 1 AND 31),
+  wallet_id INTEGER,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_paid_month TEXT,
+  created_at DATETIME DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_bills_user ON recurring_bills(user_id);
+
+-- One row per nudge sent (habit nudges, bill reminders), so each goes out once
+CREATE TABLE IF NOT EXISTS nudge_log (
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  created_at DATETIME DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, date, kind)
+);

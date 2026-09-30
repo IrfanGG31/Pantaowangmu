@@ -127,6 +127,9 @@ Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"add_wallet","name":"<nama dompet, mis. BCA, GoPay, Cash, QRIS>","kind":"cash"|"bank"|"ewallet"|"qris"|"credit"|"other","balance":<saldo sekarang>}
 {"type":"set_wallet_balance","wallet":"<nama dompet>","balance":<saldo sekarang>}
 {"type":"transfer","from":"<nama dompet asal>","to":"<nama dompet tujuan>","amount":<bilangan bulat>}  (pindah uang antar dompet sendiri, mis. tarik tunai, top up)
+{"type":"add_bill","name":"<nama tagihan>","amount":<bilangan bulat>,"day_of_month":<1-31>,"category":"<kategori>","tx_type":"expense"|"income","wallet":"<nama dompet>"}  (tagihan/langganan/cicilan bulanan; wallet opsional)
+{"type":"delete_bill","name":"<nama tagihan>"}
+{"type":"set_reminder","time":"HH:MM"|"off","smart":true|false}  (jam pengingat harian; smart = pengingat pintar sesuai kebiasaan; isi yang disebut saja)
 
 Kategori: pakai daftar "Kategori pengeluaran/pemasukan" di DATA PENGGUNA (termasuk kategori buatan pengguna).
 
@@ -141,6 +144,10 @@ ATURAN AKSI
   menyebut cara bayar/dompet (cash, qris, gopay, bca, ...) dan dompet itu ada di DATA; jika dompet belum ada, tawarkan
   untuk menambahkannya. Tarik tunai/top up/pindah saldo antar dompet sendiri = transfer, BUKAN pengeluaran.
 - "saldo BCA 4jt" / "uang cash-ku tinggal 200rb" = set_wallet_balance (atau add_wallet jika dompetnya belum ada).
+- Pengeluaran rutin bulanan ("kos 1,5jt tiap tanggal 5", "langganan netflix 54rb tgl 12") = add_bill, BUKAN add_transaction.
+  Saat pengguna bilang sudah membayar tagihan rutin, catat dengan add_transaction biasa (bot menandainya lewat tombol).
+  Gaji tetap ("gajiku 8jt tiap tanggal 25") = set_profile, bukan add_bill.
+- "ingatkan aku jam 8 malam" = set_reminder time "20:00". "jangan ingatkan lagi" = set_reminder time "off".
 - Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
 - Untuk hapus transaksi, sarankan /hapus. Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
@@ -239,6 +246,30 @@ export function sanitizeAction(raw, ctx = {}) {
     const wallet = cleanText(raw.wallet, 30);
     const balance = toInt(raw.balance);
     return wallet && balance !== null && Math.abs(balance) <= MAX_AMOUNT * 1000 ? { type: 'set_wallet_balance', wallet, balance } : null;
+  }
+  if (raw.type === 'add_bill') {
+    const name = cleanText(raw.name, 40);
+    const amount = toInt(raw.amount);
+    const day = toInt(raw.day_of_month);
+    if (!name || amount === null || !validAmount(amount)) return null;
+    const txType = raw.tx_type === 'income' ? 'income' : 'expense';
+    const category = cleanText(raw.category, 30).toLowerCase();
+    const wallet = cleanText(raw.wallet, 30);
+    return {
+      type: 'add_bill', name, amount, day_of_month: day !== null && day >= 1 && day <= 31 ? day : null, tx_type: txType,
+      category: categories[txType].includes(category) ? category : null,
+      ...(wallet ? { wallet } : {})
+    };
+  }
+  if (raw.type === 'delete_bill') {
+    const name = cleanText(raw.name, 40);
+    return name ? { type: 'delete_bill', name } : null;
+  }
+  if (raw.type === 'set_reminder') {
+    const out = { type: 'set_reminder' };
+    if (raw.time === 'off' || (typeof raw.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time))) out.time = raw.time;
+    if (typeof raw.smart === 'boolean') out.smart = raw.smart;
+    return Object.keys(out).length > 1 ? out : null;
   }
   if (raw.type === 'transfer') {
     const from = cleanText(raw.from, 30);

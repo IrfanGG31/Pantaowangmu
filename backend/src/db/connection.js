@@ -99,7 +99,9 @@ const ADDED_COLUMNS = {
     ['style', 'TEXT'],
     ['emoji', 'INTEGER'],
     ['language', 'TEXT'],
-    ['persona', 'TEXT']
+    ['persona', 'TEXT'],
+    ['reminder_time', 'TEXT'],
+    ['smart_nudge', 'INTEGER']
   ],
   transactions: [
     ['wallet_id', 'INTEGER']

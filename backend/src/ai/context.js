@@ -4,6 +4,7 @@ import { getBudgetsByUser } from '../db/budgets.js';
 import { getMemory, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
 import { listCategories, listKeywords } from '../db/categories.js';
 import { listWallets } from '../db/wallets.js';
+import { listBills } from '../db/bills.js';
 import { computeInsights, insightsText } from './insights.js';
 import {
   formatRupiah,
@@ -68,6 +69,10 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
     : 'belum pakai dompet (fitur opsional)';
   const keywords = listKeywords(userId);
   const balance = getBalance(userId);
+  const bills = listBills(userId);
+  const billLines = bills.length
+    ? bills.map((b) => `${b.name} ${formatRupiah(b.amount)} tgl ${b.day_of_month} (${b.paid_this_month ? 'lunas bulan ini' : b.days_until < 0 ? `lewat ${-b.days_until} hari` : `${b.days_until} hari lagi`})`).join('; ')
+    : 'belum ada';
 
   return [
     `Nama Telegram: ${from.first_name || '-'}`,
@@ -78,6 +83,8 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
     `Kategori pemasukan: ${catList(cats.income)}`,
     `Kata yang diajarkan pengguna: ${keywords.length ? keywords.slice(0, 40).map((k) => `${k.keyword}→${k.category}`).join(', ') : 'belum ada'}`,
     `Dompet: ${walletLines}`,
+    `Tagihan rutin bulanan: ${billLines}`,
+    `Pengingat harian: ${p.reminder_time === 'off' ? 'mati' : p.reminder_time || '21:00 (default)'}; pengingat pintar: ${p.smart_nudge ? 'aktif' : 'mati'}`,
     `Sisa saldo total (saldo awal dompet + semua pemasukan − pengeluaran tercatat): ${signedRupiah(balance.net)}`,
     `Profil keuangan: penghasilan ${p.monthly_income ? `${formatRupiah(p.monthly_income)}/bulan` : 'belum diketahui'}, gajian ${p.payday ? `tanggal ${p.payday}` : 'belum diketahui'}${missing.length ? ` (profil belum lengkap: ${missing.join(', ')})` : ''}`,
     `Ingatan tentang pengguna:\n${factLines}`,
