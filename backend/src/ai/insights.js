@@ -221,13 +221,29 @@ export function todayAllowance(userId, ins, now = new Date()) {
 }
 
 /**
+ * "70% pengeluaranmu bulan ini lewat QRIS" when one wallet dominates (at least 5 expenses, 2+ wallets used).
+ * @param {Array<{ wallet_id: number|null, name: string, expense: number, count: number }>} walletSpend
+ */
+export function paymentShareTip(walletSpend = []) {
+  const assigned = walletSpend.filter((w) => w.wallet_id !== null);
+  const total = assigned.reduce((sum, w) => sum + w.expense, 0);
+  const count = assigned.reduce((sum, w) => sum + w.count, 0);
+  if (assigned.length < 2 || count < 5 || total <= 0) return null;
+  const top = assigned[0];
+  const share = Math.round((top.expense / total) * 100);
+  if (share < 60) return null;
+  return { kind: 'info', text: `${share}% pengeluaranmu bulan ini lewat ${top.name} (${rp(top.expense)}). Cek lagi apakah semuanya memang perlu.` };
+}
+
+/**
  * Up to three short, rule-based tips for the Mini App home (no AI call, so it costs nothing).
  * @param {Object} ins from computeInsights()
  * @param {{ today: Object|null, budget: Object|null }} extra todayAllowance() and the most-used budget
  * @returns {Array<{ kind: 'warning'|'good'|'info', text: string }>}
  */
-export function buildTips(ins, { today = null, budget = null } = {}) {
+export function buildTips(ins, { today = null, budget = null, walletSpend = [] } = {}) {
   const tips = [];
+  const walletTip = paymentShareTip(walletSpend);
   if (today && today.left < 0) {
     tips.push({ kind: 'warning', text: `Hari ini sudah lewat ${rp(-today.left)} dari jatah harian. Rem dulu sampai besok, ya.` });
   }
@@ -246,6 +262,7 @@ export function buildTips(ins, { today = null, budget = null } = {}) {
   if (ins.expense_change_pct !== null && ins.expense_change_pct <= -10) {
     tips.push({ kind: 'good', text: `Mantap! Pengeluaran bulan ini ${-ins.expense_change_pct}% lebih hemat dari periode yang sama bulan lalu.` });
   }
+  if (walletTip) tips.push(walletTip);
   const goal = ins.goals.find((g) => g.per_month && g.left > 0);
   if (goal) {
     tips.push({ kind: 'info', text: `Untuk target ${goal.name}, sisihkan sekitar ${rp(goal.per_month)} per bulan supaya tercapai tepat waktu.` });

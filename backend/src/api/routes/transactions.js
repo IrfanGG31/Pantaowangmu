@@ -12,6 +12,8 @@ import {
   getAllTransactions
 } from '../../db/transactions.js';
 import { getBudget } from '../../db/budgets.js';
+import { isValidCategory } from '../../db/categories.js';
+import { getWallet, defaultWallet, assignTransactionWallet } from '../../db/wallets.js';
 import { validateTransactionInput, validatePeriod } from '../../utils/validator.js';
 import { getMonthStr, getStartOfWeek, getStartOfMonth, formatRupiah } from '../../utils/formatter.js';
 import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
@@ -211,7 +213,20 @@ router.post('/', (req, res, next) => {
     const { type, amount, category, note } = value;
     const userId = req.user.user_id;
 
-    const tx = createTransaction(userId, type, amount, category, note);
+    // Any of the user's categories (built-in or their own) is accepted, as before for the built-in list.
+    if (!isValidCategory(userId, type, category) && !isValidCategory(userId, type === 'income' ? 'expense' : 'income', category)) {
+      return res.status(400).json({ error: `Kategori "${category}" belum ada. Tambahkan dulu kategorinya.` });
+    }
+    // wallet_id: a number picks a wallet, null means none, omitted uses the default wallet (if any).
+    let walletId = null;
+    if (value.wallet_id !== undefined && value.wallet_id !== null) {
+      if (!getWallet(userId, value.wallet_id)) return res.status(400).json({ error: 'Dompet tidak ditemukan' });
+      walletId = value.wallet_id;
+    } else if (value.wallet_id === undefined) {
+      walletId = defaultWallet(userId)?.id ?? null;
+    }
+
+    const tx = createTransaction(userId, type, amount, category, note, walletId);
 
     // Check budget alert for expenses
     let budgetAlert = null;
@@ -243,6 +258,25 @@ router.post('/', (req, res, next) => {
       budgetAlert,
       budget_warning: budgetWarning
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /:id/wallet — { wallet_id: number|null }
+ */
+router.patch('/:id/wallet', (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+    const tx = getTransactionById(userId, req.params.id);
+    if (!tx) return res.status(404).json({ error: 'Transaksi tidak ditemukan' });
+    const walletId = req.body?.wallet_id;
+    if (walletId !== null && !(Number.isInteger(walletId) && getWallet(userId, walletId))) {
+      return res.status(400).json({ error: 'Dompet tidak ditemukan' });
+    }
+    assignTransactionWallet(userId, tx.id, walletId);
+    res.json({ data: getTransactionById(userId, tx.id) });
   } catch (err) {
     next(err);
   }

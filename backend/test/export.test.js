@@ -19,10 +19,10 @@ function parse(csv) {
 describe('CSV export for spreadsheets', () => {
   it('uses semicolons, local WIB date/time, and oldest-first order', () => {
     const lines = parse(generateTransactionsCSV(rows));
-    expect(lines[0]).toBe('id;date;time;month;weekday;type;category;amount;signed_amount;note;created_at_utc');
+    expect(lines[0]).toBe('id;date;time;month;weekday;type;category;amount;signed_amount;note;created_at_utc;wallet');
     // 17:30 UTC on 29 Sep is 00:30 WIB on 30 Sep (Rabu); 05:31 UTC is 12:31 WIB.
-    expect(lines[1]).toBe('1;2026-09-30;00:30;2026-09;Rabu;income;gaji;5000000;5000000;;2026-09-29 17:30:00');
-    expect(lines[2]).toBe('2;2026-09-30;12:31;2026-09;Rabu;expense;makan;30000;-30000;"nasi; padang";2026-09-30 05:31:46');
+    expect(lines[1]).toBe('1;2026-09-30;00:30;2026-09;Rabu;income;gaji;5000000;5000000;;2026-09-29 17:30:00;');
+    expect(lines[2]).toBe('2;2026-09-30;12:31;2026-09;Rabu;expense;makan;30000;-30000;"nasi; padang";2026-09-30 05:31:46;');
   });
 
   it('neutralises spreadsheet formulas in notes', () => {
@@ -32,7 +32,7 @@ describe('CSV export for spreadsheets', () => {
 
   it('supports comma delimiter for pandas / BI tools', () => {
     const lines = parse(generateTransactionsCSV(rows, { delimiter: ',' }));
-    expect(lines[0].split(',')).toHaveLength(11);
+    expect(lines[0].split(',')).toHaveLength(12);
     expect(lines[2]).toContain(',nasi; padang,');
   });
 

@@ -12,9 +12,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    transactionsApi, formatRupiah,
-    EXPENSE_CATEGORIES, INCOME_CATEGORIES, CATEGORY_ICONS,
-    ApiError,
+    transactionsApi, formatRupiah, ApiError, WALLET_KIND_EMOJI,
   } from '$lib/api.js';
   import {
     setupMainButton, setMainButtonLoading,
@@ -22,14 +20,21 @@
     enableClosingConfirmation, disableClosingConfirmation,
     showAlert,
   } from '$lib/telegram.js';
-  import { invalidateTransactions, showToast } from '$lib/stores.js';
+  import { invalidateTransactions, showToast, categoryIcons, visibleCategories, wallets, loadWallets } from '$lib/stores.js';
   import type { TxType } from '$lib/types.js';
+  import CategorySheet from '$lib/components/CategorySheet.svelte';
 
   // ── Form state ─────────────────────────────────────────────────
   let type: TxType = 'expense';
   let amountRaw = '';
   let category = '';
   let note = '';
+  let walletId: number | null = null;
+  let walletTouched = false;
+  let categorySheetOpen = false;
+
+  // Preselect the default wallet until the user picks one.
+  $: if (!walletTouched) walletId = $wallets.find((w) => w.is_default)?.id ?? null;
 
   let submitting = false;
   let success = false;
@@ -40,8 +45,8 @@
   $: isDirty = amountRaw !== '' || category !== '' || note !== '';
 
   // Reactive: reset category if it doesn't belong to current type
-  $: activeCategories = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
-  $: if (category && !activeCategories.includes(category as never)) {
+  $: activeCategories = type === 'expense' ? $visibleCategories.expense : $visibleCategories.income;
+  $: if (category && !activeCategories.includes(category)) {
     category = '';
   }
 
@@ -53,16 +58,32 @@
   let cleanupMain: (() => void) | null = null;
   let cleanupBack: (() => void) | null = null;
 
+  let mounted = false;
+  const showMain = () => {
+    cleanupMain = setupMainButton({ text: 'Simpan Transaksi', onClick: handleSubmit });
+  };
+
   onMount(() => {
     // Back button → go home
     cleanupBack = setupBackButton(() => goto('/'));
 
     // Main button = submit
-    cleanupMain = setupMainButton({
-      text: 'Simpan Transaksi',
-      onClick: handleSubmit,
-    });
+    showMain();
+    mounted = true;
   });
+
+  // One primary action at a time: hide "Simpan Transaksi" (and the page's BackButton) while the category sheet is open.
+  $: if (mounted) {
+    if (categorySheetOpen && cleanupMain) {
+      cleanupMain();
+      cleanupMain = null;
+      cleanupBack?.();
+      cleanupBack = null;
+    } else if (!categorySheetOpen && !cleanupMain) {
+      showMain();
+      cleanupBack = setupBackButton(() => goto('/'));
+    }
+  }
 
   onDestroy(() => {
     cleanupMain?.();
@@ -136,7 +157,9 @@
         amount: parsedAmount,
         category,
         note: note.trim(),
+        ...($wallets.length ? { wallet_id: walletId } : {}),
       });
+      loadWallets();
 
       haptic('success');
       invalidateTransactions();
@@ -160,6 +183,7 @@
         amountRaw = '';
         category = '';
         note = '';
+        walletTouched = false;
       }, 1500);
     } catch (e: unknown) {
       haptic('error');
@@ -259,12 +283,33 @@
             on:click={() => selectCategory(cat)}
             aria-pressed={category === cat}
           >
-            <span aria-hidden="true">{CATEGORY_ICONS[cat] ?? '📦'}</span>
+            <span aria-hidden="true">{$categoryIcons[cat] ?? '📦'}</span>
             {cat}
           </button>
         {/each}
+        <button class="chip chip-add" on:click={() => (categorySheetOpen = true)}>＋ Kategori</button>
       </div>
     </div>
+
+    <!-- Wallet (only when the user uses wallets) -->
+    {#if $wallets.length}
+      <div class="form-group">
+        <div class="form-label" id="wallet-label">Dompet / cara bayar</div>
+        <div class="chip-group" role="group" aria-labelledby="wallet-label">
+          {#each $wallets as w (w.id)}
+            <button
+              class="chip"
+              class:active={walletId === w.id}
+              aria-pressed={walletId === w.id}
+              on:click={() => { walletId = walletId === w.id ? null : w.id; walletTouched = true; haptic('selection'); }}
+            >
+              <span aria-hidden="true">{WALLET_KIND_EMOJI[w.kind]}</span>
+              {w.name}
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     <!-- Note -->
     <div class="form-group">
@@ -302,7 +347,19 @@
   {/if}
 </main>
 
+<CategorySheet
+  open={categorySheetOpen}
+  {type}
+  on:close={() => (categorySheetOpen = false)}
+  on:saved={(e) => { categorySheetOpen = false; category = e.detail; categoryError = ''; }}
+/>
+
 <style>
+  .chip-add {
+    border-style: dashed;
+    color: var(--tg-link);
+  }
+
   @keyframes pop {
     0%   { transform: scale(0.5); opacity: 0; }
     80%  { transform: scale(1.15); }

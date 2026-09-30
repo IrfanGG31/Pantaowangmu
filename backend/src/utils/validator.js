@@ -21,6 +21,8 @@ export const INCOME_CATEGORIES = [
 
 export const ALL_CATEGORIES = [...new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])];
 
+export const CATEGORY_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N} \-]*$/u;
+
 // Joi schemas
 const transactionSchema = Joi.object({
   type: Joi.string().valid('income', 'expense').required().messages({
@@ -34,19 +36,24 @@ const transactionSchema = Joi.object({
     'number.min': 'Amount minimum Rp 1',
     'number.max': 'Amount maksimum Rp 999.999.999'
   }),
-  category: Joi.string().trim().lowercase().min(1).max(50).valid(...ALL_CATEGORIES).required().messages({
+  // Shape only; whether the category exists for this user is checked with isValidCategory (db/categories.js).
+  category: Joi.string().trim().lowercase().min(1).max(30).pattern(CATEGORY_NAME_RE).required().messages({
     'any.required': 'Kategori harus diisi',
-    'any.only': `Kategori harus salah satu dari: ${ALL_CATEGORIES.join(', ')}`
+    'string.pattern.base': 'Nama kategori hanya huruf, angka, spasi, atau tanda minus',
+    'string.max': 'Nama kategori maksimal 30 karakter'
   }),
   note: Joi.string().trim().max(200).allow('', null).default('').messages({
     'string.max': 'Catatan maksimal 200 karakter'
+  }),
+  wallet_id: Joi.number().integer().min(1).allow(null).optional().messages({
+    'number.base': 'wallet_id harus berupa angka'
   })
 });
 
 const budgetSchema = Joi.object({
-  category: Joi.string().trim().lowercase().min(1).max(50).valid(...EXPENSE_CATEGORIES).required().messages({
+  category: Joi.string().trim().lowercase().min(1).max(30).pattern(CATEGORY_NAME_RE).required().messages({
     'any.required': 'Kategori budget harus diisi',
-    'any.only': `Budget hanya untuk kategori pengeluaran: ${EXPENSE_CATEGORIES.join(', ')}`
+    'string.pattern.base': 'Nama kategori hanya huruf, angka, spasi, atau tanda minus'
   }),
   amount: Joi.number().integer().min(1).max(999999999).required().messages({
     'any.required': 'Jumlah budget harus diisi',

@@ -2,7 +2,7 @@
 // The model replies in JSON: a message for the user plus optional actions that the bot
 // validates and executes. Never logs the API key.
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
-import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH, MAX_GOAL_NAME_LENGTH, STYLES } from '../db/memory.js';
+import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH, MAX_GOAL_NAME_LENGTH, STYLES, LANGUAGES, PERSONAS } from '../db/memory.js';
 
 const MAX_AMOUNT = 999999999;
 const MAX_NOTE_LENGTH = 200;
@@ -74,6 +74,16 @@ SIAPA KAMU
 GAYA
 - Ikuti "Gaya bicara" di DATA PENGGUNA bila ada: santai (akrab, hangat), formal (sopan, "Anda"), singkat (langsung ke inti).
   Jika "Emoji: tidak", jangan pakai emoji. Jika belum diatur, ikuti bahasa dan gaya pengguna (default santai, hangat).
+- BAHASA (lihat "Bahasa" di DATA PENGGUNA):
+  auto/belum diatur = balas dengan bahasa atau dialek yang dipakai pengguna di pesan terakhirnya (Jawa/Suroboyoan, Sunda,
+  Inggris, Indonesia gaul). jawa = bahasa Jawa ngoko yang akrab (ikuti logat pengguna, mis. Suroboyoan "rek", "koen").
+  sunda = bahasa Sunda loma. en = English. campur = bahasa Indonesia dicampur istilah Inggris. id = bahasa Indonesia.
+  Istilah dan angka keuangan tetap jelas. Nama kategori dan dompet tetap ditulis persis seperti di DATA.
+- PERSONA (lihat "Persona" di DATA PENGGUNA):
+  teman = hangat, suportif, seperti sahabat yang paham keuangan (default).
+  konsultan = analitis, terstruktur, pakai angka dan poin, sopan.
+  coach = tegas dan blak-blakan, menagih komitmen budget/target, berani menegur kebiasaan boros ("jajan meneh? budget
+  kopi wis entek!") tapi tidak menghina, merendahkan, atau mempermalukan.
 - Panggil pengguna dengan nama panggilan dari DATA PENGGUNA. Jika belum ada, pakai nama Telegram-nya.
 - Panjang jawaban menyesuaikan: singkat untuk obrolan ringan, lebih rinci (boleh berpoin) untuk pertanyaan yang butuh penjelasan.
 - Teks biasa saja, tanpa Markdown (jangan pakai **, __, #, atau tabel). Untuk daftar pakai "•". Emoji secukupnya.
@@ -103,17 +113,22 @@ Balas HANYA dengan satu objek JSON, tanpa teks lain:
 {"reply":"<pesan untuk pengguna>","actions":[...]}
 
 Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
-{"type":"add_transaction","tx_type":"expense"|"income","amount":<bilangan bulat rupiah>,"category":"<kategori>","note":"<catatan singkat>"}
+{"type":"add_transaction","tx_type":"expense"|"income","amount":<bilangan bulat rupiah>,"category":"<kategori>","note":"<catatan singkat>","wallet":"<nama dompet>"}  (wallet opsional)
 {"type":"set_budget","category":"<kategori pengeluaran>","amount":<bilangan bulat rupiah>}
 {"type":"set_nickname","nickname":"<nama panggilan>"}
 {"type":"remember","fact":"<satu kalimat singkat>"}
 {"type":"forget","fact_id":<id>}
-{"type":"set_profile","monthly_income":<bilangan bulat>,"payday":<1-31>,"style":"santai"|"formal"|"singkat","emoji":true|false}  (isi field yang disebut saja)
+{"type":"set_profile","monthly_income":<bilangan bulat>,"payday":<1-31>,"style":"santai"|"formal"|"singkat","emoji":true|false,"language":"auto"|"id"|"jawa"|"sunda"|"en"|"campur","persona":"teman"|"konsultan"|"coach"}  (isi field yang disebut saja)
 {"type":"save_goal","name":"<nama target>","target_amount":<bilangan bulat>,"saved_amount":<bilangan bulat>,"target_date":"YYYY-MM"}  (tambah "id" untuk memperbarui target yang ada)
 {"type":"delete_goal","goal_id":<id>}
+{"type":"add_category","name":"<nama kategori baru>","category_type":"expense"|"income","emoji":"<satu emoji>"}
+{"type":"delete_category","name":"<nama kategori>","category_type":"expense"|"income"}
+{"type":"learn_keyword","keyword":"<kata/merek/tempat>","category":"<kategori>"}  (supaya catatan berikutnya dengan kata itu otomatis masuk kategori tsb)
+{"type":"add_wallet","name":"<nama dompet, mis. BCA, GoPay, Cash, QRIS>","kind":"cash"|"bank"|"ewallet"|"qris"|"credit"|"other","balance":<saldo sekarang>}
+{"type":"set_wallet_balance","wallet":"<nama dompet>","balance":<saldo sekarang>}
+{"type":"transfer","from":"<nama dompet asal>","to":"<nama dompet tujuan>","amount":<bilangan bulat>}  (pindah uang antar dompet sendiri, mis. tarik tunai, top up)
 
-Kategori pengeluaran: ${EXPENSE_CATEGORIES.join(', ')}.
-Kategori pemasukan: ${INCOME_CATEGORIES.join(', ')}.
+Kategori: pakai daftar "Kategori pengeluaran/pemasukan" di DATA PENGGUNA (termasuk kategori buatan pengguna).
 
 ATURAN AKSI
 - Catat transaksi atau atur budget hanya jika pengguna jelas memintanya atau jelas melaporkan uang keluar/masuk.
@@ -121,6 +136,11 @@ ATURAN AKSI
 - "rb"/"ribu"/"k" = ribu, "jt"/"juta" = juta. amount selalu bilangan bulat tanpa titik/koma.
 - Jangan menebak nominal. Jika nominal tidak ada, tanyakan di reply dan jangan buat aksi.
 - Jika ragu kategori, pakai "lainnya". note maksimal 60 karakter, tanpa nominal.
+- Kategori dan dompet itu OPSIONAL dan personal. Buat kategori baru hanya jika pengguna memintanya. Jika pengguna
+  mengoreksi kategori ("kopken itu kopi"), pakai learn_keyword. Isi "wallet" pada add_transaction hanya jika pengguna
+  menyebut cara bayar/dompet (cash, qris, gopay, bca, ...) dan dompet itu ada di DATA; jika dompet belum ada, tawarkan
+  untuk menambahkannya. Tarik tunai/top up/pindah saldo antar dompet sendiri = transfer, BUKAN pengeluaran.
+- "saldo BCA 4jt" / "uang cash-ku tinggal 200rb" = set_wallet_balance (atau add_wallet jika dompetnya belum ada).
 - Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
 - Untuk hapus transaksi, sarankan /hapus. Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
@@ -136,6 +156,14 @@ Pengguna: "aku lagi nabung buat nikah 50 juta, targetnya Desember 2027, udah kek
 {"reply":"Keren! Target nikah Rp 50 juta sampai Des 2027, sudah 20%. Aku pantau progresnya ya.","actions":[{"type":"save_goal","name":"Nikah","target_amount":50000000,"saved_amount":10000000,"target_date":"2027-12"}]}
 Pengguna: "ngobrolnya formal aja ya, gak usah emoji"
 {"reply":"Baik, saya akan menggunakan bahasa formal tanpa emoji mulai sekarang.","actions":[{"type":"set_profile","style":"formal","emoji":false}]}
+Pengguna: "tambahin kategori kopi dong, sama kopken itu masuk kopi ya"
+{"reply":"Siap! Kategori ☕ kopi sudah ada, dan kopken otomatis masuk kopi mulai sekarang.","actions":[{"type":"add_category","name":"kopi","category_type":"expense","emoji":"☕"},{"type":"learn_keyword","keyword":"kopken","category":"kopi"}]}
+Pengguna: "aku pake cash sama qris, saldo cash 300rb"
+{"reply":"Oke, aku bikinin dompet Cash dan QRIS. Tinggal sebut 'pakai qris' atau 'cash' pas nyatat ya.","actions":[{"type":"add_wallet","name":"Cash","kind":"cash","balance":300000},{"type":"add_wallet","name":"QRIS","kind":"qris","balance":0}]}
+Pengguna: "tarik tunai 500rb dari bca"
+{"reply":"Oke, 500rb pindah dari BCA ke Cash.","actions":[{"type":"transfer","from":"BCA","to":"Cash","amount":500000}]}
+Pengguna: "ngomong jowo ae rek, sing galak yo"
+{"reply":"Siap rek! Mulai saiki aku ngomong Jowo, lan aku bakal tegas nek koen boros 😤","actions":[{"type":"set_profile","language":"jawa","persona":"coach"}]}
 Pengguna: "jelasin dong apa itu inflasi"
 {"reply":"Inflasi itu kenaikan harga barang dan jasa secara umum dari waktu ke waktu, jadi daya beli uang turun. ... (penjelasan lengkap)","actions":[]}`;
 
@@ -166,11 +194,58 @@ function toInt(value) {
 // Never store secrets even if the model proposes it.
 const SECRET_PATTERN = /\b(pin|password|passcode|kata sandi|sandi|otp|cvv|cvc)\b|\b\d{12,19}\b/i;
 
+const cleanText = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+const DEFAULT_CATEGORIES = { expense: EXPENSE_CATEGORIES, income: INCOME_CATEGORIES };
+const WALLET_KIND_VALUES = ['cash', 'bank', 'ewallet', 'qris', 'credit', 'other'];
+
 /**
  * Checks one model-proposed action. Returns null for anything the bot must not execute.
+ * @param {object} raw
+ * @param {{ categories?: { expense: string[], income: string[] } }} [ctx] the user's own category names
  */
-export function sanitizeAction(raw) {
+export function sanitizeAction(raw, ctx = {}) {
   if (!raw || typeof raw !== 'object') return null;
+  const categories = ctx.categories || DEFAULT_CATEGORIES;
+
+  if (raw.type === 'add_category') {
+    const name = cleanText(raw.name, 30).toLowerCase();
+    const categoryType = raw.category_type === 'income' ? 'income' : 'expense';
+    if (!name) return null;
+    return { type: 'add_category', name, category_type: categoryType, emoji: cleanText(raw.emoji, 8) || null };
+  }
+  if (raw.type === 'delete_category') {
+    const name = cleanText(raw.name, 30).toLowerCase();
+    const categoryType = raw.category_type === 'income' ? 'income' : 'expense';
+    return name ? { type: 'delete_category', name, category_type: categoryType } : null;
+  }
+  if (raw.type === 'learn_keyword') {
+    const keyword = cleanText(raw.keyword, 40).toLowerCase();
+    const category = cleanText(raw.category, 30).toLowerCase();
+    // The category may be one created in the same reply, so it is checked when executed.
+    return keyword.length >= 2 && category ? { type: 'learn_keyword', keyword, category } : null;
+  }
+  if (raw.type === 'add_wallet') {
+    const name = cleanText(raw.name, 30);
+    if (!name) return null;
+    const balance = toInt(raw.balance);
+    return {
+      type: 'add_wallet',
+      name,
+      kind: WALLET_KIND_VALUES.includes(raw.kind) ? raw.kind : null,
+      balance: balance !== null && Math.abs(balance) <= MAX_AMOUNT * 1000 ? balance : 0
+    };
+  }
+  if (raw.type === 'set_wallet_balance') {
+    const wallet = cleanText(raw.wallet, 30);
+    const balance = toInt(raw.balance);
+    return wallet && balance !== null && Math.abs(balance) <= MAX_AMOUNT * 1000 ? { type: 'set_wallet_balance', wallet, balance } : null;
+  }
+  if (raw.type === 'transfer') {
+    const from = cleanText(raw.from, 30);
+    const to = cleanText(raw.to, 30);
+    const amount = toInt(raw.amount);
+    return to && amount !== null && validAmount(amount) ? { type: 'transfer', from: from || null, to, amount } : null;
+  }
 
   if (raw.type === 'set_nickname') {
     const nickname = typeof raw.nickname === 'string' ? raw.nickname.replace(/\s+/g, ' ').trim().slice(0, MAX_NICKNAME_LENGTH) : '';
@@ -192,6 +267,8 @@ export function sanitizeAction(raw) {
     if (payday !== null && payday >= 1 && payday <= 31) out.payday = payday;
     if (STYLES.includes(raw.style)) out.style = raw.style;
     if (typeof raw.emoji === 'boolean') out.emoji = raw.emoji;
+    if (LANGUAGES.includes(raw.language)) out.language = raw.language;
+    if (PERSONAS.includes(raw.persona)) out.persona = raw.persona;
     return Object.keys(out).length > 1 ? out : null;
   }
   if (raw.type === 'save_goal') {
@@ -218,17 +295,20 @@ export function sanitizeAction(raw) {
   if (raw.type === 'add_transaction') {
     const txType = raw.tx_type === 'income' ? 'income' : raw.tx_type === 'expense' ? 'expense' : null;
     if (!txType) return null;
-    const allowed = txType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+    const category = cleanText(raw.category, 30).toLowerCase();
+    const wallet = cleanText(raw.wallet, 30);
     return {
       type: 'add_transaction',
       tx_type: txType,
       amount,
-      category: allowed.includes(raw.category) ? raw.category : 'lainnya',
-      note: typeof raw.note === 'string' ? raw.note.trim().slice(0, MAX_NOTE_LENGTH) : ''
+      category: categories[txType].includes(category) ? category : 'lainnya',
+      note: typeof raw.note === 'string' ? raw.note.trim().slice(0, MAX_NOTE_LENGTH) : '',
+      ...(wallet ? { wallet } : {})
     };
   }
-  if (raw.type === 'set_budget' && EXPENSE_CATEGORIES.includes(raw.category)) {
-    return { type: 'set_budget', category: raw.category, amount };
+  const budgetCategory = cleanText(raw.category, 30).toLowerCase();
+  if (raw.type === 'set_budget' && categories.expense.includes(budgetCategory)) {
+    return { type: 'set_budget', category: budgetCategory, amount };
   }
   return null;
 }
@@ -236,16 +316,22 @@ export function sanitizeAction(raw) {
 /**
  * Turns raw model content into { reply, actions }. Plain text without JSON becomes a reply with no actions.
  */
-export function parseAssistantOutput(content) {
+export function parseAssistantOutput(content, ctx = {}) {
   const text = stripThinking(content);
   if (!text) return null;
   const json = extractJson(text);
   if (!json) return { reply: text.slice(0, MAX_REPLY_LENGTH), actions: [] };
 
   const reply = typeof json.reply === 'string' ? json.reply.trim().slice(0, MAX_REPLY_LENGTH) : '';
-  const actions = (Array.isArray(json.actions) ? json.actions : [])
-    .slice(0, MAX_ACTIONS)
-    .map(sanitizeAction)
+  const rawActions = (Array.isArray(json.actions) ? json.actions : []).slice(0, MAX_ACTIONS);
+  // Categories created in this same reply can be used by its other actions.
+  const base = ctx.categories || DEFAULT_CATEGORIES;
+  const categories = { expense: [...base.expense], income: [...base.income] };
+  for (const a of rawActions.map((r) => sanitizeAction(r, { categories })).filter((a) => a?.type === 'add_category')) {
+    categories[a.category_type].push(a.name);
+  }
+  const actions = rawActions
+    .map((r) => sanitizeAction(r, { categories }))
     .filter(Boolean);
   if (!reply && actions.length === 0) return null;
   return { reply, actions };
@@ -298,11 +384,12 @@ export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
  * Runs one assistant turn. Resolves to { reply, actions } or null when AI is off, the call fails,
  * or the answer is unusable (callers then fall back to the rule-based flow).
  *
- * @param {{ userId: string, text: string, context: string, hint?: object|null }} turn
+ * @param {{ userId: string, text: string, context: string, hint?: object|null,
+ *   categories?: { expense: string[], income: string[] } | null }} turn  categories = the user's own category names
  * @param {{ fetchImpl?: typeof fetch, logger?: { warn: Function }, onUsage?: Function }} [options]
  *   onUsage receives { model, ok, http_status, prompt_tokens, completion_tokens, latency_ms, error } for every call.
  */
-export async function runAssistant({ userId, text, context, hint = null }, { fetchImpl = fetch, logger, onUsage } = {}) {
+export async function runAssistant({ userId, text, context, hint = null, categories = null }, { fetchImpl = fetch, logger, onUsage } = {}) {
   const config = getAiConfig();
   if (!config) return null;
 
@@ -315,7 +402,7 @@ export async function runAssistant({ userId, text, context, hint = null }, { fet
   ];
 
   const result = await callChat(config, messages, { fetchImpl });
-  const output = result.ok ? parseAssistantOutput(result.content) : null;
+  const output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
 
   try {
     onUsage?.({
@@ -365,23 +452,28 @@ function reportUsage(onUsage, logger, model, result, ok, error) {
 
 // ── Receipt photos ──────────────────────────────────────────────────────────
 
-const RECEIPT_PROMPT = `Kamu membaca foto nota/struk belanja untuk aplikasi pencatat keuangan di Indonesia.
+const PAYMENT_METHODS = ['cash', 'qris', 'debit', 'credit', 'ewallet', 'transfer'];
+
+const receiptPromptFor = (categories) => `Kamu membaca foto nota/struk belanja untuk aplikasi pencatat keuangan di Indonesia.
 Balas HANYA satu objek JSON tanpa teks lain:
-{"is_receipt":true|false,"merchant":"<nama toko>","date":"YYYY-MM-DD"|null,"total":<bilangan bulat rupiah>,"category":"<kategori>","items":[{"name":"<nama item>","amount":<bilangan bulat>}]}
+{"is_receipt":true|false,"merchant":"<nama toko>","date":"YYYY-MM-DD"|null,"total":<bilangan bulat rupiah>,"category":"<kategori>","payment":"cash"|"qris"|"debit"|"credit"|"ewallet"|"transfer"|null,"payment_brand":"<mis. GoPay, OVO, DANA, BCA>"|null,"items":[{"name":"<nama item>","amount":<bilangan bulat>}]}
 
 Aturan:
 - total = jumlah yang benar-benar dibayar (TOTAL / GRAND TOTAL / JUMLAH BAYAR setelah diskon dan pajak), BUKAN tunai/uang diterima dan BUKAN kembalian.
 - Nominal selalu bilangan bulat rupiah tanpa titik/koma ("Rp 87.500" -> 87500).
-- category salah satu dari: ${EXPENSE_CATEGORIES.join(', ')}.
+- category salah satu dari: ${categories.join(', ')}.
+- payment = cara bayar yang tertulis (TUNAI/CASH -> cash, QRIS -> qris, DEBIT/EDC -> debit, KARTU KREDIT -> credit,
+  GoPay/OVO/DANA/ShopeePay -> ewallet). payment_brand = nama e-wallet/bank bila tertulis. null jika tidak tertulis.
 - items maksimal 10 item terbesar; boleh kosong jika tidak terbaca.
 - Jika gambar bukan nota/struk/bukti bayar, balas {"is_receipt":false}.
 - Jika total tidak terbaca jelas, isi "total": null. Jangan menebak.`;
 
 /**
  * Validates the model's reading of a receipt.
- * @returns {{ ok: true, merchant: string, date: string|null, total: number, category: string, items: Array<{name: string, amount: number}> } | { ok: false, reason: 'not_receipt'|'unreadable' }}
+ * @returns {{ ok: true, merchant: string, date: string|null, total: number, category: string, payment: string|null,
+ *   payment_brand: string|null, items: Array<{name: string, amount: number}> } | { ok: false, reason: 'not_receipt'|'unreadable' }}
  */
-export function sanitizeReceipt(raw) {
+export function sanitizeReceipt(raw, categories = EXPENSE_CATEGORIES) {
   if (!raw || typeof raw !== 'object') return { ok: false, reason: 'unreadable' };
   if (raw.is_receipt === false) return { ok: false, reason: 'not_receipt' };
   const total = toInt(raw.total);
@@ -395,7 +487,9 @@ export function sanitizeReceipt(raw) {
     merchant: typeof raw.merchant === 'string' ? raw.merchant.replace(/\s+/g, ' ').trim().slice(0, 60) : '',
     date: typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : null,
     total,
-    category: EXPENSE_CATEGORIES.includes(raw.category) ? raw.category : 'belanja',
+    category: categories.includes(raw.category) ? raw.category : 'belanja',
+    payment: PAYMENT_METHODS.includes(raw.payment) ? raw.payment : null,
+    payment_brand: cleanText(raw.payment_brand, 30) || null,
     items
   };
 }
@@ -405,14 +499,14 @@ export function sanitizeReceipt(raw) {
  * Resolves to sanitizeReceipt()'s result, or null when AI is off or the call fails.
  * @param {{ imageBase64: string, mimeType: string, caption?: string }} input
  */
-export async function readReceipt({ imageBase64, mimeType, caption = '' }, { fetchImpl = fetch, logger, onUsage } = {}) {
+export async function readReceipt({ imageBase64, mimeType, caption = '', categories = EXPENSE_CATEGORIES }, { fetchImpl = fetch, logger, onUsage } = {}) {
   const base = getAiConfig();
   if (!base) return null;
   const config = { ...base, model: cleanEnv(process.env.AI_VISION_MODEL) || base.model };
 
   const text = caption ? `Keterangan dari pengguna: ${String(caption).slice(0, 200)}` : 'Baca nota ini.';
   const messages = [
-    { role: 'system', content: RECEIPT_PROMPT },
+    { role: 'system', content: receiptPromptFor(categories) },
     {
       role: 'user',
       content: [
@@ -429,7 +523,7 @@ export async function readReceipt({ imageBase64, mimeType, caption = '' }, { fet
     logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Receipt request failed');
     return null;
   }
-  return sanitizeReceipt(json);
+  return sanitizeReceipt(json, categories);
 }
 
 // ── Weekly report ───────────────────────────────────────────────────────────

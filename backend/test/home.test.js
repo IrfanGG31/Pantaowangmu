@@ -39,7 +39,7 @@ describe('GET /api/me', () => {
     const res = await as(request(app).get('/api/me'));
     expect(res.status).toBe(200);
     expect(res.body.user).toEqual({ user_id: '42', first_name: 'Dev User', nickname: '', display_name: 'Dev User' });
-    expect(res.body.profile).toEqual({ monthly_income: null, payday: null, style: null, emoji: null });
+    expect(res.body.profile).toEqual({ monthly_income: null, payday: null, style: null, emoji: null, language: null, persona: null });
     expect(res.body.subscription).toMatchObject({
       tier: 'trial', state: 'active', plan_name: 'Trial', days_left: 7,
       ai_daily_limit: 20, ai_used_today: 0, receipt_monthly_limit: 10, receipts_used_this_month: 0
@@ -136,7 +136,7 @@ describe('GET /api/insights', () => {
     expect(res.body.goals[0]).toMatchObject({ name: 'Laptop', progress_pct: 17, per_month: 1666667 });
     expect(res.body.month_to_date).toMatchObject({ expense: 400000 });
     // All time: no income logged yet, 600.000 spent.
-    expect(res.body.balance).toEqual({ income: 0, expense: 600000, net: -600000 });
+    expect(res.body.balance).toEqual({ income: 0, expense: 600000, opening: 0, net: -600000 });
     expect(res.body.tips.length).toBeLessThanOrEqual(3);
     expect(res.body.tips[0]).toEqual({ kind: 'warning', text: 'Budget makan bulan ini sudah habis (133% terpakai).' });
   });

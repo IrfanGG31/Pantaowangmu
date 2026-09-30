@@ -5,7 +5,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { initWebApp, getColorScheme } from '$lib/telegram.js';
-  import { colorScheme, toasts } from '$lib/stores.js';
+  import { colorScheme, toasts, loadUserCategories, loadWallets } from '$lib/stores.js';
 
   // ── Nav definition ─────────────────────────────────────────────
   interface NavItem { path: string; label: string; icon: string }
@@ -33,6 +33,8 @@
     if (tg) {
       tg.onEvent('themeChanged', onThemeChanged);
     }
+    loadUserCategories();
+    loadWallets();
   });
 
   onDestroy(() => {

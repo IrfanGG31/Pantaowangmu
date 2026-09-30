@@ -46,7 +46,15 @@ import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js'
 import { parseFreeText } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
 import { getAiConfig, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
-import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal } from '../db/memory.js';
+import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
+import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
+import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransactionWallet, walletParserOptions, updateWallet } from '../db/wallets.js';
+import {
+  parseOptionsFor, allCategoryNames, categoryLabel, pickerCategories, walletLabel, doAddCategory, doRemoveCategory,
+  doLearn, categoriesText, walletsText, doAddWallet, doSetWalletBalance, doTransfer, walletSwitchRow, styleText,
+  styleKeyboard, setStyle
+} from './personal.js';
+import { detectWalletId } from './textParser.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -64,7 +72,9 @@ function putPending(entry) {
     if (value.expires <= now || pendingTransactions.size >= PENDING_MAX) pendingTransactions.delete(key);
   }
   const key = crypto.randomBytes(4).toString('hex');
-  pendingTransactions.set(key, { ...entry, expires: now + PENDING_TTL_MS });
+  // Store the same object: the keyboard builder attaches the button list (entry.options) after this.
+  entry.expires = now + PENDING_TTL_MS;
+  pendingTransactions.set(key, entry);
   return key;
 }
 
@@ -74,18 +84,19 @@ function getPending(key, userId) {
   return entry;
 }
 
-function categoryKeyboard(categories, toData, extraRows = []) {
+// Buttons carry an index into `options` (category names can be long or non-ASCII; callback_data max is 64 bytes).
+function categoryKeyboard(options, toData, extraRows = []) {
   const rows = [];
-  for (let i = 0; i < categories.length; i += 3) {
-    rows.push(categories.slice(i, i + 3).map((c) => ({ text: capitalize(c), callback_data: toData(c) })));
+  for (let i = 0; i < options.length; i += 3) {
+    rows.push(options.slice(i, i + 3).map((c, j) => ({ text: c.label, callback_data: toData(i + j) })));
   }
   return { inline_keyboard: [...rows, ...extraRows] };
 }
 
 function pendingKeyboard(key, entry) {
-  const categories = entry.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  entry.options = pickerCategories(entry.userId, entry.type);
   const flip = entry.type === 'income' ? '💸 Ini pengeluaran' : '💚 Ini pemasukan';
-  return categoryKeyboard(categories, (c) => `txc:${key}:${c}`, [[{ text: flip, callback_data: `txt:${key}` }]]);
+  return categoryKeyboard(entry.options, (i) => `txc:${key}:${i}`, [[{ text: flip, callback_data: `txt:${key}` }]]);
 }
 
 function pendingPrompt(entry) {
@@ -99,26 +110,38 @@ function pendingPrompt(entry) {
  * @returns {{ error: string } | { tx: Object, text: string }}
  */
 function saveTransaction(userId, input) {
-  const { error, value } = validateTransactionInput(input);
+  const { wallet_id: walletInput, ...rest } = input;
+  const { error, value } = validateTransactionInput(rest);
   if (error) return { error };
+  if (!isValidCategory(userId, value.type, value.category)) {
+    return { error: `Kategori "${value.category}" belum ada. Buat dulu: tambah kategori ${value.category}` };
+  }
 
-  const tx = createTransaction(userId, value.type, value.amount, value.category, value.note);
+  // wallet_id: a number picks that wallet, null means none, undefined falls back to the default wallet (if any).
+  let walletId = null;
+  if (Number.isInteger(walletInput) && getWallet(userId, walletInput)) walletId = walletInput;
+  else if (walletInput === undefined) walletId = defaultWallet(userId)?.id ?? null;
+
+  const tx = createTransaction(userId, value.type, value.amount, value.category, value.note, walletId);
 
   const isExpense = tx.type === 'expense';
   const symbol = isExpense ? '💸' : '💚';
-  const catFormatted = capitalize(tx.category);
+  const catFormatted = escapeMd(categoryLabel(userId, tx.category));
+  const catName = capitalize(tx.category);
   const noteText = tx.note ? `\n📝 ${escapeMd(tx.note)}` : '';
+  const wallet = tx.wallet_id ? getWallet(userId, tx.wallet_id) : null;
+  const walletText = wallet ? `\n👛 ${escapeMd(walletLabel(wallet))} (saldo ${wallet.balance < 0 ? '-' : ''}${formatRupiah(wallet.balance)})` : '';
 
-  let text = `✅ *Tercatat!*\n\n${symbol} ${formatRupiah(tx.amount)}\n📁 ${catFormatted}${noteText}\n\n_/catat lagi atau buka mini app_`;
+  let text = `✅ *Tercatat!*\n\n${symbol} ${formatRupiah(tx.amount)}\n📁 ${catFormatted}${noteText}${walletText}\n\n_/catat lagi atau buka mini app_`;
 
   if (isExpense) {
     const budget = getBudget(userId, tx.category, getMonthStr());
     if (budget && budget.amount > 0) {
       const percentage = budget.percentage || 0;
       if (percentage >= 100) {
-        text += `\n\n🚨 *BUDGET HABIS!* Kategori *${catFormatted}* sudah terpakai *${percentage}%* (${formatRupiah(budget.spent)} / ${formatRupiah(budget.amount)})`;
+        text += `\n\n🚨 *BUDGET HABIS!* Kategori *${catName}* sudah terpakai *${percentage}%* (${formatRupiah(budget.spent)} / ${formatRupiah(budget.amount)})`;
       } else if (percentage >= 80) {
-        text += `\n\n⚠️ *Peringatan Budget:* Kategori *${catFormatted}* sudah mencapai *${percentage}%* (${formatRupiah(budget.spent)} / ${formatRupiah(budget.amount)})`;
+        text += `\n\n⚠️ *Peringatan Budget:* Kategori *${catName}* sudah mencapai *${percentage}%* (${formatRupiah(budget.spent)} / ${formatRupiah(budget.amount)})`;
       }
     }
   }
@@ -127,6 +150,8 @@ function saveTransaction(userId, input) {
 }
 
 const undoKeyboard = (txId) => ({ inline_keyboard: [[{ text: '↩️ Batalkan', callback_data: `undo:${txId}` }]] });
+// Undo plus "move to another wallet" buttons when the user has 2+ wallets.
+const txKeyboard = (userId, tx) => ({ inline_keyboard: [...undoKeyboard(tx.id).inline_keyboard, ...walletSwitchRow(userId, tx)] });
 
 function budgetText(userId, category, amount) {
   const budget = setBudget(userId, category, amount, getMonthStr());
@@ -139,7 +164,7 @@ const BUDGET_HELP = `ℹ️ *Format Budget:*
 *Contoh:* \`/budget makan 1000000\`
 
 *Kategori Pengeluaran:*
-_${EXPENSE_CATEGORIES.join(', ')}_`;
+_${EXPENSE_CATEGORIES.join(', ')}_ (plus kategori buatanmu, lihat /kategori)`;
 
 function categoryLines(stats) {
   if (stats.length === 0) return 'Belum ada transaksi';
@@ -225,7 +250,10 @@ function receiptPrompt(receipt, entry) {
   if (receipt.merchant) lines.push(`🏪 ${escapeMd(receipt.merchant)}`);
   if (receipt.date) lines.push(`📅 ${shortDate(receipt.date)}`);
   lines.push(`💸 *${formatRupiah(receipt.total)}*`);
-  lines.push(`📁 ${capitalize(entry.category)}`);
+  lines.push(`📁 ${escapeMd(categoryLabel(entry.userId, entry.category))}`);
+  const wallet = entry.wallet_id ? getWallet(entry.userId, entry.wallet_id) : null;
+  if (wallet) lines.push(`👛 ${escapeMd(walletLabel(wallet))}`);
+  else if (receipt.payment) lines.push(`💳 Dibayar: ${escapeMd(receipt.payment_brand || receipt.payment.toUpperCase())}`);
   if (receipt.items.length) {
     lines.push('', ...receipt.items.slice(0, 5).map((i) => `• ${escapeMd(i.name)} — ${formatRupiah(i.amount)}`));
     if (receipt.items.length > 5) lines.push(`• …dan ${receipt.items.length - 5} item lain`);
@@ -301,6 +329,8 @@ function describeProfileChange(action) {
   if (action.payday) parts.push(`gajian tanggal ${action.payday}`);
   if (action.style) parts.push(`gaya bicara ${action.style}`);
   if (action.emoji !== undefined) parts.push(action.emoji ? 'pakai emoji' : 'tanpa emoji');
+  if (action.language) parts.push(`bahasa ${LANGUAGE_LABEL[action.language]}`);
+  if (action.persona) parts.push(`persona ${PERSONA_LABEL[action.persona]}`);
   return parts.join(', ');
 }
 
@@ -389,6 +419,9 @@ _Contoh: /budget makan 1000000_
 
 /hapus - Hapus transaksi terakhir
 /export - Unduh riwayat transaksi dalam format CSV
+/kategori - Kategori & kata kunci pribadimu
+/dompet - Dompet/metode bayar & saldo per dompet (opsional)
+/gaya - Bahasa (Jawa, Sunda, English, ...) & persona Panta
 /memori - Lihat atau hapus hal yang aku ingat tentang kamu
 /langganan - Status paket, kuota, dan cara berlangganan
 /aktivasi KODE - Aktifkan paket dengan kode
@@ -402,6 +435,8 @@ _Contoh: /budget makan 1000000_
 • \`ringkasan hari ini\` / \`pengeluaran bulan ini\`
 • \`gajiku 8jt, gajian tgl 25\` (supaya saran lebih personal)
 • \`nabung nikah 50jt sampai des 2027\`
+• \`tambah kategori kopi ☕\` / \`kopken masuk kopi\`
+• \`saldo BCA 4jt\` / \`kopi 25rb pakai qris\` / \`tarik tunai 500rb\`
 
 📸 *Kirim foto nota/struk* untuk dicatat otomatis.`;
 
@@ -444,8 +479,8 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
       return safeSendMessage(bot, chatId, '❌ Kategori harus diisi. Contoh: `/catat 25000 makan`', { parse_mode: 'Markdown' });
     }
 
-    // Auto-detect type: if in INCOME_CATEGORIES -> income, else expense
-    const type = INCOME_CATEGORIES.includes(categoryToken) ? 'income' : 'expense';
+    // Income when the category is one of the user's income categories (and not also an expense one, like "lainnya").
+    const type = isValidCategory(userId, 'income', categoryToken) && !isValidCategory(userId, 'expense', categoryToken) ? 'income' : 'expense';
 
     const saved = saveTransaction(userId, { type, amount, category: categoryToken, note });
     if (saved.error) {
@@ -478,8 +513,8 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
     const cleanCat = String(catToken || '').toLowerCase().trim();
     const amount = parseRupiah(amountToken);
 
-    if (!EXPENSE_CATEGORIES.includes(cleanCat)) {
-      return safeSendMessage(bot, chatId, `❌ Kategori tidak valid. Pilih dari: ${EXPENSE_CATEGORIES.join(', ')}`);
+    if (!isValidCategory(userId, 'expense', cleanCat)) {
+      return safeSendMessage(bot, chatId, `❌ Kategori tidak valid. Pilih dari: ${allCategoryNames(userId).expense.join(', ')}`);
     }
 
     if (!amount || amount <= 0) {
@@ -578,7 +613,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const memory = getMemory(userId);
 
     const p = memory.profile;
-    const hasProfile = p.monthly_income || p.payday || p.style || p.emoji !== null;
+    const hasProfile = p.monthly_income || p.payday || p.style || p.emoji !== null || p.language || p.persona || listKeywords(userId).length;
     if (!memory.nickname && !hasProfile && memory.goals.length === 0 && memory.facts.length === 0) {
       return safeSendMessage(bot, chatId, '🧠 Aku belum menyimpan ingatan apa pun tentang kamu.\n\nCeritakan saja, misalnya "panggil aku Boss", "gajiku 8 juta, gajian tiap tanggal 25", atau "aku nabung buat nikah 50 juta sampai Des 2027".');
     }
@@ -589,6 +624,10 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     if (p.payday) lines.push(`• Gajian: tanggal ${p.payday}`);
     if (p.style) lines.push(`• Gaya bicara: ${p.style}`);
     if (p.emoji !== null) lines.push(`• Emoji: ${p.emoji ? 'ya' : 'tidak'}`);
+    if (p.language) lines.push(`• Bahasa: ${LANGUAGE_LABEL[p.language]}`);
+    if (p.persona) lines.push(`• Persona: ${PERSONA_LABEL[p.persona]}`);
+    const learned = listKeywords(userId);
+    if (learned.length) lines.push(`• Kata yang kamu ajarkan: ${learned.length} (lihat /kategori)`);
     for (const g of memory.goals) {
       lines.push(`• 🎯 ${g.name}: ${formatRupiah(g.saved_amount)} dari ${formatRupiah(g.target_amount)}${g.target_date ? ` (target ${g.target_date})` : ''}`);
     }
@@ -598,6 +637,53 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     await safeSendMessage(bot, chatId, lines.join('\n'), {
       reply_markup: { inline_keyboard: [[{ text: '🗑️ Hapus semua ingatan', callback_data: 'mem_clear' }]] }
     });
+  });
+
+  // ── /kategori [tambah|hapus] [pemasukan] <nama> [emoji] ────────────────
+  onText(/^\/kategori(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const args = match[1]?.trim() || '';
+    const m = /^(tambah|hapus)\s+(?:(pemasukan|pengeluaran)\s+)?(.+)$/i.exec(args);
+    if (!m) return safeSendMessage(bot, chatId, categoriesText(userId));
+    const type = m[2]?.toLowerCase() === 'pemasukan' ? 'income' : 'expense';
+    const raw = m[3].trim();
+    const emoji = (raw.match(/\p{Extended_Pictographic}️?/u) || [null])[0];
+    const name = raw.replace(/\p{Extended_Pictographic}️?|‍/gu, '').trim();
+    const text = m[1].toLowerCase() === 'tambah'
+      ? doAddCategory(userId, { type, name, emoji })
+      : doRemoveCategory(userId, { type: isValidCategory(userId, 'income', name.toLowerCase()) && !isValidCategory(userId, 'expense', name.toLowerCase()) ? 'income' : type, name });
+    await safeSendMessage(bot, chatId, text);
+  });
+
+  // ── /dompet [tambah|hapus|utama] <nama> [saldo] ────────────────────────
+  onText(/^\/dompet(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const args = match[1]?.trim() || '';
+    const m = /^(tambah|hapus|utama)\s+(.+)$/i.exec(args);
+    if (!m) return safeSendMessage(bot, chatId, walletsText(userId));
+    const action = m[1].toLowerCase();
+    if (action === 'tambah') {
+      const tokens = m[2].trim().split(/\s+/);
+      const last = tokens.length > 1 ? parseRupiah(tokens[tokens.length - 1]) : null;
+      const name = (last ? tokens.slice(0, -1) : tokens).join(' ').replace(/\s+saldo$/i, '');
+      return safeSendMessage(bot, chatId, doAddWallet(userId, { name, balance: last || 0 }));
+    }
+    const wallet = findWalletByName(userId, m[2]);
+    if (!wallet) return safeSendMessage(bot, chatId, `❌ Dompet "${m[2]}" tidak ditemukan. Lihat /dompet`);
+    if (action === 'utama') {
+      updateWallet(userId, wallet.id, { is_default: true });
+      return safeSendMessage(bot, chatId, `⭐ ${walletLabel(wallet)} jadi dompet utama. Transaksi tanpa sebut dompet masuk ke sini.`);
+    }
+    updateWallet(userId, wallet.id, { archived: true });
+    await safeSendMessage(bot, chatId, `🗃️ Dompet ${walletLabel(wallet)} disembunyikan. Transaksi lamanya tetap tercatat. Aktifkan lagi: /dompet tambah ${wallet.name}`);
+  });
+
+  // ── /gaya: language and persona ────────────────────────────────────────
+  onText(/^\/gaya(?:@\w+)?$/, async (msg) => {
+    const userId = ensureUser(msg);
+    await safeSendMessage(bot, msg.chat.id, styleText(userId), { reply_markup: styleKeyboard(userId) });
   });
 
   // ── Free text (private chats only) ────────────────────────────────────
@@ -616,16 +702,30 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         return safeSendMessage(bot, chatId, BUDGET_HELP, { parse_mode: 'Markdown' });
       }
       if (!parsed.category) {
+        const options = pickerCategories(userId, 'expense');
+        const key = putPending({ userId, kind: 'budget', amount: parsed.amount, options });
         return safeSendMessage(bot, chatId, `🤔 Budget ${formatRupiah(parsed.amount)} untuk kategori apa?`, {
-          reply_markup: categoryKeyboard(EXPENSE_CATEGORIES, (c) => `bset:${c}:${parsed.amount}`)
+          reply_markup: categoryKeyboard(options, (i) => `bsc:${key}:${i}`)
         });
       }
       return safeSendMessage(bot, chatId, budgetText(userId, parsed.category, parsed.amount), { parse_mode: 'Markdown' });
     }
 
+    if (parsed.intent === 'learn') return safeSendMessage(bot, chatId, doLearn(userId, parsed));
+    if (parsed.intent === 'add_category') return safeSendMessage(bot, chatId, doAddCategory(userId, parsed));
+    if (parsed.intent === 'add_wallet') return safeSendMessage(bot, chatId, doAddWallet(userId, { name: parsed.name, balance: parsed.balance || 0 }));
+    if (parsed.intent === 'wallet_balance') {
+      return safeSendMessage(bot, chatId, doSetWalletBalance(userId, {
+        wallet: parsed.wallet_id ? getWallet(userId, parsed.wallet_id) : null,
+        walletName: parsed.wallet_name,
+        balance: parsed.amount
+      }));
+    }
+    if (parsed.intent === 'transfer') return safeSendMessage(bot, chatId, doTransfer(userId, parsed));
+
     if (parsed.intent === 'transaction') {
       if (!parsed.category) {
-        const entry = { userId, type: parsed.type, amount: parsed.amount, note: parsed.note };
+        const entry = { userId, type: parsed.type, amount: parsed.amount, note: parsed.note, wallet_id: parsed.wallet_id, learnFrom: parsed.note };
         const key = putPending(entry);
         return safeSendMessage(bot, chatId, pendingPrompt(entry), {
           parse_mode: 'Markdown',
@@ -636,7 +736,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       if (saved.error) {
         return safeSendMessage(bot, chatId, `❌ ${saved.error}`);
       }
-      return safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+      return safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
     }
 
     return safeSendMessage(bot, chatId, upsell ? `${FREE_TEXT_HELP}\n\n${UPSELL}` : FREE_TEXT_HELP, { parse_mode: 'Markdown' });
@@ -674,15 +774,32 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       await safeSendMessage(bot, chatId, `${memoryNotes.join('\n')}\n\nLihat atau hapus ingatan: /memori`);
     }
 
+    // Personal setup (categories, keywords, wallets) before the transactions that may use them.
+    const setupNotes = [];
     for (const action of turn.actions) {
-      if (action.type === 'add_transaction') {
-        const saved = saveTransaction(userId, { type: action.tx_type, amount: action.amount, category: action.category, note: action.note });
+      if (action.type === 'add_category') setupNotes.push(doAddCategory(userId, { type: action.category_type, name: action.name, emoji: action.emoji }));
+      else if (action.type === 'delete_category') setupNotes.push(doRemoveCategory(userId, { type: action.category_type, name: action.name }));
+      else if (action.type === 'learn_keyword') setupNotes.push(doLearn(userId, action));
+      else if (action.type === 'add_wallet') setupNotes.push(doAddWallet(userId, action));
+      else if (action.type === 'set_wallet_balance') setupNotes.push(doSetWalletBalance(userId, { walletName: action.wallet, balance: action.balance }));
+    }
+    if (setupNotes.length) await safeSendMessage(bot, chatId, setupNotes.join('\n\n'));
+
+    for (const action of turn.actions) {
+      if (action.type === 'transfer') {
+        await safeSendMessage(bot, chatId, doTransfer(userId, action));
+      } else if (action.type === 'add_transaction') {
+        const wallet = action.wallet ? findWalletByName(userId, action.wallet) : null;
+        const saved = saveTransaction(userId, {
+          type: action.tx_type, amount: action.amount, category: action.category, note: action.note,
+          ...(wallet ? { wallet_id: wallet.id } : {})
+        });
         if (saved.error) {
           await safeSendMessage(bot, chatId, `❌ ${saved.error}`);
         } else {
-          await safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+          await safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
         }
-      } else if (action.type === 'set_budget') {
+      } else if (action.type === 'set_budget' && isValidCategory(userId, 'expense', action.category)) {
         await safeSendMessage(bot, chatId, budgetText(userId, action.category, action.amount), { parse_mode: 'Markdown' });
       }
     }
@@ -692,14 +809,14 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   const handleFreeText = async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
-    const parsed = parseFreeText(msg.text);
+    const parsed = parseFreeText(msg.text, parseOptionsFor(userId));
 
     const ai = getAiConfig();
     const entitlement = getEntitlement(getUser(userId));
     if (ai && entitlement.ai && countAiCallsToday(userId) < entitlement.ai_daily_limit) {
       bot.sendChatAction?.(chatId, 'typing').catch(() => {});
       const turn = await runAssistant(
-        { userId, text: msg.text, context: buildUserContext(userId, msg.from), hint: parsed },
+        { userId, text: msg.text, context: buildUserContext(userId, msg.from), hint: parsed, categories: allCategoryNames(userId) },
         { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
       );
       if (turn) return respondAsAssistant(chatId, userId, turn);
@@ -739,7 +856,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     try {
       const image = await downloadTelegramFile(fileId);
       receipt = await readReceipt(
-        { imageBase64: image.toString('base64'), mimeType, caption: msg.caption || '' },
+        { imageBase64: image.toString('base64'), mimeType, caption: msg.caption || '', categories: allCategoryNames(userId).expense },
         { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, kind: 'receipt', ...usage }) }
       );
     } catch (err) {
@@ -759,7 +876,13 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const today = getDateStr();
     const note = [receipt.merchant ? `Nota ${receipt.merchant}` : 'Nota', receipt.date && receipt.date !== today ? `(${shortDate(receipt.date)})` : '']
       .filter(Boolean).join(' ');
-    const entry = { userId, type: 'expense', amount: receipt.total, category: receipt.category, note };
+    // Payment written on the receipt (TUNAI / QRIS / GoPay / DEBIT) → the matching wallet, if the user has one.
+    const payWords = [receipt.payment_brand, receipt.payment === 'ewallet' ? '' : receipt.payment, msg.caption].filter(Boolean).join(' ').toLowerCase();
+    const walletId = payWords ? detectWalletId(payWords, walletParserOptions(userId)) : null;
+    const entry = {
+      userId, type: 'expense', amount: receipt.total, category: receipt.category, note,
+      learnFrom: receipt.merchant, ...(walletId ? { wallet_id: walletId } : {})
+    };
     const key = putPending(entry);
     return safeSendMessage(bot, chatId, receiptPrompt(receipt, entry), { parse_mode: 'Markdown', reply_markup: receiptKeyboard(key) });
   };
@@ -832,7 +955,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       await safeAnswerCallback(bot, query.id, 'Dibatalkan');
       await editMessage(chatId, messageId, '❌ Tidak jadi dicatat.');
     } else if (data.startsWith('txc:') || data.startsWith('txt:') || data.startsWith('txs:') || data.startsWith('txk:')) {
-      const [action, key, category] = data.split(':');
+      const [action, key, choice] = data.split(':');
       const entry = getPending(key, userId);
       if (!entry) {
         await safeAnswerCallback(bot, query.id, 'Sudah kedaluwarsa');
@@ -846,16 +969,18 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         return;
       }
 
+      const walletPart = entry.wallet_id ? { wallet_id: entry.wallet_id } : {};
+
       if (action === 'txs') {
         pendingTransactions.delete(key);
-        const saved = saveTransaction(userId, { type: entry.type, amount: entry.amount, category: entry.category, note: entry.note });
+        const saved = saveTransaction(userId, { type: entry.type, amount: entry.amount, category: entry.category, note: entry.note, ...walletPart });
         if (saved.error) {
           await safeAnswerCallback(bot, query.id, 'Gagal menyimpan');
           await editMessage(chatId, messageId, `❌ ${saved.error}`);
           return;
         }
         await safeAnswerCallback(bot, query.id, 'Tercatat');
-        await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+        await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
         return;
       }
 
@@ -869,21 +994,60 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         return;
       }
 
-      const allowed = entry.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-      if (!allowed.includes(category)) {
+      // txc:<key>:<index into the buttons shown>
+      const category = entry.options?.[Number(choice)]?.name;
+      if (!category || !isValidCategory(userId, entry.type, category)) {
         await safeAnswerCallback(bot, query.id, 'Kategori tidak valid');
         return;
       }
 
       pendingTransactions.delete(key);
-      const saved = saveTransaction(userId, { type: entry.type, amount: entry.amount, category, note: entry.note });
+      const saved = saveTransaction(userId, { type: entry.type, amount: entry.amount, category, note: entry.note, ...walletPart });
       if (saved.error) {
         await safeAnswerCallback(bot, query.id, 'Gagal menyimpan');
         await editMessage(chatId, messageId, `❌ ${saved.error}`);
         return;
       }
+      // Learn from the correction: a short note or a receipt's shop name maps to the chosen category next time.
+      let learned = '';
+      const word = String(entry.learnFrom || '').toLowerCase().trim();
+      if (word && category !== 'lainnya' && word.length <= 30 && word.split(/\s+/).length <= 3 && !/\d/.test(word)) {
+        const result = learnKeyword(userId, word, category, entry.type);
+        if (!result.error) learned = `\n\n🧠 _Lain kali "${escapeMd(result.keyword)}" otomatis masuk ${escapeMd(capitalize(category))}._`;
+      }
       await safeAnswerCallback(bot, query.id, 'Tercatat');
-      await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
+      await editMessage(chatId, messageId, saved.text + learned, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
+    } else if (data.startsWith('txw:')) {
+      // Move a saved transaction to another wallet.
+      const [, txIdStr, walletIdStr] = data.split(':');
+      const tx = getTransactionById(userId, parseInt(txIdStr, 10));
+      const wallet = getWallet(userId, parseInt(walletIdStr, 10));
+      if (!tx || !wallet || wallet.archived) {
+        await safeAnswerCallback(bot, query.id, 'Tidak ditemukan');
+        return;
+      }
+      assignTransactionWallet(userId, tx.id, wallet.id);
+      const moved = getWallet(userId, wallet.id);
+      await safeAnswerCallback(bot, query.id, `Pindah ke ${wallet.name}`);
+      await editMessage(chatId, messageId,
+        `✅ ${formatRupiah(tx.amount)} - ${capitalize(tx.category)} dicatat di ${walletLabel(moved)} (saldo ${moved.balance < 0 ? '-' : ''}${formatRupiah(moved.balance)}).`,
+        { reply_markup: txKeyboard(userId, getTransactionById(userId, tx.id)) });
+    } else if (data.startsWith('bsc:')) {
+      const [, key, idx] = data.split(':');
+      const entry = getPending(key, userId);
+      const category = entry?.options?.[Number(idx)]?.name;
+      if (!entry || entry.kind !== 'budget' || !category || !isValidCategory(userId, 'expense', category)) {
+        await safeAnswerCallback(bot, query.id, 'Sudah kedaluwarsa');
+        return;
+      }
+      pendingTransactions.delete(key);
+      await safeAnswerCallback(bot, query.id, 'Budget disimpan');
+      await editMessage(chatId, messageId, budgetText(userId, category, entry.amount), { parse_mode: 'Markdown' });
+    } else if (data.startsWith('gl:') || data.startsWith('gp:')) {
+      const value = data.slice(3);
+      const changed = setStyle(userId, data.startsWith('gl:') ? { language: value } : { persona: value });
+      await safeAnswerCallback(bot, query.id, changed ? 'Disimpan' : 'Pilihan tidak valid');
+      if (changed) await editMessage(chatId, messageId, styleText(userId), { reply_markup: styleKeyboard(userId) });
     } else if (data === 'mem_clear') {
       clearMemory(userId);
       forgetConversation(userId);
@@ -892,8 +1056,9 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     } else if (data.startsWith('bset:')) {
       const [, category, amountStr] = data.split(':');
       const amount = parseInt(amountStr, 10);
+      // Buttons sent before custom categories used the name directly; still accepted, and still validated.
       const { error } = validateBudgetInput({ category, amount });
-      if (error) {
+      if (error || !isValidCategory(userId, 'expense', category)) {
         await safeAnswerCallback(bot, query.id, 'Data budget tidak valid');
         return;
       }

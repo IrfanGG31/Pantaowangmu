@@ -116,7 +116,7 @@ describe('Receipt photos', () => {
 
     await bot.photo();
     await bot.press(bot.buttons(bot.last()).find((b) => b.text.includes('Ganti')).callback_data);
-    const makan = bot.buttons(bot.edits.at(-1)).find((b) => b.text === 'Makan');
+    const makan = bot.buttons(bot.edits.at(-1)).find((b) => b.text.endsWith('Makan'));
     await bot.press(makan.callback_data);
     expect(getAllTransactions('42')[0]).toMatchObject({ amount: 87500, category: 'makan' });
 

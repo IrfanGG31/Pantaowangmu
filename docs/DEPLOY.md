@@ -183,6 +183,20 @@ Aplikasi membuat backup sendiri: snapshot konsisten (`VACUUM INTO`), dikompres g
    hapus `/data/finance.db-wal` dan `/data/finance.db-shm`, ganti `/data/finance.db` dengan file backup
    (mis. unggah lewat bucket lalu unduh dengan `curl`), kemudian Restart layanan.
 
+## Fitur personal (untuk pengguna)
+
+Semua opsional; pengguna yang tidak memakainya tidak melihat perubahan.
+
+- **Kategori sendiri**: chat "tambah kategori kopi ☕" atau `/kategori tambah kopi ☕`; tombol "＋ Kategori" di Mini App.
+  Kategori bawaan bisa disembunyikan (`/kategori hapus hiburan`).
+- **Panta belajar**: "kopken masuk kopi" menyimpan kata kunci. Saat pengguna memilih kategori untuk pesan yang belum jelas
+  (atau mengganti kategori nota), kata itu / nama toko otomatis dipelajari.
+- **Dompet & metode bayar**: "saldo BCA 4jt", "tambah dompet QRIS", lalu "kopi 25rb pakai qris". "tarik tunai 500rb",
+  "top up gopay 100rb dari bca", "transfer 1jt dari bca ke jago" = pindah saldo, bukan pengeluaran. Nota juga membaca
+  TUNAI/QRIS/DEBIT/e-wallet. `/dompet` menampilkan saldo per dompet. Setelah mencatat, ada tombol untuk memindah ke dompet lain.
+- **Bahasa & persona**: `/gaya` atau chat "ngomong jowo ae", "jadi coach yang galak". Bahasa: ikuti bahasaku, Indonesia,
+  Jawa, Sunda, English, campur. Persona: teman, konsultan, coach.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

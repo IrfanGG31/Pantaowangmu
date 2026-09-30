@@ -20,6 +20,12 @@ import type {
   CategoriesResponse,
   MeResponse,
   InsightsResponse,
+  UserCategoriesResponse,
+  UserCategory,
+  WalletsResponse,
+  Wallet,
+  WalletKind,
+  TxType,
 } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -124,6 +130,7 @@ export const transactionsApi = {
     amount: number;
     category: string;
     note?: string;
+    wallet_id?: number | null;   // omitted = the default wallet (if any)
   }): Promise<TransactionCreateResponse> {
     return request<TransactionCreateResponse>('POST', '/transactions', data);
   },
@@ -206,6 +213,40 @@ export const insightsApi = {
   get(signal?: AbortSignal): Promise<InsightsResponse> {
     return request<InsightsResponse>('GET', '/insights', undefined, signal);
   },
+};
+
+export const userCategoriesApi = {
+  list(signal?: AbortSignal): Promise<UserCategoriesResponse> {
+    return request<UserCategoriesResponse>('GET', '/me/categories', undefined, signal);
+  },
+  add(data: { type: TxType; name: string; emoji?: string | null }): Promise<{ data: UserCategory & { type: TxType } }> {
+    return request('POST', '/me/categories', data);
+  },
+  remove(type: TxType, name: string): Promise<{ removed: 'custom' | 'hidden' }> {
+    return request('DELETE', `/me/categories/${type}/${encodeURIComponent(name)}`);
+  },
+};
+
+export const walletsApi = {
+  list(signal?: AbortSignal): Promise<WalletsResponse> {
+    return request<WalletsResponse>('GET', '/wallets', undefined, signal);
+  },
+  create(data: { name: string; kind?: WalletKind | null; balance?: number; is_default?: boolean }): Promise<WalletsResponse & { wallet: Wallet }> {
+    return request('POST', '/wallets', data);
+  },
+  update(id: number, data: { name?: string; kind?: WalletKind; balance?: number; is_default?: boolean; archived?: boolean }): Promise<WalletsResponse & { wallet: Wallet }> {
+    return request('PATCH', `/wallets/${id}`, data);
+  },
+  transfer(data: { from_wallet_id: number; to_wallet_id: number; amount: number; note?: string }): Promise<WalletsResponse> {
+    return request('POST', '/wallets/transfer', data);
+  },
+};
+
+export const WALLET_KIND_LABEL: Record<WalletKind, string> = {
+  cash: 'Tunai', bank: 'Bank', ewallet: 'E-wallet', qris: 'QRIS', credit: 'Kartu kredit / paylater', other: 'Lainnya',
+};
+export const WALLET_KIND_EMOJI: Record<WalletKind, string> = {
+  cash: '💵', bank: '🏦', ewallet: '📱', qris: '🔳', credit: '💳', other: '👛',
 };
 
 // ── Categories ────────────────────────────────────────────────────────────────

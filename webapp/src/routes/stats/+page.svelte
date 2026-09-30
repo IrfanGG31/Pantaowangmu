@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { categoryIcons, visibleCategories } from '$lib/stores.js';
   // webapp/src/routes/stats/+page.svelte — Statistik
   //
   // UX decisions:
@@ -12,8 +13,7 @@
   import { goto } from '$app/navigation';
   import {
     transactionsApi, formatRupiah,
-    CATEGORY_COLORS, CATEGORY_ICONS,
-    ApiError,
+    CATEGORY_COLORS, ApiError,
   } from '$lib/api.js';
   import { setupBackButton } from '$lib/telegram.js';
   import type { Summary, CategorySummary, Period } from '$lib/types.js';
@@ -95,7 +95,7 @@
 
     chartInstance?.destroy();
 
-    const labels = expenses.map(r => `${CATEGORY_ICONS[r.category] ?? ''} ${r.category}`);
+    const labels = expenses.map(r => `${$categoryIcons[r.category] ?? ''} ${r.category}`);
     const data   = expenses.map(r => r.total);
     const colors = expenses.map(r => CATEGORY_COLORS[r.category] ?? '#B0B0B0');
 
@@ -232,7 +232,7 @@
                   aria-hidden="true"
                 ></span>
                 <span class="font-semibold">
-                  {CATEGORY_ICONS[row.category] ?? '📦'} {row.category}
+                  {$categoryIcons[row.category] ?? '📦'} {row.category}
                 </span>
                 <span class="text-hint text-sm">({row.count}×)</span>
               </div>
@@ -264,7 +264,7 @@
           <div style="margin-bottom: 12px;">
             <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
               <div class="font-semibold">
-                {CATEGORY_ICONS[row.category] ?? '💰'} {row.category}
+                {$categoryIcons[row.category] ?? '💰'} {row.category}
               </div>
               <div class="font-bold tabular text-income">{formatRupiah(row.total)}</div>
             </div>

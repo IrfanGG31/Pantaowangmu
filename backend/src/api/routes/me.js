@@ -2,7 +2,8 @@ import { Router } from 'express';
 import requireTelegramAuth from '../middleware/auth.js';
 import apiLimiter from '../middleware/rateLimit.js';
 import { getUser } from '../../db/users.js';
-import { getMemory, setProfile } from '../../db/memory.js';
+import { getMemory, setProfile, LANGUAGES, PERSONAS } from '../../db/memory.js';
+import { listCategories, listKeywords, addCategory, removeCategory } from '../../db/categories.js';
 import {
   getAccess, getEntitlement, getPlan, TRIAL_PLAN, countAiCallsToday, countReceiptsThisMonth
 } from '../../db/subscriptions.js';
@@ -69,7 +70,7 @@ router.get('/', (req, res, next) => {
 });
 
 /**
- * PATCH /api/me/profile — { monthly_income?, payday? }; null clears a field.
+ * PATCH /api/me/profile — { monthly_income?, payday?, language?, persona? }; null clears a field.
  */
 router.patch('/profile', (req, res, next) => {
   try {
@@ -89,11 +90,61 @@ router.patch('/profile', (req, res, next) => {
       }
       changes.payday = v;
     }
+    if ('language' in body) {
+      if (body.language !== null && !LANGUAGES.includes(body.language)) {
+        return res.status(400).json({ error: `language harus salah satu dari: ${LANGUAGES.join(', ')}` });
+      }
+      changes.language = body.language;
+    }
+    if ('persona' in body) {
+      if (body.persona !== null && !PERSONAS.includes(body.persona)) {
+        return res.status(400).json({ error: `persona harus salah satu dari: ${PERSONAS.join(', ')}` });
+      }
+      changes.persona = body.persona;
+    }
     if (Object.keys(changes).length === 0) {
       return res.status(400).json({ error: 'Tidak ada data profil yang diubah' });
     }
     setProfile(req.user.user_id, changes);
     res.json(meResponse(req.user.user_id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/me/categories — the user's categories (hidden ones flagged) and learned keywords.
+ */
+router.get('/categories', (req, res, next) => {
+  try {
+    res.json({ ...listCategories(req.user.user_id, { includeHidden: true }), keywords: listKeywords(req.user.user_id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/me/categories — { type?: 'expense'|'income', name, emoji? }: adds a category (or shows a hidden one again).
+ */
+router.post('/categories', (req, res, next) => {
+  try {
+    const { type = 'expense', name, emoji = null } = req.body || {};
+    const result = addCategory(req.user.user_id, { type, name, emoji });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.status(201).json({ data: result.category });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/me/categories/:type/:name — removes a custom category or hides a built-in one.
+ */
+router.delete('/categories/:type/:name', (req, res, next) => {
+  try {
+    const result = removeCategory(req.user.user_id, req.params.type, req.params.name);
+    if (result.error) return res.status(404).json({ error: result.error });
+    res.json(result);
   } catch (err) {
     next(err);
   }

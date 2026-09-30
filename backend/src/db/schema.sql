@@ -186,3 +186,52 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT,
   updated_at DATETIME DEFAULT (datetime('now'))
 );
+
+-- Personal categories: custom ones, plus overrides of default ones (emoji, hidden from pickers)
+CREATE TABLE IF NOT EXISTS user_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+  name TEXT NOT NULL,
+  emoji TEXT,
+  is_custom INTEGER NOT NULL DEFAULT 1,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT (datetime('now')),
+  UNIQUE(user_id, type, name)
+);
+
+-- Words the user taught Panta ("kopken" → kopi); checked before the built-in keywords
+CREATE TABLE IF NOT EXISTS category_keywords (
+  user_id TEXT NOT NULL,
+  keyword TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+  category TEXT NOT NULL,
+  created_at DATETIME DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, keyword)
+);
+
+-- Wallets / payment methods (optional: nothing changes for users without wallets)
+CREATE TABLE IF NOT EXISTS wallets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'other' CHECK(kind IN ('cash', 'bank', 'ewallet', 'qris', 'credit', 'other')),
+  opening_balance INTEGER NOT NULL DEFAULT 0,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT (datetime('now')),
+  UNIQUE(user_id, name)
+);
+
+-- Money moved between the user's own wallets (not income or spending)
+CREATE TABLE IF NOT EXISTS wallet_transfers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  from_wallet_id INTEGER NOT NULL,
+  to_wallet_id INTEGER NOT NULL,
+  amount INTEGER NOT NULL CHECK(amount > 0 AND amount <= 999999999),
+  note TEXT DEFAULT '',
+  created_at DATETIME DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_transfers_user ON wallet_transfers(user_id, created_at);

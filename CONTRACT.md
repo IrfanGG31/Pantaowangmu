@@ -73,9 +73,9 @@ Response: `{ data: Transaction; message: string }`
 Returns: CSV file download (Content-Disposition: attachment), UTF-8 with BOM, CRLF line endings, oldest first.
 
 - `delimiter` defaults to `semicolon` (Excel with Indonesian regional settings); use `comma` for pandas/BI tools.
-- Columns: `id, date, time, month, weekday, type, category, amount, signed_amount, note, created_at_utc`.
+- Columns: `id, date, time, month, weekday, type, category, amount, signed_amount, note, created_at_utc, wallet`.
   `date`/`time`/`month`/`weekday` are local to `TIMEZONE` (default Asia/Jakarta); `signed_amount` is negative for expenses;
-  `created_at_utc` is the stored UTC value. Text cells starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
+  `created_at_utc` is the stored UTC value; `wallet` is the wallet name (empty when none). Text cells starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
 
 ---
 
@@ -151,6 +151,38 @@ Angka dihitung server (tanpa panggilan AI) pada zona waktu `TIMEZONE`. Response:
 }
 // CategoryChange = { category: string; current: number; before: number; diff: number; pct: number | null }
 ```
+
+---
+
+### Personalisasi: kategori, dompet, bahasa & persona
+
+#### `GET /me/categories`
+`{ expense: UserCategory[]; income: UserCategory[]; keywords: { keyword, type, category }[] }` dengan
+`UserCategory = { name: string; emoji: string; custom: boolean; hidden: boolean }` (bawaan + buatan pengguna).
+
+#### `POST /me/categories` `{ type?: 'expense'|'income', name, emoji? }` → 201 `{ data }`
+Nama 1–30 huruf/angka/spasi/"-", disimpan lowercase; maks 30 kategori buatan. Nama bawaan = munculkan lagi / ganti emoji.
+
+#### `DELETE /me/categories/:type/:name` → `{ removed: 'custom'|'hidden' }`
+Kategori buatan dihapus (transaksi lama tetap berlabel itu); kategori bawaan disembunyikan dari pilihan. "lainnya" tidak bisa dihapus.
+
+`POST /transactions` dan `POST /budgets` menerima kategori bawaan **atau** buatan pengguna (budget: pengeluaran saja);
+kategori yang tidak ada → 400.
+
+#### Dompet (opsional)
+- `GET /wallets` → `{ data: Wallet[]; kinds; total; unassigned }`; `Wallet = { id, name, kind, balance, opening_balance, is_default, archived }`,
+  `kind` ∈ `cash|bank|ewallet|qris|credit|other`. `balance` = saldo awal + pemasukan − pengeluaran di dompet itu ± transfer.
+  `total` = Sisa saldo semua; `unassigned` = bagian yang tidak tercatat di dompet mana pun.
+- `POST /wallets` `{ name, kind?, balance? }` → 201 `{ wallet, ...GET }` (`balance` = saldo sekarang; dompet pertama jadi utama).
+- `PATCH /wallets/:id` `{ name?, kind?, balance?, is_default?, archived? }` → `{ wallet, ...GET }` (`balance` menyamakan saldo sekarang).
+- `POST /wallets/transfer` `{ from_wallet_id, to_wallet_id, amount, note? }` → 201 `{ transfer, ...GET }`. Bukan pemasukan/pengeluaran.
+- `POST /transactions` menerima `wallet_id` (angka = dompet itu, `null` = tanpa dompet, tidak dikirim = dompet utama bila ada).
+- `PATCH /transactions/:id/wallet` `{ wallet_id: number|null }` → `{ data: Transaction }`.
+- `Transaction` sekarang punya `wallet_id` dan `wallet_name`.
+- `GET /insights` menambah `wallets` dan `wallet_spend_month`; `balance.net` = saldo awal dompet + pemasukan − pengeluaran.
+
+#### Bahasa & persona
+`PATCH /me/profile` juga menerima `language` (`auto|id|jawa|sunda|en|campur`) dan `persona` (`teman|konsultan|coach`); `null` = default.
 
 ---
 

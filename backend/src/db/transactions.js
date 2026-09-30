@@ -13,18 +13,19 @@ const IN_RANGE = 'datetime(created_at) >= datetime(?) AND datetime(created_at) <
  * @param {string} [note='']
  * @returns {Object} Created transaction
  */
-export function createTransaction(userId, type, amount, category, note = '') {
+export function createTransaction(userId, type, amount, category, note = '', walletId = null) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
   const cleanNote = String(note || '').trim();
   const cleanAmount = parseInt(amount, 10);
+  const wallet = Number.isInteger(walletId) && walletId > 0 ? walletId : null;
 
   const stmt = db.prepare(`
-    INSERT INTO transactions (user_id, type, amount, category, note, created_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO transactions (user_id, type, amount, category, note, wallet_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
-  const result = stmt.run(uid, type, cleanAmount, cleanCat, cleanNote);
+  const result = stmt.run(uid, type, cleanAmount, cleanCat, cleanNote, wallet);
   return getTransactionById(uid, result.lastInsertRowid);
 }
 
@@ -68,10 +69,10 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
   const total = countRow ? countRow.count : 0;
 
   const dataStmt = db.prepare(`
-    SELECT id, user_id, type, amount, category, note, created_at
-    FROM transactions
-    WHERE ${whereSql}
-    ORDER BY created_at DESC, id DESC
+    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.created_at
+    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
+    WHERE ${whereSql.replace(/\b(user_id|type|created_at)\b/g, 't.$1')}
+    ORDER BY t.created_at DESC, t.id DESC
     LIMIT ? OFFSET ?
   `);
 
@@ -88,9 +89,9 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
 export function getTransactionById(userId, id) {
   const uid = String(userId);
   const stmt = db.prepare(`
-    SELECT id, user_id, type, amount, category, note, created_at
-    FROM transactions
-    WHERE id = ? AND user_id = ?
+    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.created_at
+    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
+    WHERE t.id = ? AND t.user_id = ?
   `);
   const row = stmt.get(parseInt(id, 10), uid);
   return row || null;
@@ -234,18 +235,18 @@ export function getUserExpenseThisMonth(userId, category, month) {
 export function getAllTransactions(userId) {
   const uid = String(userId);
   const stmt = db.prepare(`
-    SELECT id, user_id, type, amount, category, note, created_at
-    FROM transactions
-    WHERE user_id = ?
-    ORDER BY created_at DESC, id DESC
+    SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.created_at
+    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
+    WHERE t.user_id = ?
+    ORDER BY t.created_at DESC, t.id DESC
   `);
   return stmt.all(uid) || [];
 }
 
 /**
- * All-time recorded balance: every income minus every expense the user has logged.
+ * All-time recorded balance: wallets' opening balances plus every income minus every expense the user has logged.
  * @param {string|number} userId
- * @returns {{ income: number, expense: number, net: number }}
+ * @returns {{ income: number, expense: number, opening: number, net: number }}
  */
 export function getBalance(userId) {
   const row = db.prepare(`
@@ -256,5 +257,6 @@ export function getBalance(userId) {
   `).get(String(userId));
   const income = Number(row?.income || 0);
   const expense = Number(row?.expense || 0);
-  return { income, expense, net: income - expense };
+  const opening = Number(db.prepare('SELECT COALESCE(SUM(opening_balance), 0) AS n FROM wallets WHERE user_id = ?').get(String(userId)).n);
+  return { income, expense, opening, net: opening + income - expense };
 }
