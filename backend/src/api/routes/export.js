@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import requireTelegramAuth from '../middleware/auth.js';
 import { getAllTransactions } from '../../db/transactions.js';
-import { generateTransactionsCSV } from '../../utils/csv.js';
+import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
 import { getMonthStr } from '../../utils/formatter.js';
 
 const router = Router();
@@ -14,7 +14,7 @@ router.use(requireTelegramAuth);
 function handleExportCsv(req, res, next) {
   try {
     const rows = getAllTransactions(req.user.user_id);
-    const csv = generateTransactionsCSV(rows);
+    const csv = generateTransactionsCSV(rows, { delimiter: delimiterFromQuery(req.query.delimiter) });
     const month = getMonthStr();
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

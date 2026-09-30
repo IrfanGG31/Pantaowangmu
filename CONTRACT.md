@@ -69,8 +69,13 @@ Response: `{ data: Transaction; message: string }`
 #### `DELETE /transactions/:id`
 Response: `{ data: Transaction; message: string }`
 
-#### `GET /transactions/export`
-Returns: CSV file download (Content-Disposition: attachment)
+#### `GET /transactions/export?delimiter=semicolon|comma`
+Returns: CSV file download (Content-Disposition: attachment), UTF-8 with BOM, CRLF line endings, oldest first.
+
+- `delimiter` defaults to `semicolon` (Excel with Indonesian regional settings); use `comma` for pandas/BI tools.
+- Columns: `id, date, time, month, weekday, type, category, amount, signed_amount, note, created_at_utc`.
+  `date`/`time`/`month`/`weekday` are local to `TIMEZONE` (default Asia/Jakarta); `signed_amount` is negative for expenses;
+  `created_at_utc` is the stored UTC value. Text cells starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
 
 ---
 
