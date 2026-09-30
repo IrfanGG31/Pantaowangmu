@@ -3,6 +3,7 @@ import http from 'node:http';
 import { initDatabase } from './db/connection.js';
 import app, { logger } from './api/server.js';
 import { initBot, getBot } from './bot/index.js';
+import { startBackupSchedule } from './backup/index.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -12,6 +13,7 @@ async function bootstrap() {
     logger.info('[Bootstrap] Initializing database...');
     initDatabase();
     logger.info('[Bootstrap] Database schema initialized.');
+    startBackupSchedule(logger);
 
     // 2. Start HTTP / Express Server
     const server = http.createServer(app);

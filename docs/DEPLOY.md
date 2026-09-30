@@ -157,8 +157,31 @@ curl.exe -sI "$D/" | Select-String -Quiet "x-frame-options"     # False
 - **Log**: `railway logs` (runtime), `railway logs --build` (build), atau tab Deployments di dashboard.
 - **Rollback**: dashboard → Deployments → pilih deploy lama yang sukses → titik tiga → *Redeploy*.
   Skema DB hanya `CREATE TABLE IF NOT EXISTS`, jadi rollback kode tidak merusak data.
-- **Cadangan DB**: aktifkan Backups pada Volume di dashboard bila tersedia di paketmu. Cadangan manual:
-  `railway ssh` lalu salin `/data/finance.db*` saat layanan sepi.
+- **Cadangan DB**: lihat bagian *Backup database* di bawah.
+
+## Backup database
+
+Aplikasi membuat backup sendiri: snapshot konsisten (`VACUUM INTO`), dikompres gzip, bernama
+`finance-YYYYMMDD-HHMMSS.db.gz` (waktu UTC).
+
+- **Jadwal**: tiap hari 03:00 (`TIMEZONE`), plus sekali ±30 detik setelah start bila backup terbaru > 20 jam.
+- **Di Volume**: `/data/backups/`, disimpan `BACKUP_KEEP` terakhir (default 7).
+- **Di Bucket** (disarankan, terpisah dari Volume): bila `BACKUP_S3_*` diisi, tiap backup juga diunggah ke
+  `backups/<nama file>` di bucket. Di Railway, buat Bucket lalu isi variabel layanan dengan referensi:
+  `BACKUP_S3_ENDPOINT=${{<bucket>.ENDPOINT}}`, `BACKUP_S3_BUCKET=${{<bucket>.BUCKET}}`,
+  `BACKUP_S3_REGION=${{<bucket>.REGION}}`, `BACKUP_S3_ACCESS_KEY_ID=${{<bucket>.ACCESS_KEY_ID}}`,
+  `BACKUP_S3_SECRET_ACCESS_KEY=${{<bucket>.SECRET_ACCESS_KEY}}`. Bucket lama yang memakai path-style: `BACKUP_S3_PATH_STYLE=true`.
+  Bucket tidak menghapus backup lama otomatis; ukurannya kecil (KB–MB per hari).
+- **Dashboard admin** → *Backup database*: status terakhir, tombol *Backup sekarang*, dan unduh file
+  (tercatat di log aktivitas admin). File berisi seluruh data pengguna: simpan di tempat aman.
+- Matikan dengan `BACKUP_ENABLED=false`.
+
+**Restore** (hentikan dulu penulisan agar tidak ada data baru yang hilang):
+1. Ambil file backup (unduh dari dashboard, atau dari Files di Bucket), lalu `gunzip finance-....db.gz`.
+2. Cek isinya di laptop: `sqlite3 finance-....db "SELECT COUNT(*) FROM transactions;"`.
+3. Di Railway: `railway ssh`, simpan salinan DB sekarang (`cp /data/finance.db /data/finance.before-restore.db`),
+   hapus `/data/finance.db-wal` dan `/data/finance.db-shm`, ganti `/data/finance.db` dengan file backup
+   (mis. unggah lewat bucket lalu unduh dengan `curl`), kemudian Restart layanan.
 
 ## Risiko diketahui
 
@@ -172,8 +195,7 @@ curl.exe -sI "$D/" | Select-String -Quiet "x-frame-options"     # False
    menghentikan instance lama sebelum yang baru jalan, sehingga ada jeda singkat (beberapa detik) saat deploy.
 3. **SQLite memakai `node:sqlite`** bawaan Node 22 (tanpa modul native). Masih berlabel experimental
    dan mencetak `ExperimentalWarning` saat start; itu normal.
-4. **Tidak ada cadangan otomatis** kecuali Backups Volume diaktifkan.
+4. **Backup ke bucket harus diatur sendiri** (`BACKUP_S3_*`). Tanpa itu, backup hanya ada di Volume yang sama
+   dengan database, sehingga tidak menolong bila Volume hilang.
 5. **Mini App di luar Telegram** menampilkan "Gagal memuat data (Unauthorized)". Itu benar: tanpa
    `initData` tidak ada akses. Bypass dev hanya aktif bila `NODE_ENV` = `development`/`test`.
-6. `svelte-check` melaporkan 10 error tipe (import tipe tanpa `import type`) yang sudah ada sejak awal;
-   tidak menghalangi build.
