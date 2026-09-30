@@ -11,7 +11,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    transactionsApi, formatRupiah, formatDate,
+    transactionsApi, formatRupiah, formatDate, parseApiDate, localDateKey,
     CATEGORY_ICONS, ApiError,
   } from '$lib/api.js';
   import {
@@ -144,15 +144,16 @@
 
   // ── Group by date ─────────────────────────────────────────────
   function dateKey(dt: string): string {
-    return dt.slice(0, 10);
+    return localDateKey(parseApiDate(dt));
   }
 
   function dateLabel(key: string): string {
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const now = new Date();
+    const today = localDateKey(now);
+    const yesterday = localDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
     if (key === today) return 'Hari Ini';
     if (key === yesterday) return 'Kemarin';
-    return new Date(key).toLocaleDateString('id-ID', {
+    return new Date(`${key}T00:00:00`).toLocaleDateString('id-ID', {
       weekday: 'short', day: 'numeric', month: 'short',
     });
   }

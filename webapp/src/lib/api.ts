@@ -154,7 +154,7 @@ export const transactionsApi = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `transactions-${localDateKey(new Date())}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -208,8 +208,19 @@ export function formatRupiahCompact(n: number): string {
   return formatRupiah(n);
 }
 
+// API timestamps ("YYYY-MM-DD HH:MM:SS") are UTC but carry no zone marker.
+export function parseApiDate(dt: string): Date {
+  return new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dt) ? `${dt.replace(' ', 'T')}Z` : dt);
+}
+
+/** Calendar date "YYYY-MM-DD" in the device's timezone. */
+export function localDateKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function formatDate(dt: string): string {
-  return new Date(dt).toLocaleDateString('id-ID', {
+  return parseApiDate(dt).toLocaleDateString('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -219,21 +230,21 @@ export function formatDate(dt: string): string {
 }
 
 export function formatDateShort(dt: string): string {
-  return new Date(dt).toLocaleDateString('id-ID', {
+  return parseApiDate(dt).toLocaleDateString('id-ID', {
     day: '2-digit',
     month: 'short',
   });
 }
 
 export function formatTime(dt: string): string {
-  return new Date(dt).toLocaleTimeString('id-ID', {
+  return parseApiDate(dt).toLocaleTimeString('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
   });
 }
 
 export function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+  return localDateKey(new Date()).slice(0, 7);
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────

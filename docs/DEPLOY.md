@@ -84,10 +84,11 @@ curl.exe -sI "$D/" | Select-String -Quiet "x-frame-options"     # False
 
 ## Risiko diketahui
 
-1. **Batas "hari ini/minggu/bulan" dihitung dalam UTC, bukan Asia/Jakarta.** Query memakai
-   `strftime(..., 'now')` dan `toISOString()`, jadi transaksi pukul 00:00–07:00 WIB masuk ke hari
-   sebelumnya, bulan anggaran berganti pukul 07:00 WIB tanggal 1, dan pengingat 21:00 bisa salah
-   menilai "belum mencatat hari ini". Perlu perbaikan terpisah (mengubah perilaku API).
+1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"
+   di server dihitung pada `TIMEZONE` (default Asia/Jakarta) untuk semua pengguna. Kolom
+   `users.timezone` belum dipakai (dan `upsertUser` selalu mengisinya Asia/Jakarta). Mini App
+   menampilkan jam pada zona waktu perangkat, jadi pengguna WITA/WIT melihat jam lokalnya, tetapi
+   ringkasan "hari ini" tetap mengikuti WIB.
 2. **Satu replika saja.** Bot memakai polling; dua instance sekaligus menghasilkan `409 Conflict` dari
    Telegram, dan SQLite di Volume tidak bisa dibagi. Jangan menaikkan replicas. Karena ada Volume, Railway
    menghentikan instance lama sebelum yang baru jalan, sehingga ada jeda singkat (beberapa detik) saat deploy.
