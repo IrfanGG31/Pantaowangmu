@@ -246,7 +246,7 @@ describe('Bot in assistant mode', () => {
     await bot.message('/memori');
     expect(bot.last().text).toContain('Nama panggilan: Boss');
     await bot.press('mem_clear');
-    expect(getMemory('42')).toEqual({ nickname: '', facts: [] });
+    expect(getMemory('42')).toMatchObject({ nickname: '', facts: [], goals: [], profile: { monthly_income: null, payday: null } });
   });
 
   it('handles "panggil aku ..." without AI', async () => {

@@ -33,7 +33,8 @@ class FakeBot {
   }
 
   async media(kind, { userId = 42 } = {}) {
-    const msg = { message_id: 1, chat: { id: userId, type: 'private' }, from: { id: userId }, [kind]: {} };
+    const value = kind === 'photo' ? [{ file_id: 'small' }, { file_id: 'big' }] : {};
+    const msg = { message_id: 1, chat: { id: userId, type: 'private' }, from: { id: userId }, [kind]: value };
     await Promise.all((this.events.message || []).map((fn) => fn(msg)));
   }
 
@@ -135,11 +136,12 @@ describe('Bot free-text flow', () => {
     expect(getAllTransactions('42')).toHaveLength(0);
   });
 
-  it('explains that voice and photos are not supported yet', async () => {
+  it('explains that voice is not supported yet and that receipts need AI', async () => {
     await bot.media('voice');
+    expect(bot.lastSent().text).toContain('belum bisa dibaca');
     await bot.media('photo');
     expect(bot.sent).toHaveLength(2);
-    expect(bot.lastSent().text).toContain('belum bisa dibaca');
+    expect(bot.lastSent().text).toContain('butuh fitur AI');
   });
 
   it('escapes Markdown in notes so Telegram can parse the reply', async () => {

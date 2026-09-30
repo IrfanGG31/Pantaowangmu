@@ -34,8 +34,9 @@ import {
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
-import { getAiConfig, runAssistant, forgetConversation } from '../ai/interpreter.js';
-import { getMemory, setNickname, addFact, removeFact, clearMemory } from '../db/memory.js';
+import { buildUserContext } from '../ai/context.js';
+import { getAiConfig, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
+import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal } from '../db/memory.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -186,60 +187,6 @@ ${categoryLines(today.by_category)}`;
 ${categoryLines(stats)}`;
 }
 
-const signedRupiah = (n) => `${n < 0 ? '-' : ''}${formatRupiah(n)}`;
-
-/**
- * Plain-text snapshot of the user's finances for the assistant. Only this user's own data.
- * @param {string} userId
- * @param {{ first_name?: string }} [from]
- * @returns {string}
- */
-function assistantContext(userId, from = {}) {
-  const now = new Date();
-  const tz = getTimeZone();
-  const dayLabel = new Intl.DateTimeFormat('id-ID', { timeZone: tz, weekday: 'long' }).format(now);
-  const timeLabel = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
-  const byCategory = (rows) => rows.length
-    ? rows.map((c) => `${c.type === 'income' ? 'masuk' : 'keluar'} ${c.category} ${formatRupiah(c.total)}`).join('; ')
-    : 'belum ada';
-
-  const today = getTodaySummary(userId);
-  const month = getMonthStr();
-  const monthStats = getStatsByCategory(userId, toSqlDateTime(getStartOfMonth(now)), toSqlDateTime(now));
-  let income = 0;
-  let expense = 0;
-  for (const s of monthStats) {
-    if (s.type === 'income') income += Number(s.total);
-    if (s.type === 'expense') expense += Number(s.total);
-  }
-
-  const budgets = getBudgetsByUser(userId, month);
-  const budgetLines = budgets.length
-    ? budgets.map((b) => `${b.category}: batas ${formatRupiah(b.amount)}, terpakai ${formatRupiah(b.spent)} (${b.percentage}%), sisa ${signedRupiah(b.remaining)}`).join('; ')
-    : 'belum ada';
-
-  const recent = getTransactionsByUser(userId, 10).data;
-  const recentLines = recent.length
-    ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}`).join('\n')
-    : 'belum ada';
-
-  const memory = getMemory(userId);
-  const factLines = memory.facts.length
-    ? memory.facts.map((f) => `- [id ${f.id}] ${f.fact}`).join('\n')
-    : 'belum ada';
-
-  return [
-    `Nama Telegram: ${from.first_name || '-'}`,
-    `Nama panggilan: ${memory.nickname || 'belum diatur'}`,
-    `Ingatan tentang pengguna:\n${factLines}`,
-    `Sekarang: ${getDateStr(now)} (${dayLabel}) jam ${timeLabel}, zona ${tz}`,
-    `Hari ini: pemasukan ${formatRupiah(today.income)}, pengeluaran ${formatRupiah(today.expense)}, ${today.count} transaksi; per kategori: ${byCategory(today.by_category)}`,
-    `Bulan ini (${month}): pemasukan ${formatRupiah(income)}, pengeluaran ${formatRupiah(expense)}, saldo ${signedRupiah(income - expense)}; per kategori: ${byCategory(monthStats)}`,
-    `Budget bulan ini: ${budgetLines}`,
-    `10 transaksi terakhir:\n${recentLines}`
-  ].join('\n');
-}
-
 const FREE_TEXT_HELP =`🤔 Aku belum paham pesan itu.
 
 Coba tulis seperti ini:
@@ -251,7 +198,48 @@ Coba tulis seperti ini:
 
 Atau ketik /help untuk daftar perintah.`;
 
-const UNSUPPORTED_MEDIA = 'ℹ️ Voice, foto, dan file belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`.';
+const UNSUPPORTED_MEDIA = 'ℹ️ Voice dan file ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`.\n\n🧾 Foto nota/struk bisa langsung dikirim.';
+
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+const shortDate = (dateStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+};
+
+function receiptPrompt(receipt, entry) {
+  const lines = ['🧾 *Nota terbaca*', ''];
+  if (receipt.merchant) lines.push(`🏪 ${escapeMd(receipt.merchant)}`);
+  if (receipt.date) lines.push(`📅 ${shortDate(receipt.date)}`);
+  lines.push(`💸 *${formatRupiah(receipt.total)}*`);
+  lines.push(`📁 ${capitalize(entry.category)}`);
+  if (receipt.items.length) {
+    lines.push('', ...receipt.items.slice(0, 5).map((i) => `• ${escapeMd(i.name)} — ${formatRupiah(i.amount)}`));
+    if (receipt.items.length > 5) lines.push(`• …dan ${receipt.items.length - 5} item lain`);
+  }
+  lines.push('', 'Simpan sebagai pengeluaran?');
+  return lines.join('\n');
+}
+
+const receiptKeyboard = (key) => ({
+  inline_keyboard: [
+    [
+      { text: '✅ Simpan', callback_data: `txs:${key}` },
+      { text: '✏️ Ganti kategori', callback_data: `txk:${key}` }
+    ],
+    [{ text: '❌ Batal', callback_data: `txx:${key}` }]
+  ]
+});
+
+function describeProfileChange(action) {
+  const parts = [];
+  if (action.monthly_income) parts.push(`penghasilan ${formatRupiah(action.monthly_income)}/bulan`);
+  if (action.payday) parts.push(`gajian tanggal ${action.payday}`);
+  if (action.style) parts.push(`gaya bicara ${action.style}`);
+  if (action.emoji !== undefined) parts.push(action.emoji ? 'pakai emoji' : 'tanpa emoji');
+  return parts.join(', ');
+}
 
 /**
  * Registers all bot command handlers and callback query listeners.
@@ -346,7 +334,11 @@ _Contoh: /budget makan 1000000_
 • \`bensin 50k\` / \`Rp 15.000 parkir\`
 • \`gaji 5jt\` / \`terima jualan 150rb\`
 • \`budget makan 1jt\`
-• \`ringkasan hari ini\` / \`pengeluaran bulan ini\``;
+• \`ringkasan hari ini\` / \`pengeluaran bulan ini\`
+• \`gajiku 8jt, gajian tgl 25\` (supaya saran lebih personal)
+• \`nabung nikah 50jt sampai des 2027\`
+
+📸 *Kirim foto nota/struk* untuk dicatat otomatis.`;
 
     await safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown' });
   });
@@ -494,12 +486,21 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const userId = ensureUser(msg);
     const memory = getMemory(userId);
 
-    if (!memory.nickname && memory.facts.length === 0) {
-      return safeSendMessage(bot, chatId, '🧠 Aku belum menyimpan ingatan apa pun tentang kamu.\n\nCeritakan saja, misalnya "panggil aku Boss" atau "aku gajian tiap tanggal 25".');
+    const p = memory.profile;
+    const hasProfile = p.monthly_income || p.payday || p.style || p.emoji !== null;
+    if (!memory.nickname && !hasProfile && memory.goals.length === 0 && memory.facts.length === 0) {
+      return safeSendMessage(bot, chatId, '🧠 Aku belum menyimpan ingatan apa pun tentang kamu.\n\nCeritakan saja, misalnya "panggil aku Boss", "gajiku 8 juta, gajian tiap tanggal 25", atau "aku nabung buat nikah 50 juta sampai Des 2027".');
     }
 
     const lines = ['🧠 Yang aku ingat tentang kamu:', ''];
     if (memory.nickname) lines.push(`• Nama panggilan: ${memory.nickname}`);
+    if (p.monthly_income) lines.push(`• Penghasilan: ${formatRupiah(p.monthly_income)}/bulan`);
+    if (p.payday) lines.push(`• Gajian: tanggal ${p.payday}`);
+    if (p.style) lines.push(`• Gaya bicara: ${p.style}`);
+    if (p.emoji !== null) lines.push(`• Emoji: ${p.emoji ? 'ya' : 'tidak'}`);
+    for (const g of memory.goals) {
+      lines.push(`• 🎯 ${g.name}: ${formatRupiah(g.saved_amount)} dari ${formatRupiah(g.target_amount)}${g.target_date ? ` (target ${g.target_date})` : ''}`);
+    }
     for (const f of memory.facts) lines.push(`• ${f.fact}`);
     lines.push('', 'Mau aku lupakan sesuatu? Bilang saja, misalnya "lupakan soal gajian".');
 
@@ -564,6 +565,18 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         if (saved) memoryNotes.push(`🧠 Aku ingat: ${saved.fact}`);
       } else if (action.type === 'forget') {
         if (removeFact(userId, action.fact_id)) memoryNotes.push('🧹 Satu ingatan dihapus.');
+      } else if (action.type === 'set_profile') {
+        const { type, ...changes } = action;
+        if (setProfile(userId, changes).length) memoryNotes.push(`🧠 Profil diperbarui: ${describeProfileChange(action)}`);
+      } else if (action.type === 'save_goal') {
+        const { type, ...goal } = action;
+        const result = saveGoal(userId, goal);
+        if (result.goal) {
+          const g = result.goal;
+          memoryNotes.push(`🎯 Target ${g.name}: ${formatRupiah(g.saved_amount)} dari ${formatRupiah(g.target_amount)}${g.target_date ? ` (target ${g.target_date})` : ''}`);
+        }
+      } else if (action.type === 'delete_goal') {
+        if (deleteGoal(userId, action.goal_id)) memoryNotes.push('🧹 Satu target tabungan dihapus.');
       }
     }
     if (memoryNotes.length) {
@@ -594,13 +607,65 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     if (ai && countAiCallsToday(userId) < aiDailyLimit(getUser(userId))) {
       bot.sendChatAction?.(chatId, 'typing').catch(() => {});
       const turn = await runAssistant(
-        { userId, text: msg.text, context: assistantContext(userId, msg.from), hint: parsed },
+        { userId, text: msg.text, context: buildUserContext(userId, msg.from), hint: parsed },
         { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
       );
       if (turn) return respondAsAssistant(chatId, userId, turn);
     }
 
     return handleRuleBased(chatId, userId, parsed);
+  };
+
+  // ── Receipt photos ────────────────────────────────────────────────────
+  const downloadTelegramFile = async (fileId) => {
+    const link = await bot.getFileLink(fileId);
+    const res = await fetch(link, { signal: AbortSignal.timeout(20000) });
+    // Never include the link in errors: it contains the bot token.
+    if (!res.ok) throw new Error(`Telegram file download failed (HTTP ${res.status})`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > MAX_IMAGE_BYTES) throw new Error('Image too large');
+    return buffer;
+  };
+
+  const handleReceipt = async (msg, fileId, mimeType) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+
+    if (!getAiConfig()) {
+      return safeSendMessage(bot, chatId, 'ℹ️ Baca foto nota butuh fitur AI yang belum aktif. Ketik saja, misalnya `belanja 87rb indomaret`.', { parse_mode: 'Markdown' });
+    }
+    if (countAiCallsToday(userId) >= aiDailyLimit(getUser(userId))) {
+      return safeSendMessage(bot, chatId, 'ℹ️ Kuota AI harian kamu sudah habis, jadi nota belum bisa dibaca hari ini. Ketik saja, misalnya `belanja 87rb indomaret`.', { parse_mode: 'Markdown' });
+    }
+
+    bot.sendChatAction?.(chatId, 'typing').catch(() => {});
+    let receipt = null;
+    try {
+      const image = await downloadTelegramFile(fileId);
+      receipt = await readReceipt(
+        { imageBase64: image.toString('base64'), mimeType, caption: msg.caption || '' },
+        { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
+      );
+    } catch (err) {
+      logger.warn({ err: err.message }, '[Bot] Receipt download failed');
+    }
+
+    if (!receipt) {
+      return safeSendMessage(bot, chatId, '⚠️ Nota belum bisa dibaca sekarang. Coba kirim ulang sebentar lagi, atau ketik manual, misalnya `belanja 87rb`.', { parse_mode: 'Markdown' });
+    }
+    if (!receipt.ok) {
+      const text = receipt.reason === 'not_receipt'
+        ? '🤔 Foto ini sepertinya bukan nota atau struk. Kirim foto struknya, atau ketik transaksinya langsung.'
+        : '🤔 Total di nota tidak terbaca jelas. Coba foto lebih dekat, terang, dan tidak miring, atau ketik manual, misalnya `belanja 87rb`.';
+      return safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown' });
+    }
+
+    const today = getDateStr();
+    const note = [receipt.merchant ? `Nota ${receipt.merchant}` : 'Nota', receipt.date && receipt.date !== today ? `(${shortDate(receipt.date)})` : '']
+      .filter(Boolean).join(' ');
+    const entry = { userId, type: 'expense', amount: receipt.total, category: receipt.category, note };
+    const key = putPending(entry);
+    return safeSendMessage(bot, chatId, receiptPrompt(receipt, entry), { parse_mode: 'Markdown', reply_markup: receiptKeyboard(key) });
   };
 
   bot.on('message', async (msg) => {
@@ -610,7 +675,13 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         if (msg.text.startsWith('/')) return;
         if (await denied(msg.from, msg.chat.id)) return;
         await handleFreeText(msg);
-      } else if (msg.voice || msg.audio || msg.photo || msg.document || msg.video_note) {
+      } else if (msg.photo?.length) {
+        if (await denied(msg.from, msg.chat.id)) return;
+        await handleReceipt(msg, msg.photo[msg.photo.length - 1].file_id, 'image/jpeg');
+      } else if (msg.document && IMAGE_TYPES.includes(msg.document.mime_type)) {
+        if (await denied(msg.from, msg.chat.id)) return;
+        await handleReceipt(msg, msg.document.file_id, msg.document.mime_type);
+      } else if (msg.voice || msg.audio || msg.document || msg.video_note || msg.video) {
         if (await denied(msg.from, msg.chat.id)) return;
         await safeSendMessage(bot, msg.chat.id, UNSUPPORTED_MEDIA, { parse_mode: 'Markdown' });
       }
@@ -660,12 +731,35 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         await safeAnswerCallback(bot, query.id, 'Transaksi sudah tidak ada');
         await editMessage(chatId, messageId, 'ℹ️ Transaksi sudah tidak ada.');
       }
-    } else if (data.startsWith('txc:') || data.startsWith('txt:')) {
+    } else if (data.startsWith('txx:')) {
+      pendingTransactions.delete(data.slice(4));
+      await safeAnswerCallback(bot, query.id, 'Dibatalkan');
+      await editMessage(chatId, messageId, '❌ Tidak jadi dicatat.');
+    } else if (data.startsWith('txc:') || data.startsWith('txt:') || data.startsWith('txs:') || data.startsWith('txk:')) {
       const [action, key, category] = data.split(':');
       const entry = getPending(key, userId);
       if (!entry) {
         await safeAnswerCallback(bot, query.id, 'Sudah kedaluwarsa');
         await editMessage(chatId, messageId, 'ℹ️ Pilihan ini sudah kedaluwarsa. Ketik ulang transaksinya.');
+        return;
+      }
+
+      if (action === 'txk') {
+        await safeAnswerCallback(bot, query.id);
+        await editMessage(chatId, messageId, pendingPrompt(entry), { parse_mode: 'Markdown', reply_markup: pendingKeyboard(key, entry) });
+        return;
+      }
+
+      if (action === 'txs') {
+        pendingTransactions.delete(key);
+        const saved = saveTransaction(userId, { type: entry.type, amount: entry.amount, category: entry.category, note: entry.note });
+        if (saved.error) {
+          await safeAnswerCallback(bot, query.id, 'Gagal menyimpan');
+          await editMessage(chatId, messageId, `❌ ${saved.error}`);
+          return;
+        }
+        await safeAnswerCallback(bot, query.id, 'Tercatat');
+        await editMessage(chatId, messageId, saved.text, { parse_mode: 'Markdown', reply_markup: undoKeyboard(saved.tx.id) });
         return;
       }
 
