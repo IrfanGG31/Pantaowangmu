@@ -331,4 +331,7 @@ Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
 | `GET /api/admin/backups` | `{ remote_configured, keep, schedule, timezone, last: { at, ok, name, size, reason, remote, error } \| null, data: [{ name, size, created_at }] }` |
 | `POST /api/admin/backups` `{}` | Backup sekarang → 201 `{ status, ...GET /backups }`; 500 bila gagal. Dicatat di audit log. |
 | `GET /api/admin/backups/:name` | Unduh `finance-YYYYMMDD-HHMMSS.db.gz` (gzip SQLite). Nama lain → 404. Dicatat di audit log. |
+| `GET /api/admin/ideas?days=1..365&status=` | Ide dari pengguna (tanpa identitas): `{ statuses, ai_configured, ideas: [{ topic, count, users, last_at, examples[], status, note }], unparsed: [{ id, summary, count, users, last_at }] }` |
+| `PATCH /api/admin/ideas/:topic` | `{ status?: "new"\|"planned"\|"done"\|"ignored", note? }` → `{ topic, status, note }`. Dicatat di audit log. |
+| `POST /api/admin/ideas/cluster` `{}` | AI mengelompokkan pesan yang belum dipahami bot menjadi ide → `{ ...GET /ideas, clustered, idea_count }`; 503 AI belum dikonfigurasi; 502 AI gagal. Dicatat di audit log. |
 | `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |

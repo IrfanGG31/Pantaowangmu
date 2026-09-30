@@ -541,6 +541,50 @@ function setDays(days) {
   refreshAll();
 }
 
+// ── Ideas from users ─────────────────────────────────────────────────────
+
+const IDEA_LABEL = { new: 'Baru', planned: 'Direncanakan', done: 'Selesai', ignored: 'Diabaikan' };
+
+function renderIdeas(state) {
+  const filter = $('idea-status').value;
+  const ideas = state.ideas.filter((i) => !filter || i.status === filter);
+  renderTable($('ideas-table'), ['Topik & contoh', 'Permintaan', 'Pengguna', 'Terakhir', 'Status', 'Catatan'], ideas.map((idea) => {
+    const status = el('select', { 'aria-label': `Status ${idea.topic}` }, state.statuses.map((st) => el('option', { value: st, selected: st === idea.status }, IDEA_LABEL[st] || st)));
+    const note = el('input', { value: idea.note || '', placeholder: 'catatan…', maxlength: 300, class: 'table-input name', 'aria-label': `Catatan ${idea.topic}` });
+    const save = async (changes) => {
+      try {
+        await api(`/ideas/${encodeURIComponent(idea.topic)}`, { method: 'PATCH', body: JSON.stringify(changes) });
+        loadAudit();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+    status.addEventListener('change', () => save({ status: status.value }));
+    note.addEventListener('change', () => save({ note: note.value }));
+    return [
+      el('div', {}, el('strong', {}, idea.topic), ...idea.examples.map((e) => el('span', { class: 'sub' }, `“${e}”`))),
+      fmt.format(idea.count),
+      fmt.format(idea.users),
+      fmtRelative(idea.last_at),
+      status,
+      note
+    ];
+  }), 'Belum ada ide. Ide muncul saat pengguna meminta sesuatu yang belum bisa dilakukan.', [1, 2]);
+
+  $('unparsed-summary').textContent = `Pesan yang belum dipahami bot (${state.unparsed.length})`;
+  $('cluster-ideas').disabled = !state.ai_configured || !state.unparsed.length;
+  $('cluster-status').textContent = state.ai_configured ? '' : 'AI belum dikonfigurasi.';
+  renderTable($('unparsed-table'), ['Pesan (dianonimkan)', 'Kali', 'Pengguna', 'Terakhir'], state.unparsed.map((u) => [
+    { text: u.summary, class: 'wrap' }, fmt.format(u.count), fmt.format(u.users), fmtRelative(u.last_at)
+  ]), 'Tidak ada pesan baru.', [1, 2]);
+}
+
+let ideasState = null;
+async function loadIdeas() {
+  ideasState = await api('/ideas?days=90');
+  renderIdeas(ideasState);
+}
+
 // ── Backups ──────────────────────────────────────────────────────────────
 
 const fmtSize = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
@@ -569,7 +613,7 @@ async function loadBackups() {
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -731,5 +775,23 @@ $('backup-now').addEventListener('click', async (event) => {
   } finally {
     button.disabled = false;
     button.textContent = 'Backup sekarang';
+  }
+});
+
+$('idea-status').addEventListener('change', () => ideasState && renderIdeas(ideasState));
+
+$('cluster-ideas').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  $('cluster-status').textContent = 'Merangkum…';
+  try {
+    const res = await api('/ideas/cluster', { method: 'POST', body: '{}' });
+    ideasState = res;
+    renderIdeas(res);
+    $('cluster-status').textContent = `${res.clustered} pesan jadi ${res.idea_count} ide.`;
+    loadAudit();
+  } catch (err) {
+    $('cluster-status').textContent = err.message;
+    button.disabled = false;
   }
 });
