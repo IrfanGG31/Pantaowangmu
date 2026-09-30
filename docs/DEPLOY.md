@@ -34,6 +34,7 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
 | `AI_TIMEOUT_MS` | tidak | Default `30000`. |
+| `AI_VISION_MODEL` | tidak | Model untuk membaca foto nota. Kosong = pakai `AI_MODEL` (harus bisa menerima gambar). |
 | `AI_MAX_TOKENS` | tidak | Default `4000`. Naikkan bila model "thinking" sering membalas kosong. |
 | `AI_PRICE_INPUT_PER_1M`, `AI_PRICE_OUTPUT_PER_1M` | tidak | Harga per 1 juta token masuk/keluar dari penyedia AI, untuk perkiraan biaya di dashboard. |
 | `AI_PRICE_CURRENCY` | tidak | Default `IDR`. |
@@ -67,6 +68,20 @@ Tanpa argumen (`node scripts/hash-password.js`), skrip menanyakan password tanpa
 
 **Cek koneksi AI** (Railway → Console): `node scripts/check-ai.js`. Skrip ini menampilkan nilai URL dan model yang terbaca,
 apakah model ada di daftar penyedia, lalu satu tes chat beserta status/pesan error. Key tidak pernah dicetak.
+
+**Foto nota.** Pengguna mengirim foto (atau file gambar) nota/struk. Bot mengunduhnya dari Telegram, mengirim ke
+model vision (`AI_VISION_MODEL` atau `AI_MODEL`), lalu menampilkan toko, tanggal, total, kategori, dan item dengan tombol
+Simpan / Ganti kategori / Batal. Tidak ada yang tersimpan sebelum pengguna menekan Simpan. Foto tidak disimpan di server.
+Setiap foto memakai kuota AI harian. `node scripts/check-ai.js` ikut mengetes pembacaan nota contoh
+(`scripts/fixtures/sample-receipt.jpg`, total yang benar 12.500).
+
+**Personalisasi.** Selain nama panggilan dan ingatan, asisten menyimpan profil keuangan (penghasilan per bulan,
+tanggal gajian, gaya bicara santai/formal/singkat, pakai emoji atau tidak) dan target tabungan (tabel `user_goals`).
+Server menghitung insight dari transaksi, yaitu perbandingan dengan periode yang sama bulan lalu, kategori yang
+naik/turun, pengeluaran terbesar, hari paling boros, sisa uang dan batas aman per hari sampai gajian berikutnya, serta
+kebutuhan tabungan per bulan per target. Insight ini diberikan ke AI sebagai angka pasti. Laporan mingguan (Senin 09.00)
+ditulis AI memakai data ini bila AI aktif dan kuota tersisa, dan kembali ke template bila tidak. Semuanya bisa dilihat dan
+dihapus lewat `/memori`.
 
 **Ingatan asisten.** Nama panggilan dan fakta yang diminta pengguna untuk diingat disimpan di tabel `user_profile`
 dan `user_facts` (maks. 30 fakta per pengguna). PIN, password, OTP, dan nomor kartu ditolak. Pengguna bisa melihat

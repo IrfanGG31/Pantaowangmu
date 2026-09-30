@@ -100,3 +100,17 @@ CREATE TABLE IF NOT EXISTS admin_audit (
   details TEXT,
   created_at DATETIME DEFAULT (datetime('now'))
 );
+
+-- Savings goals the user shares with the assistant (e.g. "nikah 50jt Des 2027")
+CREATE TABLE IF NOT EXISTS user_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  target_amount INTEGER NOT NULL CHECK(target_amount > 0),
+  saved_amount INTEGER NOT NULL DEFAULT 0 CHECK(saved_amount >= 0),
+  target_date TEXT,
+  created_at DATETIME DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_goals_user ON user_goals(user_id);

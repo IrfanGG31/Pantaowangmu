@@ -72,18 +72,28 @@ export function initDatabase(customPath) {
 
 // Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS".
 // Existing users get plan_expires_at NULL (no expiry), so nobody is locked out by the upgrade.
-const USER_COLUMNS = [
-  ['plan', "TEXT DEFAULT 'trial'"],
-  ['status', "TEXT DEFAULT 'active'"],
-  ['plan_expires_at', 'DATETIME'],
-  ['ai_daily_limit', 'INTEGER'],
-  ['last_active_at', 'DATETIME']
-];
+const ADDED_COLUMNS = {
+  users: [
+    ['plan', "TEXT DEFAULT 'trial'"],
+    ['status', "TEXT DEFAULT 'active'"],
+    ['plan_expires_at', 'DATETIME'],
+    ['ai_daily_limit', 'INTEGER'],
+    ['last_active_at', 'DATETIME']
+  ],
+  user_profile: [
+    ['monthly_income', 'INTEGER'],
+    ['payday', 'INTEGER'],
+    ['style', 'TEXT'],
+    ['emoji', 'INTEGER']
+  ]
+};
 
 function migrate(database) {
-  const existing = new Set(database.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
-  for (const [name, definition] of USER_COLUMNS) {
-    if (!existing.has(name)) database.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+  for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
+    const existing = new Set(database.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const [name, definition] of columns) {
+      if (!existing.has(name)) database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+    }
   }
 }
 
