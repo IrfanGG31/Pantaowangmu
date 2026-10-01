@@ -12,7 +12,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import {
-    transactionsApi, formatRupiah, ApiError, WALLET_KIND_EMOJI,
+    transactionsApi, formatRupiah, ApiError,
   } from '$lib/api.js';
   import {
     setupMainButton, setMainButtonLoading,
@@ -23,6 +23,7 @@
   import { invalidateTransactions, showToast, categoryIcons, visibleCategories, wallets, loadWallets } from '$lib/stores.js';
   import type { TxType } from '$lib/types.js';
   import CategorySheet from '$lib/components/CategorySheet.svelte';
+  import WalletIcon from '$lib/components/WalletIcon.svelte';
 
   // ── Form state ─────────────────────────────────────────────────
   let type: TxType = 'expense';
@@ -309,7 +310,7 @@
               aria-pressed={walletId === w.id}
               on:click={() => { walletId = walletId === w.id ? null : w.id; walletTouched = true; haptic('selection'); }}
             >
-              <span aria-hidden="true">{WALLET_KIND_EMOJI[w.kind]}</span>
+              <WalletIcon name={w.name} kind={w.kind} />
               {w.name}
             </button>
           {/each}
