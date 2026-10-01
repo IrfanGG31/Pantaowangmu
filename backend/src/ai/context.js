@@ -1,7 +1,7 @@
 // Plain-text snapshot of one user's finances and profile for the assistant. Only this user's own data.
 import { getTodaySummary, getStatsByCategory, getTransactionsByUser, getBalance, tagSummary } from '../db/transactions.js';
 import { getBudgetsByUser } from '../db/budgets.js';
-import { getMemory, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
+import { getMemory, getOnboarding, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
 import { listCategories, listKeywords } from '../db/categories.js';
 import { listWallets } from '../db/wallets.js';
 import { listBills } from '../db/bills.js';
@@ -20,6 +20,10 @@ import {
 
 const signedRupiah = (n) => `${n < 0 ? '-' : ''}${formatRupiah(n)}`;
 
+const ONBOARDING_LABEL = {
+  ask_name: 'kamu sudah memperkenalkan diri dan menanyakan nama panggilan, belum dijawab',
+  done: 'sudah berkenalan'
+};
 const STYLE_LABEL = { santai: 'santai', formal: 'formal', singkat: 'singkat' };
 
 /**
@@ -89,6 +93,7 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
   return [
     `Nama Telegram: ${from.first_name || '-'}`,
     `Nama panggilan: ${memory.nickname || 'belum diatur'}`,
+    `Perkenalan: ${ONBOARDING_LABEL[getOnboarding(userId).step] || 'belum berkenalan'}`,
     `Gaya bicara: ${STYLE_LABEL[p.style] || 'belum diatur'}; Emoji: ${p.emoji === null ? 'belum diatur' : p.emoji ? 'ya' : 'tidak'}`,
     `Bahasa: ${p.language || 'auto'} (${LANGUAGE_LABEL[p.language || 'auto']}); Persona: ${p.persona || 'teman'} (${PERSONA_LABEL[p.persona || 'teman']})`,
     `Kategori pengeluaran: ${catList(cats.expense)}`,

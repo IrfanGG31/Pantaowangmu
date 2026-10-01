@@ -101,7 +101,11 @@ const ADDED_COLUMNS = {
     ['language', 'TEXT'],
     ['persona', 'TEXT'],
     ['reminder_time', 'TEXT'],
-    ['smart_nudge', 'INTEGER']
+    ['smart_nudge', 'INTEGER'],
+    // Onboarding: NULL = never introduced, 'ask_name' = waiting for a nickname, 'done'.
+    ['onboarding', 'TEXT'],
+    ['tips_seen', 'INTEGER DEFAULT 0'],
+    ['last_tip_at', 'DATETIME']
   ],
   transactions: [
     ['wallet_id', 'INTEGER'],

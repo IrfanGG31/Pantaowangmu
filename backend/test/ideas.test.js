@@ -7,6 +7,7 @@ import { registerHandlers } from '../src/bot/commands.js';
 import { sanitizeIdeaText, looksLikeRequest, recordRequest, listIdeas, listUnparsed } from '../src/db/ideas.js';
 import { sanitizeAction, resetAiState } from '../src/ai/interpreter.js';
 import { hashPassword } from '../src/api/middleware/adminAuth.js';
+import { markOnboarded } from './helpers.js';
 
 class FakeBot {
   constructor() { this.handlers = []; this.events = {}; this.sent = []; }
@@ -46,8 +47,9 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  db.exec('DELETE FROM feature_requests; DELETE FROM idea_topics; DELETE FROM admin_audit; DELETE FROM ai_usage; DELETE FROM users;');
+  db.exec('DELETE FROM feature_requests; DELETE FROM idea_topics; DELETE FROM admin_audit; DELETE FROM ai_usage; DELETE FROM user_profile; DELETE FROM users;');
   for (const id of ['42', '7']) upsertUser({ user_id: id, first_name: 'Uji' });
+  for (const id of ['42', '7']) markOnboarded(id);
   db.prepare('UPDATE users SET plan_expires_at = NULL').run();
 });
 

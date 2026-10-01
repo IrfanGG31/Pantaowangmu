@@ -10,6 +10,7 @@ import { setProfile, getMemory } from '../src/db/memory.js';
 import { getAllTransactions } from '../src/db/transactions.js';
 import { runReminderTick, runBillTick, habitHour, inWindow } from '../src/bot/nudges.js';
 import { sanitizeAction } from '../src/ai/interpreter.js';
+import { markOnboarded } from './helpers.js';
 
 const U = '42';
 
@@ -46,6 +47,7 @@ beforeEach(() => {
   db.exec(`DELETE FROM transactions; DELETE FROM recurring_bills; DELETE FROM nudge_log; DELETE FROM reminder_log;
     DELETE FROM user_profile; DELETE FROM wallets; DELETE FROM users;`);
   upsertUser({ user_id: U, first_name: 'Uji' });
+  markOnboarded(U);
   db.prepare('UPDATE users SET plan_expires_at = NULL').run();
 });
 

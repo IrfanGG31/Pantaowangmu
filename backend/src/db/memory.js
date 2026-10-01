@@ -1,4 +1,5 @@
 import db from './connection.js';
+import { toSqlDateTime } from '../utils/formatter.js';
 
 export const MAX_NICKNAME_LENGTH = 40;
 export const MAX_FACT_LENGTH = 200;
@@ -149,6 +150,39 @@ export function setNickname(userId, nickname) {
     ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, updated_at = excluded.updated_at
   `).run(uid, clean);
   return clean;
+}
+
+export const ONBOARDING_STEPS = ['ask_name', 'done'];
+
+/** @returns {{ step: 'ask_name'|'done'|null, tips_seen: number, last_tip_at: string|null }} */
+export function getOnboarding(userId) {
+  const row = db.prepare('SELECT onboarding, tips_seen, last_tip_at FROM user_profile WHERE user_id = ?').get(String(userId));
+  return { step: row?.onboarding || null, tips_seen: Number(row?.tips_seen || 0), last_tip_at: row?.last_tip_at || null };
+}
+
+export function setOnboarding(userId, step) {
+  if (!ONBOARDING_STEPS.includes(step)) return;
+  db.prepare(`
+    INSERT INTO user_profile (user_id, onboarding, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET onboarding = excluded.onboarding, updated_at = excluded.updated_at
+  `).run(String(userId), step);
+}
+
+/**
+ * Claims the next tutorial tip: returns its index when one is due (fewer than `total` shown and none in the last
+ * `gapMinutes`), or -1. Claiming is atomic, so two messages at once never get the same tip.
+ */
+export function claimTip(userId, { total, gapMinutes = 30, now = new Date() } = {}) {
+  const uid = String(userId);
+  const nowSql = toSqlDateTime(now);
+  const since = toSqlDateTime(new Date(now.getTime() - gapMinutes * 60000));
+  db.prepare("INSERT INTO user_profile (user_id, updated_at) VALUES (?, datetime('now')) ON CONFLICT(user_id) DO NOTHING").run(uid);
+  const row = db.prepare(`
+    UPDATE user_profile SET tips_seen = COALESCE(tips_seen, 0) + 1, last_tip_at = ?
+    WHERE user_id = ? AND COALESCE(tips_seen, 0) < ? AND (last_tip_at IS NULL OR last_tip_at <= ?)
+    RETURNING tips_seen
+  `).get(nowSql, uid, total, since);
+  return row ? row.tips_seen - 1 : -1;
 }
 
 /**

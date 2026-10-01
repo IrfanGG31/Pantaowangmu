@@ -5,6 +5,7 @@ import { getAllTransactions } from '../src/db/transactions.js';
 import { getBudget } from '../src/db/budgets.js';
 import { getMonthStr } from '../src/utils/formatter.js';
 import { getMemory } from '../src/db/memory.js';
+import { markOnboarded } from './helpers.js';
 import {
   getAiConfig,
   sanitizeAction,
@@ -158,6 +159,7 @@ describe('Bot in assistant mode', () => {
 
   beforeEach(() => {
     db.exec('DELETE FROM transactions; DELETE FROM budgets; DELETE FROM user_facts; DELETE FROM user_profile; DELETE FROM ai_usage;');
+    markOnboarded();
     bot = new FakeBot();
     registerHandlers(bot);
   });

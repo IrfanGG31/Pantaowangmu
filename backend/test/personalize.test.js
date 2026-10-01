@@ -12,6 +12,7 @@ import { createTransaction, getAllTransactions, getBalance } from '../src/db/tra
 import { getMemory } from '../src/db/memory.js';
 import { sanitizeAction, parseAssistantOutput, resetAiState } from '../src/ai/interpreter.js';
 import { buildUserContext } from '../src/ai/context.js';
+import { markOnboarded } from './helpers.js';
 
 const U = '42';
 
@@ -45,6 +46,7 @@ beforeEach(() => {
   db.exec(`DELETE FROM transactions; DELETE FROM budgets; DELETE FROM user_categories; DELETE FROM category_keywords;
     DELETE FROM wallets; DELETE FROM wallet_transfers; DELETE FROM user_profile; DELETE FROM users;`);
   upsertUser({ user_id: U, first_name: 'Uji' });
+  markOnboarded(U);
 });
 
 describe('Personal categories', () => {
