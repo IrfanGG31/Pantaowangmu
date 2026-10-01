@@ -11,12 +11,13 @@
   import { goto } from '$app/navigation';
   import {
     transactionsApi, meApi, insightsApi, billsApi, debtsApi, challengesApi, ApiError,
-    formatRupiah, formatRupiahShort, formatTime, formatCalendarDate, WALLET_KIND_EMOJI, } from '$lib/api.js';
+    formatRupiah, formatRupiahShort, formatTime, formatCalendarDate, } from '$lib/api.js';
   import { getTelegramUser, setupMainButton, haptic } from '$lib/telegram.js';
   import { txRevision, categoryIcons, wallets, loadWallets } from '$lib/stores.js';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import IncomeSheet from '$lib/components/IncomeSheet.svelte';
   import WalletSheet from '$lib/components/WalletSheet.svelte';
+  import WalletIcon from '$lib/components/WalletIcon.svelte';
   import BillSheet from '$lib/components/BillSheet.svelte';
   import type { Summary, Transaction, MeResponse, InsightsResponse, Bill, Challenge } from '$lib/types.js';
   import { showToast } from '$lib/stores.js';
@@ -271,7 +272,7 @@
       {#if $wallets.length}
         <div class="wallet-strip" aria-label="Saldo per dompet">
           {#each $wallets as w (w.id)}
-            <span class="wallet-chip tabular">{WALLET_KIND_EMOJI[w.kind]} {w.name} <strong>{formatRupiahShort(w.balance)}</strong></span>
+            <span class="wallet-chip tabular"><WalletIcon name={w.name} kind={w.kind} /> {w.name} <strong>{formatRupiahShort(w.balance)}</strong></span>
           {/each}
         </div>
       {:else if insights && insights.balance.income === 0 && insights.balance.expense > 0}
@@ -608,6 +609,9 @@
   .wallet-strip::-webkit-scrollbar { display: none; }
   .wallet-chip {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font-size: 12px;
     padding: 4px 10px;
     border-radius: var(--radius-pill);

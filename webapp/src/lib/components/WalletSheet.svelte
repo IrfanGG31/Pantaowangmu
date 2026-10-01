@@ -2,6 +2,7 @@
   // Optional wallets (Cash, QRIS, BCA, GoPay, ...): list with balances, add one, correct a balance, pick the default.
   import { createEventDispatcher } from 'svelte';
   import Sheet from './Sheet.svelte';
+  import WalletIcon from './WalletIcon.svelte';
   import { walletsApi, formatRupiah, ApiError, WALLET_KIND_LABEL, WALLET_KIND_EMOJI } from '$lib/api.js';
   import { haptic } from '$lib/telegram.js';
   import { showToast, wallets, loadWallets } from '$lib/stores.js';
@@ -93,7 +94,7 @@
       {#each $wallets as w (w.id)}
         <li class="wallet-row" class:editing={editing?.id === w.id}>
           <button class="wallet-main" on:click={() => startEdit(w)} aria-label="Ubah saldo {w.name}">
-            <span class="wallet-icon" aria-hidden="true">{WALLET_KIND_EMOJI[w.kind]}</span>
+            <span class="wallet-icon"><WalletIcon name={w.name} kind={w.kind} size="md" /></span>
             <span class="wallet-name">
               {w.name}
               {#if w.is_default}<span class="badge-default">utama</span>{/if}
@@ -152,7 +153,7 @@
     border-radius: var(--radius-sm);
   }
   .wallet-row.editing .wallet-main { background: var(--tg-secondary-bg); }
-  .wallet-icon { font-size: 22px; }
+  .wallet-icon { display: inline-flex; flex-shrink: 0; }
   .wallet-name { flex: 1; min-width: 0; font-weight: 600; }
   .wallet-balance { font-weight: 700; }
   .wallet-balance.neg { color: var(--c-expense); }
