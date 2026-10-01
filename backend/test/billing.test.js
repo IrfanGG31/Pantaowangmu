@@ -44,7 +44,7 @@ afterAll(() => {
 
 beforeEach(() => {
   db.exec(`DELETE FROM payments; DELETE FROM voucher_redemptions; DELETE FROM vouchers; DELETE FROM subscription_notices;
-    DELETE FROM settings; DELETE FROM ai_usage; DELETE FROM admin_audit; DELETE FROM transactions; DELETE FROM users;`);
+    DELETE FROM settings; DELETE FROM ai_usage; DELETE FROM admin_audit; DELETE FROM transactions; DELETE FROM user_profile; DELETE FROM users;`);
   db.exec("DELETE FROM plans WHERE id != 'pro'; UPDATE plans SET name = 'Pro', price = 29000, period_days = 30, ai_daily_limit = 100, receipt_monthly_limit = 100, active = 1 WHERE id = 'pro';");
   upsertUser({ user_id: '42', first_name: 'Uji' });
 });

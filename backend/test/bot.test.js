@@ -4,6 +4,7 @@ import { registerHandlers } from '../src/bot/commands.js';
 import { getAllTransactions } from '../src/db/transactions.js';
 import { getBudget } from '../src/db/budgets.js';
 import { getMonthStr } from '../src/utils/formatter.js';
+import { markOnboarded } from './helpers.js';
 
 // Minimal stand-in for node-telegram-bot-api: records handlers and outgoing calls.
 class FakeBot {
@@ -57,6 +58,7 @@ describe('Bot free-text flow', () => {
 
   beforeEach(() => {
     db.exec('DELETE FROM transactions; DELETE FROM budgets;');
+    markOnboarded();
     bot = new FakeBot();
     registerHandlers(bot);
   });

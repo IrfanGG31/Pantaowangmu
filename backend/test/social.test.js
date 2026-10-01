@@ -11,6 +11,7 @@ import { startChallenge, listChallenges } from '../src/db/challenges.js';
 import { getAllTransactions, getBalance, tagSummary } from '../src/db/transactions.js';
 import { runDailyTick } from '../src/bot/nudges.js';
 import { sanitizeAction } from '../src/ai/interpreter.js';
+import { markOnboarded } from './helpers.js';
 
 const U = '42';
 const as = (req) => req.set('X-Dev-User-Id', U);
@@ -48,6 +49,7 @@ beforeEach(() => {
   db.exec(`DELETE FROM transactions; DELETE FROM debts; DELETE FROM challenges; DELETE FROM budgets; DELETE FROM nudge_log;
     DELETE FROM wallets; DELETE FROM user_profile; DELETE FROM users;`);
   upsertUser({ user_id: U, first_name: 'Uji' });
+  markOnboarded(U);
   db.prepare('UPDATE users SET plan_expires_at = NULL').run();
   bot = new FakeBot();
   registerHandlers(bot);

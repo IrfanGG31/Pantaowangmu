@@ -187,6 +187,10 @@ Aplikasi membuat backup sendiri: snapshot konsisten (`VACUUM INTO`), dikompres g
 
 Semua opsional; pengguna yang tidak memakainya tidak melihat perubahan.
 
+- **Perkenalan & tutorial**: saat `/start` atau pesan pertama, Panta memperkenalkan diri dan bertanya mau dipanggil apa
+  (ketik nama, atau tombol "Panggil aku …" / "Nanti saja"), lalu menampilkan 3 langkah cepat. Setelah mencatat transaksi,
+  pengguna mendapat satu tips tutorial (maks. satu tiap 30 menit, 8 tips total). `/tips` menampilkan semuanya.
+
 - **Kategori sendiri**: chat "tambah kategori kopi ☕" atau `/kategori tambah kopi ☕`; tombol "＋ Kategori" di Mini App.
   Kategori bawaan bisa disembunyikan (`/kategori hapus hiburan`).
 - **Panta belajar**: "kopken masuk kopi" menyimpan kata kunci. Saat pengguna memilih kategori untuk pesan yang belum jelas

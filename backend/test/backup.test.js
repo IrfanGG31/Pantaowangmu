@@ -34,7 +34,7 @@ afterAll(() => {
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'panta-backup-'));
   process.env.BACKUP_DIR = dir;
-  db.exec("DELETE FROM transactions; DELETE FROM settings; DELETE FROM users;");
+  db.exec("DELETE FROM transactions; DELETE FROM settings; DELETE FROM user_profile; DELETE FROM users;");
   db.exec("INSERT INTO users (user_id, first_name) VALUES ('42', 'Uji')");
   db.exec("INSERT INTO transactions (user_id, type, amount, category, note) VALUES ('42', 'expense', 25000, 'makan', 'kopi')");
 });
@@ -122,7 +122,7 @@ describe('runBackup', () => {
     expect(status.remote).toBe('uploaded');
     expect(calls[0].url).toBe('https://panta-backup-abc123.t3.storageapi.dev/backups/finance-20260930-200000.db.gz');
     expect(calls[0].init.method).toBe('PUT');
-    expect(calls[0].init.headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=tid_test\/20260930\/auto\/s3\/aws4_request, /);
+    expect(calls[0].init.headers.authorization).toMatch(new RegExp(`^AWS4-HMAC-SHA256 Credential=tid_test/${new Date().toISOString().slice(0, 10).replace(/-/g, '')}/auto/s3/aws4_request, `));
     expect(calls[0].init.body.equals(fs.readFileSync(path.join(dir, status.name)))).toBe(true);
 
     ok = false;

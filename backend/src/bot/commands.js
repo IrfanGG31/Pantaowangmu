@@ -46,7 +46,7 @@ import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js'
 import { parseFreeText } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
 import { getAiConfig, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
-import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
+import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL, getOnboarding, setOnboarding } from '../db/memory.js';
 import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
 import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransactionWallet, walletParserOptions, updateWallet } from '../db/wallets.js';
 import {
@@ -58,6 +58,7 @@ import {
   doStartChallenge, challengeNotes
 } from './personal.js';
 import { detectWalletId } from './textParser.js';
+import { startOnboarding, handleNameReply, nicknameSet, withTip, tipsText, greetName, SKIPPED_NAME, QUICKSTART } from './onboarding.js';
 import { cancelChallenge } from '../db/challenges.js';
 import { recordRequest, looksLikeRequest } from '../db/ideas.js';
 import { logger } from '../api/server.js';
@@ -154,7 +155,7 @@ function saveTransaction(userId, input) {
 
   for (const note of challengeNotes(userId, tx)) text += `\n\n${escapeMd(note)}`;
 
-  return { tx, text };
+  return { tx, text: withTip(userId, text) };
 }
 
 const undoKeyboard = (txId) => ({ inline_keyboard: [[{ text: '↩️ Batalkan', callback_data: `undo:${txId}` }]] });
@@ -242,6 +243,9 @@ Coba tulis seperti ini:
 Atau ketik /help untuk daftar perintah.`;
 
 const UNSUPPORTED_MEDIA = 'ℹ️ Voice dan file ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`.\n\n🧾 Foto nota/struk bisa langsung dikirim.';
+
+// A bare hello on first contact gets the introduction instead of a generic answer.
+const GREETING_RE = /^(?:halo+|hai+|hi+|hello|hey|helo|hallo|p|ping|test|tes|mulai|start|assalamu'?alaikum|selamat\s+(?:pagi|siang|sore|malam)|pagi|siang|sore|malam)(?:\s+\S+){0,2}[\s!.?]*$/i;
 
 const UPSELL = '💎 Asisten AI dan baca foto nota tersedia di paket berbayar. Lihat /langganan';
 
@@ -365,6 +369,16 @@ export function registerHandlers(bot) {
     } catch {}
   };
 
+  const miniAppRow = () => [{ text: '📱 Buka Mini App', web_app: { url: process.env.WEBAPP_URL || 'http://localhost:5173' } }];
+
+  // Panta introduces itself; asks for a nickname when none is set, else shows the quickstart.
+  const sendIntro = async (chatId, userId, firstName) => {
+    const intro = startOnboarding(userId, firstName);
+    const text = intro.reply_markup ? intro.text : `${intro.text}\n\n${QUICKSTART}`;
+    const rows = [...(intro.reply_markup?.inline_keyboard || []), miniAppRow()];
+    await safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
+  };
+
   // Every command, message and button press is checked against the user's subscription first.
   const denied = async (from, chatId) => {
     if (!from) return true;
@@ -389,24 +403,14 @@ export function registerHandlers(bot) {
 
   // ── /start ─────────────────────────────────────────────────────────────
   onText(/^\/start(?:@\w+)?(?:\s+(.*))?$/, async (msg) => {
-    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    await sendIntro(msg.chat.id, userId, msg.from.first_name);
+  });
+
+  // ── /tips: the tutorial ────────────────────────────────────────────────
+  onText(/^\/tips(?:@\w+)?$/, async (msg) => {
     ensureUser(msg);
-
-    const webAppUrl = process.env.WEBAPP_URL || 'http://localhost:5173';
-    const text = '👋 Halo! Saya Finance Bot untuk catat keuangan kamu.\n\nKlik tombol di bawah untuk buka mini app, atau ketik /catat langsung di sini.\n\nBisa juga tulis biasa, misalnya `makan siang 25rb` atau `gaji 5jt`.';
-
-    const replyMarkup = {
-      inline_keyboard: [
-        [
-          {
-            text: '📱 Buka Mini App',
-            web_app: { url: webAppUrl }
-          }
-        ]
-      ]
-    };
-
-    await safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown', reply_markup: replyMarkup });
+    await safeSendMessage(bot, msg.chat.id, tipsText(), { parse_mode: 'Markdown' });
   });
 
   // ── /help ─────────────────────────────────────────────────────────────
@@ -439,6 +443,7 @@ _Contoh: /budget makan 1000000_
 /memori - Lihat atau hapus hal yang aku ingat tentang kamu
 /langganan - Status paket, kuota, dan cara berlangganan
 /aktivasi KODE - Aktifkan paket dengan kode
+/tips - Tutorial singkat & tips memakai Panta
 /help - Tampilkan bantuan ini
 
 💬 *Tanpa perintah juga bisa, ngobrol biasa saja:*
@@ -748,6 +753,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   const handleRuleBased = async (chatId, userId, parsed, { upsell = false, text = '' } = {}) => {
     if (parsed.intent === 'nickname') {
       const nickname = setNickname(userId, parsed.nickname);
+      nicknameSet(userId);
       return safeSendMessage(bot, chatId, `Siap! Mulai sekarang aku panggil kamu ${nickname} 😊`);
     }
 
@@ -835,6 +841,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     for (const action of turn.actions) {
       if (action.type === 'set_nickname') {
         setNickname(userId, action.nickname);
+        nicknameSet(userId);
       } else if (action.type === 'remember') {
         const saved = addFact(userId, action.fact);
         if (saved) memoryNotes.push(`🧠 Aku ingat: ${saved.fact}`);
@@ -907,6 +914,28 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const userId = ensureUser(msg);
     const parsed = parseFreeText(msg.text, parseOptionsFor(userId));
 
+    // Onboarding: a reply to "mau kupanggil apa?", or the first contact (introduce Panta before or after handling it).
+    const step = getOnboarding(userId).step;
+    if (step === 'ask_name' && parsed.intent === 'unknown') {
+      const reply = handleNameReply(userId, msg.text);
+      if (reply) return safeSendMessage(bot, chatId, reply, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [miniAppRow()] } });
+    }
+    if (step === null) {
+      if (getMemory(userId).nickname) {
+        setOnboarding(userId, 'done');
+      } else if (parsed.intent === 'unknown' && GREETING_RE.test(msg.text.trim())) {
+        return sendIntro(chatId, userId, msg.from.first_name);
+      } else {
+        setOnboarding(userId, 'ask_name'); // the assistant sees the introduction below as already made
+        await answerFreeText(msg, userId, parsed);
+        return sendIntro(chatId, userId, msg.from.first_name);
+      }
+    }
+    return answerFreeText(msg, userId, parsed);
+  };
+
+  const answerFreeText = async (msg, userId, parsed) => {
+    const chatId = msg.chat.id;
     const ai = getAiConfig();
     const entitlement = getEntitlement(getUser(userId));
     if (ai && entitlement.ai && countAiCallsToday(userId) < entitlement.ai_daily_limit) {
@@ -1174,6 +1203,12 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       const changed = setStyle(userId, data.startsWith('gl:') ? { language: value } : { persona: value });
       await safeAnswerCallback(bot, query.id, changed ? 'Disimpan' : 'Pilihan tidak valid');
       if (changed) await editMessage(chatId, messageId, styleText(userId), { reply_markup: styleKeyboard(userId) });
+    } else if (data === 'nm:tg' || data === 'nm:skip') {
+      const name = data === 'nm:tg' ? String(query.from.first_name || '').trim() : '';
+      setOnboarding(userId, 'done');
+      await safeAnswerCallback(bot, query.id, name ? 'Disimpan' : 'Oke');
+      const text = name ? greetName(setNickname(userId, name)) : SKIPPED_NAME;
+      await editMessage(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [miniAppRow()] } });
     } else if (data === 'mem_clear') {
       clearMemory(userId);
       forgetConversation(userId);

@@ -52,7 +52,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  db.exec('DELETE FROM ai_usage; DELETE FROM user_activity_daily; DELETE FROM admin_audit; DELETE FROM transactions; DELETE FROM budgets; DELETE FROM users;');
+  db.exec('DELETE FROM ai_usage; DELETE FROM user_activity_daily; DELETE FROM admin_audit; DELETE FROM transactions; DELETE FROM budgets; DELETE FROM user_profile; DELETE FROM users;');
   resetActivityThrottle();
   delete process.env.TRIAL_DAYS;
 });
