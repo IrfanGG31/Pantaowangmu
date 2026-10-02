@@ -617,7 +617,7 @@ function renderAiHealth(h) {
 }
 
 async function loadAiHealth() {
-  renderAiHealth(await api('/ai-health?days=14'));
+  renderAiHealth(await api('/ai-health?days=7'));
 }
 
 // ── Broadcasts ──────────────────────────────────────────────────────────

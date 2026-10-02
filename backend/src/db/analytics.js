@@ -145,7 +145,7 @@ const p95 = (values) => {
  * AI health per model and kind (chat / receipt / voice): success rate, latency, last error, cost estimate,
  * daily calls/failures, and alerts when a model is failing now.
  */
-export function getAiHealth({ days = 14, now = new Date() } = {}) {
+export function getAiHealth({ days = 7, now = new Date() } = {}) {
   const since = new Date(now.getTime() - days * DAY_MS).toISOString().slice(0, 19).replace('T', ' ');
   const rows = db.prepare(`
     SELECT model, COALESCE(kind, 'chat') AS kind, ok, http_status, latency_ms, error, prompt_tokens, completion_tokens, created_at

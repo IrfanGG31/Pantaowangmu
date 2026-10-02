@@ -221,7 +221,7 @@ router.get('/analytics', (req, res, next) => {
 
 router.get('/ai-health', (req, res, next) => {
   try {
-    const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 14));
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 7));
     res.json(getAiHealth({ days }));
   } catch (err) {
     next(err);
