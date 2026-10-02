@@ -535,3 +535,39 @@ function parseDebt(original, found, options) {
   }
   return null;
 }
+
+const ITEM_JOINERS_RE = /^(?:[,;+&/\-–]+\s*|(?:dan|sama|terus|lalu|plus|trus)\s+)+|(?:\s*[,;+&/\-–]+|\s+(?:dan|sama|terus|lalu|plus|trus))+$/giu;
+
+/**
+ * Splits a message with several amounts into one transaction per item: "cat 95rb timah 30rb",
+ * "makan 200 ribu, parkir 5rb", "95rb cat 30rb timah". Text after the last amount (e.g. "pakai gopay #rumah")
+ * applies to every item. Returns null unless every part reads as a transaction.
+ * @returns {Array<{ intent: 'transaction', type: string, amount: number, category: string|null, note: string }> | null}
+ */
+export function splitItems(input, options = {}) {
+  const text = String(input || '').replace(/\s+/g, ' ').trim();
+  const amounts = [];
+  for (const m of text.matchAll(AMOUNT_RE)) {
+    const suffix = m[2] ? m[2].toLowerCase() : '';
+    const amount = parseRupiah(m[1] + (SUFFIX_ALIASES[suffix] || suffix));
+    const strong = Boolean(suffix) || /^rp/i.test(m[0]) || /[.,]/.test(m[1]);
+    if (amount && (strong || amount >= 1000)) amounts.push({ raw: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  if (amounts.length < 2) return null;
+
+  const clean = (s) => s.trim().replace(ITEM_JOINERS_RE, '').trim();
+  const amountFirst = !clean(text.slice(0, amounts[0].start));
+  const shared = amountFirst ? '' : clean(text.slice(amounts.at(-1).end));
+  const items = [];
+  for (let i = 0; i < amounts.length; i++) {
+    const a = amounts[i];
+    const desc = amountFirst
+      ? clean(text.slice(a.end, i + 1 < amounts.length ? amounts[i + 1].start : text.length))
+      : clean(text.slice(i ? amounts[i - 1].end : 0, a.start));
+    if (!/\p{L}/u.test(desc)) return null;
+    const parsed = parseFreeText(`${desc} ${a.raw}${shared ? ` ${shared}` : ''}`, options);
+    if (parsed.intent !== 'transaction') return null;
+    items.push(parsed);
+  }
+  return items;
+}

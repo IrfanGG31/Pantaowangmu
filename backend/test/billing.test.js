@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi, onTestFinished } from 'vitest';
 import request from 'supertest';
 import app from '../src/api/server.js';
 import { initDatabase, db } from '../src/db/connection.js';
@@ -165,7 +165,8 @@ describe('Bot: /langganan, /aktivasi and the free tier', () => {
   });
 
   it('free users keep manual recording but get no AI call and no receipt reading', async () => {
-    Object.assign(process.env, { AI_BASE_URL: 'https://ai.example.com/v1', AI_API_KEY: 'k', AI_MODEL: 'm' });
+    Object.assign(process.env, { AI_BASE_URL: 'https://ai.example.com/v1', AI_API_KEY: 'k', AI_MODEL: 'm', RECEIPTS_ENABLED: 'true' });
+    onTestFinished(() => { delete process.env.RECEIPTS_ENABLED; });
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     setExpiry('42', new Date(Date.now() - 1000));

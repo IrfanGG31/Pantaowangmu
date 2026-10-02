@@ -33,8 +33,10 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_BASE_URL` | tidak | API kompatibel OpenAI, mis. `https://ai.sumopod.com/v1`. Tanpa tanda kutip atau `< >`. |
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
-| `AI_TIMEOUT_MS` | tidak | Default `15000`. |
-| `AI_PRIMARY_BASE_URL`, `AI_PRIMARY_API_KEY` (rahasia), `AI_PRIMARY_MODEL` | tidak | Model chat utama yang dicoba **sebelum** `AI_*`, mis. Groq (`https://api.groq.com/openai/v1`, `llama-3.1-8b-instant`) atau OpenAI (`https://api.openai.com/v1`, `gpt-4o-mini`). `AI_*` jadi cadangan dan tetap dipakai untuk foto nota & laporan. `AI_PRIMARY_TIMEOUT_MS` default `15000`. |
+| `AI_TIMEOUT_MS` | tidak | Default dan maksimum `15000` (15 detik per panggilan AI). |
+| `AI_FALLBACK_BASE_URL`, `AI_FALLBACK_API_KEY` (rahasia), `AI_FALLBACK_MODEL` | tidak | Model chat cadangan (mis. MiniMax) bila `AI_*` (mis. Groq `llama-3.1-8b-instant`) gagal/timeout. Bila keduanya gagal, bot memakai parser regex lokal. |
+| `GROQ_WHISPER_MODEL` | tidak | Mis. `whisper-large-v3-turbo`. Mengaktifkan voice note: transkripsi lewat `AI_BASE_URL`/`AI_API_KEY` (Groq), bahasa Indonesia. Kosong = voice dibalas "belum aktif". |
+| `RECEIPTS_ENABLED` | tidak | `true` untuk mengaktifkan baca foto struk (butuh model vision di `AI_VISION_MODEL`/`AI_MODEL`). Default mati: foto dibalas "fitur menyusul". |
 | `AI_COOLDOWN_MS` | tidak | Default `300000` (5 menit): model yang timeout/error 5xx/429 dilewati selama ini, sehingga bot langsung memakai model berikutnya atau parser biasa. |
 | `AI_VISION_MODEL` | tidak | Model untuk membaca foto nota. Kosong = pakai `AI_MODEL` (harus bisa menerima gambar). |
 | `AI_MAX_TOKENS` | tidak | Default `4000`. Naikkan bila model "thinking" sering membalas kosong. |

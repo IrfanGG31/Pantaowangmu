@@ -138,12 +138,12 @@ describe('Bot free-text flow', () => {
     expect(getAllTransactions('42')).toHaveLength(0);
   });
 
-  it('explains that voice is not supported yet and that receipts need AI', async () => {
+  it('says when voice notes are not set up, and that receipt photos are coming soon', async () => {
     await bot.media('voice');
-    expect(bot.lastSent().text).toContain('belum bisa dibaca');
+    expect(bot.lastSent().text).toContain('Voice note belum aktif');
     await bot.media('photo');
     expect(bot.sent).toHaveLength(2);
-    expect(bot.lastSent().text).toContain('butuh fitur AI');
+    expect(bot.lastSent().text).toContain('foto struk sedang kami siapkan');
   });
 
   it('escapes Markdown in notes so Telegram can parse the reply', async () => {

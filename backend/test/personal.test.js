@@ -76,6 +76,9 @@ afterEach(() => {
 });
 
 describe('Receipt photos', () => {
+  beforeEach(() => { process.env.RECEIPTS_ENABLED = 'true'; });
+  afterEach(() => { delete process.env.RECEIPTS_ENABLED; });
+
   const RECEIPT = JSON.stringify({
     is_receipt: true, merchant: 'Indomaret Pasar_Baru', date: '2026-09-28', total: 87500, category: 'belanja',
     items: [{ name: 'Indomie', amount: 7000 }, { name: 'Susu', amount: 18500 }]

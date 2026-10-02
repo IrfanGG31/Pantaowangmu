@@ -29,34 +29,36 @@ export function getAiConfig() {
     baseUrl,
     apiKey,
     model,
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
     maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
 
-const DEFAULT_TIMEOUT_MS = 15000;
+// Every AI call gives up after at most 15 s (AI_TIMEOUT_MS can only lower it), so the user is never kept waiting long.
+const MAX_TIMEOUT_MS = 15000;
+const timeoutFromEnv = (value) => Math.min(Number(value) || MAX_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
 /**
- * Optional primary chat model tried before AI_* (e.g. Groq or OpenAI): AI_PRIMARY_BASE_URL, AI_PRIMARY_API_KEY,
- * AI_PRIMARY_MODEL. AI_* stays the secondary fallback and is still the only model for receipts and reports.
+ * Fallback chat model tried when AI_* fails or times out (e.g. MiniMax): AI_FALLBACK_BASE_URL, AI_FALLBACK_API_KEY,
+ * AI_FALLBACK_MODEL. Used for chat only; receipts and reports use AI_*.
  */
-export function getPrimaryAiConfig() {
-  const baseUrl = cleanEnv(process.env.AI_PRIMARY_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_PRIMARY_API_KEY);
-  const model = cleanEnv(process.env.AI_PRIMARY_MODEL);
+export function getFallbackAiConfig() {
+  const baseUrl = cleanEnv(process.env.AI_FALLBACK_BASE_URL).replace(/\/+$/, '');
+  const apiKey = cleanEnv(process.env.AI_FALLBACK_API_KEY);
+  const model = cleanEnv(process.env.AI_FALLBACK_MODEL);
   if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
   return {
     baseUrl,
     apiKey,
     model,
-    timeoutMs: Number(process.env.AI_PRIMARY_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
     maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
 
-/** Chat models in the order they are tried: AI_PRIMARY_* (if set), then AI_*. */
+/** Chat models in the order they are tried: AI_* (e.g. Groq), then AI_FALLBACK_* (e.g. MiniMax). */
 export function getAiChain() {
-  return [getPrimaryAiConfig(), getAiConfig()].filter(Boolean);
+  return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
 }
 
 export const aiAvailable = () => getAiChain().length > 0;
@@ -556,7 +558,10 @@ export async function runAssistant({ userId, text, context, hint = null, categor
       logger?.warn({ err: err.message }, '[AI] Failed to record usage');
     }
 
-    if (output) break;
+    if (output) {
+      logger?.info?.({ model: config.model, fallback: config !== chain[0], latency_ms: result.latencyMs }, '[AI] Reply');
+      break;
+    }
     if (!result.ok) {
       if (isOutage(result)) cooldowns.set(modelKey(config), Date.now() + cooldownMs());
       logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Request failed');

@@ -43,8 +43,9 @@ import {
 } from '../utils/validator.js';
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
-import { parseFreeText } from './textParser.js';
+import { parseFreeText, splitItems } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
+import { transcribeAudio, getSttConfig } from '../ai/transcribe.js';
 import { getAiConfig, aiAvailable, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
 import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL, getOnboarding, setOnboarding } from '../db/memory.js';
 import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
@@ -242,7 +243,14 @@ Coba tulis seperti ini:
 
 Atau ketik /help untuk daftar perintah.`;
 
-const UNSUPPORTED_MEDIA = 'ℹ️ Voice dan file ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`.\n\n🧾 Foto nota/struk bisa langsung dikirim.';
+const UNSUPPORTED_MEDIA = 'ℹ️ File ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`, atau kirim voice note.';
+
+// Receipt photos are off until a vision model is set up again (RECEIPTS_ENABLED=true turns them back on).
+const RECEIPTS_SOON = '🧾 Terima kasih! Fitur baca foto struk sedang kami siapkan dan akan segera hadir.\n\nSementara ini ketik saja, misalnya `belanja 87rb indomaret`, atau kirim voice note.';
+const receiptsEnabled = () => process.env.RECEIPTS_ENABLED === 'true';
+
+const MAX_VOICE_BYTES = 10 * 1024 * 1024;
+const MAX_VOICE_SECONDS = 300;
 
 // A bare hello on first contact gets the introduction instead of a generic answer.
 const GREETING_RE = /^(?:halo+|hai+|hi+|hello|hey|helo|hallo|p|ping|test|tes|mulai|start|assalamu'?alaikum|selamat\s+(?:pagi|siang|sore|malam)|pagi|siang|sore|malam)(?:\s+\S+){0,2}[\s!.?]*$/i;
@@ -827,6 +835,22 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       return safeSendMessage(bot, chatId, `🧠 Profil diperbarui: ${describeProfileChange(changes)}. Jatah aman harian sekarang dihitung dari sini (lihat Beranda Mini App).`);
     }
 
+    // Several amounts in one message ("cat 95rb timah 30rb"): one transaction per item.
+    const items = parsed.intent === 'transaction' ? splitItems(text, parseOptionsFor(userId)) : null;
+    if (items) {
+      for (const item of items) {
+        if (!item.category) {
+          const entry = { userId, type: item.type, amount: item.amount, note: item.note, wallet_id: item.wallet_id, learnFrom: item.note };
+          const key = putPending(entry);
+          await safeSendMessage(bot, chatId, pendingPrompt(entry), { parse_mode: 'Markdown', reply_markup: pendingKeyboard(key, entry) });
+          continue;
+        }
+        const saved = saveTransaction(userId, item);
+        await safeSendMessage(bot, chatId, saved.error ? `❌ ${saved.error}` : saved.text, saved.error ? {} : { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
+      }
+      return;
+    }
+
     if (parsed.intent === 'transaction') {
       if (!parsed.category) {
         const entry = { userId, type: parsed.type, amount: parsed.amount, note: parsed.note, wallet_id: parsed.wallet_id, learnFrom: parsed.note };
@@ -973,14 +997,67 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   };
 
   // ── Receipt photos ────────────────────────────────────────────────────
-  const downloadTelegramFile = async (fileId) => {
-    const link = await bot.getFileLink(fileId);
-    const res = await fetch(link, { signal: AbortSignal.timeout(20000) });
-    // Never include the link in errors: it contains the bot token.
+  const downloadTelegramFile = async (fileId, maxBytes = MAX_IMAGE_BYTES) => {
+    // Never log or include the link in errors: it contains the bot token.
+    let res;
+    try {
+      const link = await bot.getFileLink(fileId);
+      res = await fetch(link, { signal: AbortSignal.timeout(20000) });
+    } catch (err) {
+      throw new Error(`Telegram file download failed (${err.name === 'TimeoutError' ? 'timeout' : 'network'})`);
+    }
     if (!res.ok) throw new Error(`Telegram file download failed (HTTP ${res.status})`);
     const buffer = Buffer.from(await res.arrayBuffer());
-    if (buffer.length > MAX_IMAGE_BYTES) throw new Error('Image too large');
+    if (buffer.length > maxBytes) throw new Error('File too large');
     return buffer;
+  };
+
+  // ── Voice notes: Groq Whisper → the same flow as typed text ─────────────
+  const handleVoice = async (msg, media) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const typeIt = 'Ketik saja transaksinya, misalnya `beli cat 95rb`.';
+
+    if (!getSttConfig()) {
+      return safeSendMessage(bot, chatId, `🎙️ Voice note belum aktif. ${typeIt}`, { parse_mode: 'Markdown' });
+    }
+    const entitlement = getEntitlement(getUser(userId));
+    if (!entitlement.ai) {
+      return safeSendMessage(bot, chatId, `🎙️ Voice note tersedia selama trial dan di paket berbayar.\n\n${UPSELL}\n\n${typeIt}`, { parse_mode: 'Markdown' });
+    }
+    if (countAiCallsToday(userId) >= entitlement.ai_daily_limit) {
+      return safeSendMessage(bot, chatId, `🎙️ Kuota AI hari ini sudah habis. ${typeIt}`, { parse_mode: 'Markdown' });
+    }
+    if ((media.duration || 0) > MAX_VOICE_SECONDS || (media.file_size || 0) > MAX_VOICE_BYTES) {
+      return safeSendMessage(bot, chatId, `🎙️ Voice note terlalu panjang (maks. 5 menit). Kirim yang lebih singkat, atau ${typeIt.charAt(0).toLowerCase()}${typeIt.slice(1)}`, { parse_mode: 'Markdown' });
+    }
+
+    Promise.resolve().then(() => bot.sendChatAction?.(chatId, 'typing')).catch(() => {});
+    let result = null;
+    try {
+      const audio = await downloadTelegramFile(media.file_id, MAX_VOICE_BYTES);
+      const mimeType = media.mime_type || 'audio/ogg';
+      const ext = (mimeType.split('/')[1] || 'ogg').replace('mpeg', 'mp3').replace(/[^a-z0-9]/g, '') || 'ogg';
+      result = await transcribeAudio({ audio, mimeType, filename: `voice.${ext}` });
+    } catch (err) {
+      logger.warn({ err: err.message }, '[Voice] Download failed');
+    }
+    if (result) {
+      try {
+        recordAiUsage({ user_id: userId, kind: 'voice', model: result.model, ok: result.ok && Boolean(result.text), http_status: result.status || null, latency_ms: result.latencyMs, error: result.ok ? null : result.error });
+      } catch {}
+      if (result.ok) logger.info({ model: result.model, latency_ms: result.latencyMs }, '[Voice] Transcribed');
+      else logger.warn({ model: result.model, status: result.status, error: result.error }, '[Voice] Transcription failed');
+    }
+    if (!result?.ok) {
+      return safeSendMessage(bot, chatId, `🎙️ Maaf, voice note belum bisa diproses sekarang. ${typeIt}`, { parse_mode: 'Markdown' });
+    }
+    if (!result.text) {
+      return safeSendMessage(bot, chatId, `🎙️ Suaranya tidak terdengar jelas. Coba ulangi, atau ${typeIt.charAt(0).toLowerCase()}${typeIt.slice(1)}`, { parse_mode: 'Markdown' });
+    }
+
+    await safeSendMessage(bot, chatId, `🎙️ "${result.text}"`);
+    return handleFreeText({ ...msg, text: result.text.slice(0, 1000) });
   };
 
   const handleReceipt = async (msg, fileId, mimeType) => {
@@ -1041,13 +1118,19 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
         if (msg.text.startsWith('/')) return;
         if (await denied(msg.from, msg.chat.id)) return;
         await handleFreeText(msg);
-      } else if (msg.photo?.length) {
+      } else if (msg.voice || msg.audio) {
         if (await denied(msg.from, msg.chat.id)) return;
-        await handleReceipt(msg, msg.photo[msg.photo.length - 1].file_id, 'image/jpeg');
-      } else if (msg.document && IMAGE_TYPES.includes(msg.document.mime_type)) {
+        await handleVoice(msg, msg.voice || msg.audio);
+      } else if (msg.photo?.length || (msg.document && IMAGE_TYPES.includes(msg.document.mime_type))) {
         if (await denied(msg.from, msg.chat.id)) return;
-        await handleReceipt(msg, msg.document.file_id, msg.document.mime_type);
-      } else if (msg.voice || msg.audio || msg.document || msg.video_note || msg.video) {
+        if (!receiptsEnabled()) {
+          await safeSendMessage(bot, msg.chat.id, RECEIPTS_SOON, { parse_mode: 'Markdown' });
+        } else if (msg.photo?.length) {
+          await handleReceipt(msg, msg.photo[msg.photo.length - 1].file_id, 'image/jpeg');
+        } else {
+          await handleReceipt(msg, msg.document.file_id, msg.document.mime_type);
+        }
+      } else if (msg.document || msg.video_note || msg.video) {
         if (await denied(msg.from, msg.chat.id)) return;
         await safeSendMessage(bot, msg.chat.id, UNSUPPORTED_MEDIA, { parse_mode: 'Markdown' });
       }
