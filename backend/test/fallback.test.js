@@ -38,7 +38,7 @@ class FakeBot {
 const GROQ = { AI_BASE_URL: 'https://api.groq.example/openai/v1', AI_API_KEY: 'groq-key', AI_MODEL: 'llama-3.1-8b-instant' };
 const MINIMAX = { AI_FALLBACK_BASE_URL: 'https://minimax.example/v1', AI_FALLBACK_API_KEY: 'mm-key', AI_FALLBACK_MODEL: 'MiniMax-M3.1-Flash-Preview' };
 const WHISPER = { GROQ_WHISPER_MODEL: 'whisper-large-v3-turbo' };
-const ENV_KEYS = [...Object.keys(GROQ), ...Object.keys(MINIMAX), ...Object.keys(WHISPER), 'AI_TIMEOUT_MS'];
+const ENV_KEYS = [...Object.keys(GROQ), ...Object.keys(MINIMAX), ...Object.keys(WHISPER), 'AI_TIMEOUT_MS', 'GROQ_API_KEY', 'GROQ_BASE_URL'];
 
 const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
 const chat = (content) => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content } }] }) });
@@ -206,6 +206,15 @@ describe('Voice notes (Groq Whisper)', () => {
 
     await bot.media({ voice: { file_id: 'v2', duration: 600 } });
     expect(bot.last().text).toContain('terlalu panjang');
+  });
+
+  it('uses GROQ_API_KEY on Groq for voice when chat runs on another provider', async () => {
+    Object.assign(process.env, { AI_BASE_URL: 'https://ai.sumopod.example/v1', AI_API_KEY: 'sumopod-key', AI_MODEL: 'MiniMax-M3.1-Flash-Preview' }, WHISPER, { GROQ_API_KEY: 'groq-only' });
+    const fetchImpl = vi.fn(async () => transcript('kopi 20rb'));
+    await transcribeAudio({ audio: Buffer.from([1]) }, { fetchImpl });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
+    expect(init.headers.Authorization).toBe('Bearer groq-only');
   });
 
   it('says voice is not set up when GROQ_WHISPER_MODEL is missing', async () => {

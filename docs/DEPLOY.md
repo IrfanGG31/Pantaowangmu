@@ -34,8 +34,8 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
 | `AI_TIMEOUT_MS` | tidak | Default dan maksimum `15000` (15 detik per panggilan AI). |
-| `AI_FALLBACK_BASE_URL`, `AI_FALLBACK_API_KEY` (rahasia), `AI_FALLBACK_MODEL` | tidak | Model chat cadangan (mis. MiniMax) bila `AI_*` (mis. Groq `llama-3.1-8b-instant`) gagal/timeout. Bila keduanya gagal, bot memakai parser regex lokal. |
-| `GROQ_WHISPER_MODEL` | tidak | Mis. `whisper-large-v3-turbo`. Mengaktifkan voice note: transkripsi lewat `AI_BASE_URL`/`AI_API_KEY` (Groq), bahasa Indonesia. Kosong = voice dibalas "belum aktif". |
+| `AI_FALLBACK_BASE_URL`, `AI_FALLBACK_API_KEY` (rahasia), `AI_FALLBACK_MODEL` | tidak | Model chat cadangan bila `AI_*` gagal/timeout. Contoh: `AI_*` = MiniMax di Sumopod, cadangan = OpenRouter (`https://openrouter.ai/api/v1`, `thinkingmachines/inkling-small:free`) atau Groq. Bila keduanya gagal, bot memakai parser regex lokal. |
+| `GROQ_WHISPER_MODEL` | tidak | Mis. `whisper-large-v3-turbo`. Mengaktifkan voice note (bahasa Indonesia) lewat Groq: pakai `GROQ_API_KEY` (rahasia; `GROQ_BASE_URL` default `https://api.groq.com/openai/v1`), atau `AI_API_KEY`/`AI_BASE_URL` bila `GROQ_API_KEY` kosong. Kosong = voice dibalas "belum aktif". |
 | `RECEIPTS_ENABLED` | tidak | `true` untuk mengaktifkan baca foto struk (butuh model vision di `AI_VISION_MODEL`/`AI_MODEL`). Default mati: foto dibalas "fitur menyusul". |
 | `AI_COOLDOWN_MS` | tidak | Default `300000` (5 menit): model yang timeout/error 5xx/429 dilewati selama ini, sehingga bot langsung memakai model berikutnya atau parser biasa. |
 | `AI_VISION_MODEL` | tidak | Model untuk membaca foto nota. Kosong = pakai `AI_MODEL` (harus bisa menerima gambar). |

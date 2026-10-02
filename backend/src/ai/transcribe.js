@@ -1,5 +1,8 @@
-// Voice notes → text with Groq Whisper (OpenAI-compatible /audio/transcriptions), using the AI_* key and base URL.
-// Built-in FormData/Blob (Node 18+), so no extra dependency.
+// Voice notes → text with Groq Whisper (OpenAI-compatible /audio/transcriptions).
+// Uses GROQ_API_KEY (+ GROQ_BASE_URL, default Groq) so chat can run on another provider; without GROQ_API_KEY it
+// falls back to AI_API_KEY / AI_BASE_URL. Built-in FormData/Blob (Node 18+), so no extra dependency.
+
+const GROQ_DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
 
 const TIMEOUT_MS = 15000;
 
@@ -7,8 +10,9 @@ const cleanEnv = (value) => String(value || '').trim().replace(/^["'<\s]+|["'>\s
 
 /** @returns {{ baseUrl: string, apiKey: string, model: string } | null} null when voice notes are not configured */
 export function getSttConfig() {
-  const baseUrl = cleanEnv(process.env.AI_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_API_KEY);
+  const groqKey = cleanEnv(process.env.GROQ_API_KEY);
+  const apiKey = groqKey || cleanEnv(process.env.AI_API_KEY);
+  const baseUrl = (cleanEnv(process.env.GROQ_BASE_URL) || (groqKey ? GROQ_DEFAULT_BASE_URL : cleanEnv(process.env.AI_BASE_URL))).replace(/\/+$/, '');
   const model = cleanEnv(process.env.GROQ_WHISPER_MODEL);
   if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
   return { baseUrl, apiKey, model };
