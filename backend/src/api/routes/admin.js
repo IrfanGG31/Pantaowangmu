@@ -27,6 +27,7 @@ import { listIdeas, listUnparsed, setIdeaStatus, applyClusters, IDEA_STATUSES } 
 import { clusterIdeas, getAiConfig } from '../../ai/interpreter.js';
 import { segmentCounts, listBroadcasts, startBroadcast, sendTestBroadcast, runningBroadcastId, MAX_BROADCAST_LENGTH } from '../../bot/broadcast.js';
 import { getActiveBot } from '../../bot/identity.js';
+import { getFunnel, getRetention, getAtRiskUsers, getAiHealth } from '../../db/analytics.js';
 import { getReminderDefaults, setReminderDefaults, reminderStats, resetReminderOverrides, BUILTIN_REMINDER_TIME } from '../../db/reminders.js';
 
 const router = Router();
@@ -206,6 +207,25 @@ router.put('/settings', (req, res) => {
   setSetting('payment_instructions', text.trim());
   logAdminAction(req.admin.email, 'update_settings', null, { payment_instructions: 'updated' });
   res.json({ payment_instructions: text.trim() });
+});
+
+// ── Product analytics & AI health ────────────────────────────────────────
+
+router.get('/analytics', (req, res, next) => {
+  try {
+    res.json({ funnel: getFunnel(), retention: getRetention({ weeks: 8 }), at_risk: getAtRiskUsers({ limit: 50 }) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/ai-health', (req, res, next) => {
+  try {
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 14));
+    res.json(getAiHealth({ days }));
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── Broadcasts ───────────────────────────────────────────────────────────

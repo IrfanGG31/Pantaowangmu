@@ -4,6 +4,8 @@ import db from '../db/connection.js';
 import { getAllUsers } from '../db/users.js';
 import { getAccess, TRIAL_PLAN } from '../db/subscriptions.js';
 import { getActiveBot } from './identity.js';
+import { getMemory } from '../db/memory.js';
+import { atRiskUserIds } from '../db/analytics.js';
 
 export const MAX_BROADCAST_LENGTH = 3500;
 
@@ -12,7 +14,8 @@ export const SEGMENTS = {
   active: 'Trial & berbayar yang aktif',
   trial: 'Trial aktif',
   paid: 'Berbayar aktif',
-  free: 'Gratis (masa aktif habis)'
+  free: 'Gratis (masa aktif habis)',
+  at_risk: 'Berisiko berhenti (dulu rajin, 3–14 hari tidak mencatat)'
 };
 
 function inSegment(user, segment, now) {
@@ -28,13 +31,27 @@ function inSegment(user, segment, now) {
   }
 }
 
+/** @returns {Array<{ user_id: string, first_name: string }>} */
 export function segmentRecipients(segment, now = new Date()) {
-  return getAllUsers().filter((u) => inSegment(u, segment, now)).map((u) => u.user_id);
+  const users = getAllUsers();
+  if (segment === 'at_risk') {
+    const ids = new Set(atRiskUserIds(now));
+    return users.filter((u) => ids.has(u.user_id));
+  }
+  return users.filter((u) => inSegment(u, segment, now));
 }
 
 export function segmentCounts(now = new Date()) {
   const users = getAllUsers();
-  return Object.entries(SEGMENTS).map(([id, label]) => ({ id, label, count: users.filter((u) => inSegment(u, id, now)).length }));
+  const atRisk = atRiskUserIds(now).length;
+  return Object.entries(SEGMENTS).map(([id, label]) => ({ id, label, count: id === 'at_risk' ? atRisk : users.filter((u) => inSegment(u, id, now)).length }));
+}
+
+/** "{nama}" in a broadcast becomes the user's nickname, else their Telegram first name. */
+function personalize(text, user) {
+  if (!text.includes('{nama}')) return text;
+  const name = (user && (getMemory(user.user_id).nickname || user.first_name)) || 'Kak';
+  return text.replaceAll('{nama}', name);
 }
 
 const select = 'SELECT id, admin_email, segment, text, with_button, total, sent, failed, blocked, status, created_at, finished_at FROM broadcasts';
@@ -113,8 +130,8 @@ export function startBroadcast({ adminEmail, text, segment = 'all', withButton =
   const promise = (async () => {
     const counts = { sent: 0, failed: 0, blocked: 0 };
     try {
-      for (const [i, chatId] of recipients.entries()) {
-        counts[await deliver(bot, chatId, checked.text, options)] += 1;
+      for (const [i, user] of recipients.entries()) {
+        counts[await deliver(bot, user.user_id, personalize(checked.text, user), options)] += 1;
         if (i % 20 === 19) save.run(counts.sent, counts.failed, counts.blocked, id);
         if (delayMs) await sleep(delayMs);
       }
@@ -138,7 +155,8 @@ export async function sendTestBroadcast({ adminEmail, text, withButton = false, 
   const checked = validate({ text });
   if (checked.error) return { error: checked.error, status: 400 };
   if (!/^\d{3,20}$/.test(String(userId || ''))) return { error: 'Isi Telegram user ID (angka) untuk tes', status: 400 };
-  const result = await deliver(bot, String(userId), checked.text, withButton ? miniAppButton() : {});
+  const user = getAllUsers().find((u) => u.user_id === String(userId));
+  const result = await deliver(bot, String(userId), personalize(checked.text, user), withButton ? miniAppButton() : {});
   db.prepare("INSERT INTO broadcasts (admin_email, segment, text, with_button, total, sent, failed, blocked, status, finished_at) VALUES (?, 'test', ?, ?, 1, ?, ?, ?, 'test', datetime('now'))")
     .run(String(adminEmail), checked.text, withButton ? 1 : 0, result === 'sent' ? 1 : 0, result === 'failed' ? 1 : 0, result === 'blocked' ? 1 : 0);
   if (result === 'sent') return { ok: true };

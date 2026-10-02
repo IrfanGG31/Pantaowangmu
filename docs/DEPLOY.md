@@ -260,6 +260,16 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
 - **Pengingat 2x sehari**: isi "Pengingat 2 (siang)" di admin. Tiap pesan pengingat punya tombol 🔕 untuk mematikannya; di bot
   juga bisa `/pengingat`, "pengingat siang jam 12", "matikan pengingat siang". Yang sudah mematikan pengingat 1 tidak dapat pengingat 2.
 
+## Analitik produk & kesehatan AI (web admin)
+
+- **🩺 Kesehatan AI**: per model dan jenis (chat/voice/foto) tingkat berhasil, waktu respons rata-rata dan P95, error terakhir,
+  dan biaya perkiraan. Peringatan merah bila ≥30% panggilan gagal dalam 1 jam (min. 5 panggilan), 3 panggilan terakhir gagal,
+  atau tidak ada AI yang berhasil dalam 24 jam; oranye bila P95 > 10 detik.
+- **📈 Funnel & retensi**: mulai bot → mencatat → mencatat di 3+ hari → masih mencatat 7 hari terakhir, plus berbayar.
+  Kohort per minggu daftar dengan D1/D7/D30.
+- **⚠️ Pengguna berisiko berhenti**: dulu rajin (3+ hari mencatat dalam sebulan) tapi diam 3–14 hari. Tombol "Kirim pesan
+  kangen" mengisi broadcast dengan segmen ini dan template `{nama}`.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

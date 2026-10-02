@@ -58,6 +58,38 @@
         <div class="table-wrap"><table id="daily-table"></table></div>
       </details>
 
+      <section class="card" id="ai-health">
+        <div class="section-head">
+          <h2>🩺 Kesehatan AI</h2>
+          <span id="ai-health-status" class="health-pill"></span>
+        </div>
+        <ul id="ai-health-alerts" class="health-alerts"></ul>
+        <p id="ai-health-summary" class="muted small"></p>
+        <div class="table-wrap"><table id="ai-health-table"></table></div>
+        <details class="add-plan">
+          <summary>Panggilan & kegagalan per hari (14 hari)</summary>
+          <div class="table-wrap"><table id="ai-health-daily"></table></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>📈 Funnel & retensi</h2>
+        <p class="muted small">Di tahap mana pengguna berhenti. "Mencatat" = ada transaksi; berdasarkan semua data, bukan hanya periode di atas.</p>
+        <div id="funnel" class="funnel"></div>
+        <h3 class="small muted">Retensi per minggu daftar</h3>
+        <p class="muted small">D1/D7/D30 = persen pengguna yang masih mencatat setelah hari ke-1/7/30 sejak daftar. Kosong bila belum ada pengguna seumur itu.</p>
+        <div class="table-wrap"><table id="retention-table"></table></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>⚠️ Pengguna berisiko berhenti</h2>
+          <button id="at-risk-message" class="btn primary" type="button">Kirim pesan "kangen"</button>
+        </div>
+        <p class="muted small">Dulu rajin (mencatat di 3+ hari dalam sebulan) tapi 3–14 hari terakhir tidak mencatat. Sapa sebelum mereka lupa.</p>
+        <div class="table-wrap"><table id="at-risk-table"></table></div>
+      </section>
+
       <section class="card">
         <div class="section-head">
           <h2>Pengguna</h2>
@@ -205,7 +237,7 @@
         <div class="table-wrap"><table id="ideas-table"></table></div>
         <details class="add-plan" id="unparsed-box">
           <summary id="unparsed-summary">Pesan yang belum dipahami bot</summary>
-          <div class="row" style="margin: 8px 0;">
+          <div class="row spaced">
             <button id="cluster-ideas" class="btn primary" type="button">Rangkum jadi ide dengan AI</button>
             <span id="cluster-status" class="muted small"></span>
           </div>

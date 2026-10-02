@@ -226,3 +226,29 @@ fieldset + fieldset { margin-top: 0; }
 .status-sending { color: var(--warning-text); font-weight: 600; }
 .status-done { color: var(--good-text); font-weight: 600; }
 .status-interrupted { color: var(--critical-text); font-weight: 600; }
+
+/* Funnel, retention, AI health */
+.funnel { display: grid; gap: 8px; margin-bottom: 16px; }
+.funnel-row { display: grid; grid-template-columns: minmax(140px, 220px) 1fr 220px; gap: 10px; align-items: center; font-size: 13px; }
+.funnel-bar { height: 22px; border-radius: 6px; background: var(--surface-2, rgba(127,127,127,0.15)); overflow: hidden; }
+.funnel-fill { height: 100%; background: var(--accent, #2a78d6); border-radius: 6px; min-width: 2px; }
+.funnel-num { font-variant-numeric: tabular-nums; text-align: right; }
+.funnel-prev { display: block; }
+.funnel-row.separate { border-top: 1px dashed var(--border, rgba(127,127,127,0.3)); padding-top: 8px; }
+.funnel-row.separate .funnel-fill { background: var(--good); }
+@media (max-width: 560px) {
+  .funnel-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+  .funnel-bar { grid-column: 1 / -1; grid-row: 2; }
+}
+.health-pill { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.health-pill.ok { color: var(--good-text); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.health-pill.warning { color: var(--warning-text); background: color-mix(in srgb, var(--warning) 20%, transparent); }
+.health-pill.critical { color: var(--critical-text); background: color-mix(in srgb, var(--critical) 15%, transparent); }
+.health-pill.idle { color: var(--text-secondary); background: rgba(127, 127, 127, 0.15); }
+.health-alerts { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+.health-alerts li { padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.health-alerts li.critical { background: color-mix(in srgb, var(--critical) 12%, transparent); color: var(--critical-text); }
+.health-alerts li.warning { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning-text); }
+.rate-bad { color: var(--critical-text); font-weight: 600; }
+.rate-ok { color: var(--good-text); font-weight: 600; }
+.row.spaced { margin: 8px 0; }

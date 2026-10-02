@@ -543,6 +543,83 @@ function setDays(days) {
 
 // ── Ideas from users ─────────────────────────────────────────────────────
 
+// ── Funnel, retention, users at risk ─────────────────────────────────────
+
+const pctText = (v) => (v === null || v === undefined ? '—' : `${String(v).replace('.', ',')}%`);
+const KANGEN_TEMPLATE = `Halo {nama}! 👋 Beberapa hari ini belum ada catatan nih.
+
+Nggak apa-apa, mulai lagi dari yang kecil: ketik saja pengeluaran hari ini, misalnya "makan siang 25rb".
+
+Panta siap bantu kapan pun 💙`;
+
+// The admin CSP blocks style="" attributes; setting the style through the DOM is allowed.
+function barFill(percent) {
+  const fill = el('div', { class: 'funnel-fill' });
+  fill.style.width = `${Math.max(0, Math.min(100, percent || 0))}%`;
+  return fill;
+}
+
+function renderAnalytics(a) {
+  $('funnel').replaceChildren(...a.funnel.map((step) => el('div', { class: step.separate ? 'funnel-row separate' : 'funnel-row' },
+    el('div', {}, step.label),
+    el('div', { class: 'funnel-bar', role: 'img', 'aria-label': `${step.label}: ${pctText(step.pct_of_start)}` },
+      barFill(step.pct_of_start)),
+    el('div', { class: 'funnel-num' }, `${fmt.format(step.count)} · ${pctText(step.pct_of_start)}`,
+      step.pct_of_previous !== null && step.step !== 'started' ? el('span', { class: 'muted small funnel-prev' }, `${pctText(step.pct_of_previous)} dari tahap sebelumnya`) : '',
+      step.separate ? el('span', { class: 'muted small funnel-prev' }, 'dari semua pengguna') : '')
+  )));
+
+  const rateCell = (v) => ({ text: pctText(v), class: v === null ? 'num muted' : v < 20 ? 'num rate-bad' : 'num' });
+  renderTable($('retention-table'), ['Minggu daftar', 'Pengguna', 'Pernah mencatat', 'D1', 'D7', 'D30'], a.retention.map((c) => [
+    `mulai ${fmtDate(c.week)}`, fmt.format(c.users), pctText(c.recorded_pct), rateCell(c.d1), rateCell(c.d7), rateCell(c.d30)
+  ]), 'Belum ada pengguna.', [1, 2, 3, 4, 5]);
+
+  renderTable($('at-risk-table'), ['Pengguna', 'Terakhir mencatat', 'Tidak mencatat', 'Hari aktif (30 hari sebelumnya)', 'Paket'], a.at_risk.map((u) => [
+    { text: `${u.name || '—'}${u.username ? ` (@${u.username})` : ''} · ${u.user_id}`, class: 'wrap' },
+    fmtDateTime(u.last_tx_at), `${fmt.format(u.days_quiet)} hari`, fmt.format(u.active_days_before),
+    u.state === 'free' ? 'Gratis' : u.tier === 'trial' ? 'Trial' : `Berbayar (${u.tier})`
+  ]), 'Tidak ada pengguna berisiko saat ini. 🎉', [2, 3]);
+  $('at-risk-message').disabled = a.at_risk.length === 0;
+}
+
+async function loadAnalytics() {
+  renderAnalytics(await api('/analytics'));
+}
+
+// ── AI health ────────────────────────────────────────────────────────────
+
+const HEALTH_LABEL = { ok: 'Sehat', warning: 'Perlu dicek', critical: 'Bermasalah', idle: 'Belum ada panggilan' };
+const KIND_LABEL = { chat: 'Chat', receipt: 'Foto struk', voice: 'Voice' };
+const ms = (v) => (v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1).replace('.', ',')} dtk` : `${v} ms`);
+
+function renderAiHealth(h) {
+  const pill = $('ai-health-status');
+  pill.className = `health-pill ${h.status}`;
+  pill.textContent = HEALTH_LABEL[h.status] || h.status;
+  $('ai-health-alerts').replaceChildren(...h.alerts.map((a) => el('li', { class: a.level }, `${a.level === 'critical' ? '🔴' : '🟠'} ${a.message}`)));
+  $('ai-health-summary').textContent = h.last_ok_at
+    ? `Panggilan AI terakhir yang berhasil: ${fmtRelative(h.last_ok_at)}. Data ${h.days} hari terakhir.`
+    : `Belum ada panggilan AI yang berhasil dalam ${h.days} hari terakhir.`;
+  renderTable($('ai-health-table'), ['Model', 'Untuk', 'Panggilan', 'Berhasil', 'Rata-rata', 'P95', '1 jam terakhir', 'Error terakhir', 'Biaya'], h.models.map((m) => [
+    { text: m.model, class: 'wrap' },
+    KIND_LABEL[m.kind] || m.kind,
+    fmt.format(m.calls),
+    { text: pctText(m.success_pct), class: m.success_pct !== null && m.success_pct < 90 ? 'num rate-bad' : 'num rate-ok' },
+    ms(m.avg_latency_ms), ms(m.p95_latency_ms),
+    m.calls_last_hour ? `${fmt.format(m.failed_last_hour)} gagal / ${fmt.format(m.calls_last_hour)}` : '—',
+    { text: m.last_error ? `${m.last_error} (${fmtRelative(m.last_error_at)})` : '—', class: 'wrap' },
+    fmtMoney(m.cost)
+  ]), 'Belum ada panggilan AI.', [2, 3]);
+  renderTable($('ai-health-daily'), ['Tanggal', 'Panggilan', 'Gagal', 'Tingkat gagal'], [...h.daily].reverse().map((d) => [
+    fmtDate(d.date), fmt.format(d.calls), fmt.format(d.failed),
+    { text: pctText(d.calls ? Math.round((d.failed / d.calls) * 1000) / 10 : null), class: d.calls && d.failed / d.calls >= 0.3 ? 'num rate-bad' : 'num' }
+  ]), 'Belum ada data.', [1, 2, 3]);
+}
+
+async function loadAiHealth() {
+  renderAiHealth(await api('/ai-health?days=14'));
+}
+
 // ── Broadcasts ──────────────────────────────────────────────────────────
 
 const BROADCAST_STATUS = { sending: 'Mengirim…', done: 'Selesai', interrupted: 'Terputus', test: 'Tes' };
@@ -680,7 +757,7 @@ async function loadBackups() {
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadReminders()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadReminders(), loadAnalytics(), loadAiHealth()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -846,6 +923,17 @@ $('backup-now').addEventListener('click', async (event) => {
 });
 
 $('idea-status').addEventListener('change', () => ideasState && renderIdeas(ideasState));
+
+$('at-risk-message').addEventListener('click', () => {
+  const f = $('broadcast-form');
+  f.segment.value = 'at_risk';
+  if (!f.text.value.trim() || confirm('Ganti pesan broadcast yang sudah ditulis dengan template "kangen"?')) {
+    f.text.value = KANGEN_TEMPLATE;
+    f.text.dispatchEvent(new Event('input'));
+  }
+  f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('broadcast-status').textContent = 'Penerima: pengguna berisiko berhenti. {nama} diganti nama tiap pengguna. Kirim tes dulu.';
+});
 
 $('broadcast-form').text.addEventListener('input', (event) => {
   $('broadcast-count').textContent = `${event.target.value.length}/3500 karakter`;
