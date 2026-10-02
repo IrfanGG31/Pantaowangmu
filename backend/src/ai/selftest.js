@@ -59,6 +59,16 @@ export async function runAiSelfTest({ logger, fetchImpl = fetch } = {}) {
     report({ check: 'audio (input_audio)', model: r.model, ok: r.ok, status: r.status, latency_ms: r.latencyMs, detail: r.ok ? `audio diterima; jawaban: "${short(r.text)}"` : r.error });
   }
   if (getSttConfig()) {
+    // Which models this key can use right now (ids only), so the right names can be picked for AI_* variables.
+    const stt = getSttConfig();
+    try {
+      const res = await fetchImpl(`${stt.baseUrl}/models`, { headers: { Authorization: `Bearer ${stt.apiKey}` }, signal: AbortSignal.timeout(15000) });
+      const body = await res.json().catch(() => null);
+      const ids = Array.isArray(body?.data) ? body.data.map((m) => m.id).sort() : [];
+      report({ check: 'daftar model', model: stt.baseUrl, ok: res.ok && ids.length > 0, status: res.status, detail: ids.length ? ids.join(', ') : `HTTP ${res.status}` });
+    } catch (err) {
+      report({ check: 'daftar model', model: stt.baseUrl, ok: false, detail: err.name === 'TimeoutError' ? 'timeout' : String(err.cause?.code || err.message).slice(0, 120) });
+    }
     const r = await transcribeAudio({ audio: toneWav(), mimeType: 'audio/wav', filename: 'tone.wav' }, { fetchImpl });
     report({ check: 'whisper', model: r.model, ok: r.ok, status: r.status, latency_ms: r.latencyMs, detail: r.ok ? 'audio diterima' : r.error });
   }

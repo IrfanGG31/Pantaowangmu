@@ -320,4 +320,15 @@ describe('AI self-test (AI_SELFTEST=true)', () => {
     expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls])).not.toMatch(/sp-key|or-key/);
     expect(toneWav().subarray(0, 4).toString()).toBe('RIFF');
   });
+
+  it('lists the Groq models the key can use and checks Whisper', async () => {
+    const { runAiSelfTest } = await import('../src/ai/selftest.js');
+    Object.assign(process.env, WHISPER, { GROQ_API_KEY: 'gq' });
+    const fetchImpl = vi.fn(async (url) => (url.endsWith('/models')
+      ? { ok: true, status: 200, json: async () => ({ data: [{ id: 'whisper-large-v3-turbo' }, { id: 'llama-3.3-70b-versatile' }] }) }
+      : transcript('')));
+    const results = await runAiSelfTest({ logger: logger(), fetchImpl });
+    expect(results.find((r) => r.check === 'daftar model')).toMatchObject({ ok: true, detail: 'llama-3.3-70b-versatile, whisper-large-v3-turbo' });
+    expect(results.find((r) => r.check === 'whisper')).toMatchObject({ ok: true, model: 'whisper-large-v3-turbo' });
+  });
 });
