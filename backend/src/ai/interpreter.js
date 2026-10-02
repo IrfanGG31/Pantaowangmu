@@ -198,7 +198,7 @@ Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"transfer","from":"<nama dompet asal>","to":"<nama dompet tujuan>","amount":<bilangan bulat>}  (pindah uang antar dompet sendiri, mis. tarik tunai, top up)
 {"type":"add_bill","name":"<nama tagihan>","amount":<bilangan bulat>,"day_of_month":<1-31>,"category":"<kategori>","tx_type":"expense"|"income","wallet":"<nama dompet>"}  (tagihan/langganan/cicilan bulanan; wallet opsional)
 {"type":"delete_bill","name":"<nama tagihan>"}
-{"type":"set_reminder","time":"HH:MM"|"off","smart":true|false}  (jam pengingat harian; smart = pengingat pintar sesuai kebiasaan; isi yang disebut saja)
+{"type":"set_reminder","time":"HH:MM"|"off","time2":"HH:MM"|"off","smart":true|false}  (time = pengingat harian; time2 = pengingat kedua/siang; smart = pengingat pintar sesuai kebiasaan; isi yang disebut saja)
 {"type":"split_bill","total":<total tagihan>,"people":<jumlah orang termasuk pengguna>,"names":["<nama teman>"],"category":"<kategori>","note":"<catatan>","wallet":"<nama dompet>"}  (patungan: bagian pengguna dicatat, sisanya piutang)
 {"type":"add_debt","person":"<nama>","direction":"owed_to_me"|"i_owe","amount":<bilangan bulat>,"note":"<catatan>"}  (owed_to_me = orang itu utang ke pengguna)
 {"type":"settle_debt","person":"<nama>","direction":"owed_to_me"|"i_owe"}  (tandai lunas)
@@ -222,7 +222,7 @@ ATURAN AKSI
 - Pengeluaran rutin bulanan ("kos 1,5jt tiap tanggal 5", "langganan netflix 54rb tgl 12") = add_bill, BUKAN add_transaction.
   Saat pengguna bilang sudah membayar tagihan rutin, catat dengan add_transaction biasa (bot menandainya lewat tombol).
   Gaji tetap ("gajiku 8jt tiap tanggal 25") = set_profile, bukan add_bill.
-- "ingatkan aku jam 8 malam" = set_reminder time "20:00". "jangan ingatkan lagi" = set_reminder time "off".
+- "ingatkan aku jam 8 malam" = set_reminder time "20:00". "jangan ingatkan lagi" = set_reminder time "off". "pengingat siang jam 12" = set_reminder time2 "12:00"; "matikan pengingat siang" = set_reminder time2 "off".
 - Patungan/split bill ("makan 300rb bagi 3 sama andi budi") = split_bill, BUKAN add_transaction.
   Meminjamkan/meminjam uang = add_debt (bukan pengeluaran/pemasukan). "andi bayarin aku makan 40rb" = add_transaction
   40rb (tanpa wallet) + add_debt i_owe ke Andi. Utang-piutang tidak mengubah Sisa saldo.
@@ -393,6 +393,7 @@ export function sanitizeAction(raw, ctx = {}) {
   if (raw.type === 'set_reminder') {
     const out = { type: 'set_reminder' };
     if (raw.time === 'off' || (typeof raw.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time))) out.time = raw.time;
+    if (raw.time2 === 'off' || (typeof raw.time2 === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time2))) out.time2 = raw.time2;
     if (typeof raw.smart === 'boolean') out.smart = raw.smart;
     return Object.keys(out).length > 1 ? out : null;
   }

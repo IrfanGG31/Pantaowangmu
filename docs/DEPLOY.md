@@ -257,6 +257,8 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
 - **⏰ Pengingat harian default**: jam default (atau matikan) dan teks sendiri untuk pengingat "jangan lupa mencatat".
   Berlaku untuk pengguna yang tidak memilih jam sendiri. "Terapkan jam default ke semua pengguna" mengembalikan pilihan jam
   pribadi ke default; pengguna yang mematikan pengingat tetap mati.
+- **Pengingat 2x sehari**: isi "Pengingat 2 (siang)" di admin. Tiap pesan pengingat punya tombol 🔕 untuk mematikannya; di bot
+  juga bisa `/pengingat`, "pengingat siang jam 12", "matikan pengingat siang". Yang sudah mematikan pengingat 1 tidak dapat pengingat 2.
 
 ## Risiko diketahui
 

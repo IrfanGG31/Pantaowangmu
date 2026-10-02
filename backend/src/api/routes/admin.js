@@ -247,10 +247,10 @@ const reminderState = () => ({ ...getReminderDefaults(), builtin_time: BUILTIN_R
 router.get('/reminders', (req, res) => res.json(reminderState()));
 
 router.put('/reminders', (req, res) => {
-  const { time, text } = req.body || {};
-  const result = setReminderDefaults({ time, text });
+  const { time, second, text } = req.body || {};
+  const result = setReminderDefaults({ time, second, text });
   if (result.error) return res.status(400).json({ error: result.error });
-  logAdminAction(req.admin.email, 'update_reminders', null, { time: result.time, custom_text: Boolean(result.text) });
+  logAdminAction(req.admin.email, 'update_reminders', null, { time: result.time, second: result.second, custom_text: Boolean(result.text) });
   res.json(reminderState());
 });
 

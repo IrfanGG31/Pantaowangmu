@@ -196,7 +196,7 @@ kategori yang tidak ada → 400.
   transaksinya (`record: false` = lewati bulan ini). Bulan yang sudah ditandai → 409 (aman dari dobel ketuk).
 - `GET /insights`: `bills`, dan `today_allowance.reserved_bills` (tagihan belum dibayar sebelum gajian, termasuk yang lewat,
   disisihkan dulu dari jatah harian).
-- `PATCH /me/profile` menerima `reminder_time` (`"HH:MM"` | `"off"` | `null` = 21:00) dan `smart_nudge` (boolean).
+- `PATCH /me/profile` menerima `reminder_time` dan `reminder2_time` (pengingat siang): `"HH:MM"` | `"off"` | `null` = default dari admin; serta `smart_nudge` (boolean).
 
 ### Tag, utang-piutang, saran budget, tantangan
 
@@ -341,7 +341,7 @@ Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
 | `GET /api/admin/broadcasts` | `{ bot_ready, running_id, max_length, segments: [{ id, label, count }], data: [{ id, admin_email, segment, text, with_button, total, sent, failed, blocked, status, created_at, finished_at }] }`. Segmen: `all`, `active`, `trial`, `paid`, `free` (pengguna yang diblokir admin tidak pernah dikirimi) |
 | `POST /api/admin/broadcasts` `{ text, segment?, with_button? }` | Kirim di latar belakang (~25 pesan/detik) → 202 `{ broadcast, ...GET }`. 409 bila masih ada yang berjalan, 503 bila bot mati. Teks biasa, maks. 3500 karakter. Hanya jumlah yang disimpan, bukan daftar penerima. Dicatat di audit log. |
 | `POST /api/admin/broadcasts/test` `{ text, with_button?, user_id }` | Kirim ke satu Telegram user ID (pratinjau). 502 bila gagal/diblokir. Dicatat di audit log. |
-| `GET /api/admin/reminders` | `{ time: "HH:MM"\|"off", text, builtin_time, stats: { users, custom, off, smart } }` |
-| `PUT /api/admin/reminders` `{ time?, text? }` | Jam default pengingat harian (atau `"off"`) dan teks opsional (`{nama}` = nama pengguna, maks. 600). Berlaku untuk pengguna tanpa jam sendiri. Dicatat di audit log. |
+| `GET /api/admin/reminders` | `{ time: "HH:MM"\|"off", second: "HH:MM"\|"off", text, builtin_time, stats: { users, custom, off, custom2, off2, smart } }` (`second` = pengingat ke-2/siang, default `"off"`) |
+| `PUT /api/admin/reminders` `{ time?, second?, text? }` | Jam default pengingat harian dan pengingat ke-2 (atau `"off"`; keduanya harus berbeda) dan teks opsional (`{nama}` = nama pengguna, maks. 600). Berlaku untuk pengguna tanpa jam sendiri. Dicatat di audit log. |
 | `POST /api/admin/reminders/reset-all` `{}` | Pengguna yang memilih jam sendiri kembali ke default (yang mematikan tetap mati) → `{ reset, ...GET }`. Dicatat di audit log. |
 | `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |

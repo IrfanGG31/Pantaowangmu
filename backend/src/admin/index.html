@@ -167,9 +167,14 @@
         <p class="muted small">Pengingat "jangan lupa mencatat" dikirim hanya ke pengguna yang hari itu belum mencatat. Default ini berlaku untuk semua pengguna yang tidak memilih jam sendiri.</p>
         <form id="reminder-form" class="stack">
           <div class="row row-wrap">
-            <label class="field">Jam default (zona waktu bot) <input type="time" name="time" step="60"></label>
-            <label class="check"><input type="checkbox" name="off"> Matikan pengingat default</label>
+            <label class="field">Pengingat 1 · jam default (zona waktu bot) <input type="time" name="time" step="60"></label>
+            <label class="check"><input type="checkbox" name="off"> Matikan pengingat 1</label>
           </div>
+          <div class="row row-wrap">
+            <label class="field">Pengingat 2 (siang) · jam default <input type="time" name="second" step="60"></label>
+            <label class="check"><input type="checkbox" name="second_off"> Matikan pengingat 2</label>
+          </div>
+          <p class="muted small">Tiap pesan pengingat punya tombol 🔕 supaya pengguna bisa mematikannya sendiri. Pengguna yang sudah mematikan pengingat 1 tidak menerima pengingat 2.</p>
           <label class="grow">Teks pengingat (opsional). Tulis {nama} untuk nama pengguna. Kosongkan untuk teks bawaan.
             <textarea name="text" rows="4" maxlength="600" placeholder="Halo {nama}! Hari ini belum ada catatan. Yuk catat pengeluaranmu, misalnya &quot;makan siang 25rb&quot;."></textarea>
           </label>

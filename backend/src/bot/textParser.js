@@ -181,6 +181,9 @@ const RECURRING_RE = /\b(?:tiap|setiap|per|rutin)\s+(?:bulan(?:nya)?(?:\s+(?:tan
 // "ingatkan aku jam 8 malam", "pengingat jam 20.30", "matikan pengingat"
 const REMINDER_RE = /^(?:tolong\s+)?(?:ingatkan|ingetin|ingatin|pengingat|reminder)(?:\s+(?:aku|saya|gue|gw))?(?:\s+(?:catat|nyatat|buat\s+catat))?(?:\s+(?:tiap\s+hari|setiap\s+hari))?\s+(?:jam|pukul|pkl)\s+(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
 const REMINDER_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)(?:\s+harian)?\b/i;
+// The second (midday) reminder: "pengingat siang jam 12", "matikan pengingat siang", "pengingat kedua jam 13.30".
+const REMINDER2_RE = /^(?:atur\s+)?(?:pengingat|reminder)\s+(?:siang|kedua|ke-?2)\s+(?:jam|pukul|pkl)?\s*(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
+const REMINDER2_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)\s+(?:siang|kedua|ke-?2)\b/i;
 
 // ── v3: tags, split bills, debts, challenges ───────────────────────────────
 
@@ -323,7 +326,7 @@ function parseWalletBalance(original, text, found, wallets) {
  *   { intent: 'transfer', kind: string, amount: number, from_wallet_id: number|null, to_wallet_id: number|null } |
  *   { intent: 'add_bill', name: string, amount: number, day_of_month: number|null, type: 'income'|'expense', category: string|null } |
  *   { intent: 'profile_income', monthly_income: number, payday: number|null } |
- *   { intent: 'reminder', time: string } |
+ *   { intent: 'reminder', time?: string, time2?: string } |
  *   { intent: 'unknown' }
  * )}
  */
@@ -376,6 +379,13 @@ export function parseFreeText(input, options = {}) {
     if (name) return { intent: 'add_category', name, type: kind === 'pemasukan' ? 'income' : 'expense', emoji };
   }
 
+  if (REMINDER2_OFF_RE.test(original)) return { intent: 'reminder', time2: 'off' };
+  const rem2 = REMINDER2_RE.exec(original);
+  if (rem2) {
+    const hour = to24h(Number(rem2[1]), rem2[3]?.toLowerCase() || (Number(rem2[1]) <= 6 ? 'siang' : undefined));
+    const minute = rem2[2] ? Number(rem2[2]) : 0;
+    if (hour <= 23 && minute <= 59) return { intent: 'reminder', time2: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` };
+  }
   if (REMINDER_OFF_RE.test(original)) return { intent: 'reminder', time: 'off' };
   const rem = REMINDER_RE.exec(original);
   if (rem) {

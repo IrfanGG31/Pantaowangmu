@@ -11,6 +11,7 @@ import { startBroadcast, waitForBroadcast, segmentCounts, markInterruptedBroadca
 import { getReminderDefaults, setReminderDefaults, resetReminderOverrides } from '../src/db/reminders.js';
 import { runReminderTick } from '../src/bot/nudges.js';
 import { remindersText } from '../src/bot/personal.js';
+import { parseFreeText } from '../src/bot/textParser.js';
 
 const telegramError = (status, extra = {}) => Object.assign(new Error(`ETELEGRAM ${status}`), { response: { statusCode: status, body: { error_code: status, ...extra } } });
 
@@ -125,9 +126,9 @@ describe('Daily reminder defaults', () => {
   };
 
   it('uses the admin default time and text for users without their own time', async () => {
-    expect(getReminderDefaults()).toEqual({ time: '21:00', text: '' });
+    expect(getReminderDefaults()).toEqual({ time: '21:00', second: 'off', text: '' });
     expect(setReminderDefaults({ time: '25:00' })).toHaveProperty('error');
-    expect(setReminderDefaults({ time: '20:00', text: 'Halo {nama}, jangan lupa catat ya!' })).toEqual({ time: '20:00', text: 'Halo {nama}, jangan lupa catat ya!' });
+    expect(setReminderDefaults({ time: '20:00', text: 'Halo {nama}, jangan lupa catat ya!' })).toEqual({ time: '20:00', second: 'off', text: 'Halo {nama}, jangan lupa catat ya!' });
     setNickname('1001', 'Bos');
     setProfile('1002', { reminder_time: '22:00' });
     expect(remindersText('1001')).toContain('jam 20:00');
@@ -153,6 +154,28 @@ describe('Daily reminder defaults', () => {
     expect(await runReminderTick(new FakeBot())).toMatchObject({ reminders: 0 });
   });
 
+  it('sends a second (midday) reminder when the admin turns it on; each user can turn it off with one tap', async () => {
+    expect(setReminderDefaults({ second: '21:00' })).toHaveProperty('error'); // same as the first one
+    expect(setReminderDefaults({ second: '12:00' })).toMatchObject({ time: '21:00', second: '12:00' });
+    setProfile('1002', { reminder_time: 'off' });            // turned reminders off before: no second one either
+    setProfile('1004', { reminder2_time: 'off' });           // turned only the midday one off
+
+    const bot = new FakeBot();
+    at('2026-10-02T05:01:00Z'); // 12:01 WIB
+    expect(await runReminderTick(bot)).toMatchObject({ reminders: 1 });
+    const msg = bot.sent[0];
+    expect(msg.chatId).toBe('1001');
+    expect(msg.text).toContain('Pengingat siang');
+    expect(msg.options.reply_markup.inline_keyboard[0][0]).toMatchObject({ callback_data: 'r2:off' });
+    expect(await runReminderTick(bot)).toMatchObject({ reminders: 0 }); // once a day
+
+    at('2026-10-02T14:01:00Z'); // 21:01 WIB: the usual evening reminder still comes, with its own off button
+    expect(await runReminderTick(bot)).toMatchObject({ reminders: 2 }); // 1001 and 1004
+    expect(bot.sent.at(-1).options.reply_markup.inline_keyboard[0][0]).toMatchObject({ callback_data: 'rt:off' });
+    expect(remindersText('1001')).toContain('Pengingat siang: jam 12:00');
+    expect(remindersText('1004')).toContain('Pengingat siang: mati');
+  });
+
   it('admin API: read, save and apply to all, with audit', async () => {
     await request(app).get('/api/admin/reminders').expect(401);
     setProfile('1001', { reminder_time: '19:00' });
@@ -165,5 +188,12 @@ describe('Daily reminder defaults', () => {
     res = await agent.post('/api/admin/reminders/reset-all').send({}).expect(200);
     expect(res.body).toMatchObject({ reset: 1, stats: { custom: 0 } });
     expect(db.prepare("SELECT action FROM admin_audit WHERE action != 'login' ORDER BY id").all().map((r) => r.action)).toEqual(['update_reminders', 'reset_reminders']);
+  });
+
+  it('understands chat commands for the midday reminder', () => {
+    expect(parseFreeText('pengingat siang jam 12')).toEqual({ intent: 'reminder', time2: '12:00' });
+    expect(parseFreeText('pengingat kedua jam 1')).toEqual({ intent: 'reminder', time2: '13:00' });
+    expect(parseFreeText('matikan pengingat siang')).toEqual({ intent: 'reminder', time2: 'off' });
+    expect(parseFreeText('matikan pengingat')).toEqual({ intent: 'reminder', time: 'off' });
   });
 });

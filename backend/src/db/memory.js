@@ -23,7 +23,7 @@ const MAX_MONEY = 999999999999;
  */
 export function getMemory(userId) {
   const uid = String(userId);
-  const profile = db.prepare('SELECT nickname, monthly_income, payday, style, emoji, language, persona, reminder_time, smart_nudge FROM user_profile WHERE user_id = ?').get(uid);
+  const profile = db.prepare('SELECT nickname, monthly_income, payday, style, emoji, language, persona, reminder_time, reminder2_time, smart_nudge FROM user_profile WHERE user_id = ?').get(uid);
   const facts = db.prepare('SELECT id, fact FROM user_facts WHERE user_id = ? ORDER BY id ASC').all(uid) || [];
   const goals = db.prepare('SELECT id, name, target_amount, saved_amount, target_date FROM user_goals WHERE user_id = ? ORDER BY id ASC').all(uid) || [];
   return {
@@ -36,6 +36,7 @@ export function getMemory(userId) {
       language: profile?.language || null,
       persona: profile?.persona || null,
       reminder_time: profile?.reminder_time || null,
+      reminder2_time: profile?.reminder2_time || null,
       smart_nudge: Boolean(profile?.smart_nudge)
     },
     goals,
@@ -87,9 +88,10 @@ export function setProfile(userId, changes = {}) {
     const v = changes.persona;
     if (v === null || PERSONAS.includes(v)) add('persona', v);
   }
-  if ('reminder_time' in changes) {
-    const v = changes.reminder_time;
-    if (v === null || v === 'off' || REMINDER_TIME_RE.test(v)) add('reminder_time', v);
+  for (const key of ['reminder_time', 'reminder2_time']) {
+    if (!(key in changes)) continue;
+    const v = changes[key];
+    if (v === null || v === 'off' || REMINDER_TIME_RE.test(v)) add(key, v);
   }
   if ('smart_nudge' in changes && typeof changes.smart_nudge === 'boolean') {
     add('smart_nudge', changes.smart_nudge ? 1 : 0);

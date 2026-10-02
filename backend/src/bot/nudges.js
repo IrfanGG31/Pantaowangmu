@@ -65,6 +65,18 @@ Yuk catat pengeluaran atau pemasukanmu hari ini agar keuangan tetap terkontrol:
 
 _Ubah jam atau matikan: /pengingat_`;
 
+const REMINDER2_TEXT = (name) => `🔔 *Pengingat siang*
+
+Halo ${name}! Belum ada catatan hari ini. Ada pengeluaran dari pagi?
+Ketik saja, misalnya \`kopi 20rb\`.
+
+_Ubah jam atau matikan: /pengingat_`;
+
+// One tap to turn a reminder off, right on the message (rt:/r2: are handled in commands.js).
+const offButton = (which) => ({
+  inline_keyboard: [[{ text: which === 2 ? '🔕 Matikan pengingat siang' : '🔕 Matikan pengingat ini', callback_data: which === 2 ? 'r2:off' : 'rt:off' }]]
+});
+
 /**
  * Daily reminder (at each user's reminder_time, else the admin default, 21:00 unless changed) and smart habit nudges. Run every TICK_MINUTES.
  * @returns {Promise<{ reminders: number, nudges: number }>}
@@ -86,9 +98,21 @@ export async function runReminderTick(bot, now = new Date()) {
     if (time !== 'off' && inactive.has(user.user_id) && inWindow(toMinutes(time), minutes) && markReminded(user.user_id, today)) {
       // Admin's own wording (plain text, {nama} = the user's name), else the built-in message.
       if (defaults.text) {
-        await safeSendMessage(bot, user.user_id, `${defaults.text.replaceAll('{nama}', nickname || user.first_name || 'Kak')}\n\nUbah jam atau matikan: /pengingat`);
+        await safeSendMessage(bot, user.user_id, `${defaults.text.replaceAll('{nama}', nickname || user.first_name || 'Kak')}\n\nUbah jam atau matikan: /pengingat`, { reply_markup: offButton(1) });
       } else {
-        await safeSendMessage(bot, user.user_id, REMINDER_TEXT(name), { parse_mode: 'Markdown' });
+        await safeSendMessage(bot, user.user_id, REMINDER_TEXT(name), { parse_mode: 'Markdown', reply_markup: offButton(1) });
+      }
+      reminders += 1;
+    }
+
+    // Second reminder of the day (admin default, or the user's own time). Someone who turned the daily reminder off
+    // and never picked a second time gets none.
+    const time2 = profile.reminder2_time || (time === 'off' ? 'off' : defaults.second);
+    if (time2 !== 'off' && inactive.has(user.user_id) && inWindow(toMinutes(time2), minutes) && claimNudge(user.user_id, today, 'reminder2')) {
+      if (defaults.text) {
+        await safeSendMessage(bot, user.user_id, `${defaults.text.replaceAll('{nama}', nickname || user.first_name || 'Kak')}\n\nUbah jam atau matikan: /pengingat`, { reply_markup: offButton(2) });
+      } else {
+        await safeSendMessage(bot, user.user_id, REMINDER2_TEXT(name), { parse_mode: 'Markdown', reply_markup: offButton(2) });
       }
       reminders += 1;
     }

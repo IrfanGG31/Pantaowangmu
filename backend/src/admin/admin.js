@@ -597,9 +597,12 @@ function renderReminders(r) {
   f.off.checked = r.time === 'off';
   f.time.value = r.time === 'off' ? r.builtin_time : r.time;
   f.time.disabled = r.time === 'off';
+  f.second_off.checked = r.second === 'off';
+  f.second.value = r.second === 'off' ? '12:00' : r.second;
+  f.second.disabled = r.second === 'off';
   f.text.value = r.text || '';
   const s = r.stats;
-  $('reminder-stats').textContent = `${fmt.format(s.users)} pengguna · ${fmt.format(s.custom)} memilih jam sendiri · ${fmt.format(s.off)} mematikan pengingat · ${fmt.format(s.smart)} memakai pengingat pintar. Sisanya mengikuti default.`;
+  $('reminder-stats').textContent = `${fmt.format(s.users)} pengguna. Pengingat 1: ${fmt.format(s.custom)} memilih jam sendiri, ${fmt.format(s.off)} mematikan. Pengingat 2: ${fmt.format(s.custom2)} memilih jam sendiri, ${fmt.format(s.off2)} mematikan. ${fmt.format(s.smart)} memakai pengingat pintar. Sisanya mengikuti default.`;
   state.reminderStats = s;
 }
 
@@ -888,13 +891,16 @@ $('broadcast-form').addEventListener('submit', async (event) => {
 $('reminder-form').off.addEventListener('change', (event) => {
   $('reminder-form').time.disabled = event.target.checked;
 });
+$('reminder-form').second_off.addEventListener('change', (event) => {
+  $('reminder-form').second.disabled = event.target.checked;
+});
 
 $('reminder-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const f = event.target;
   showError('reminder-error', '');
   try {
-    renderReminders(await api('/reminders', { method: 'PUT', body: JSON.stringify({ time: f.off.checked ? 'off' : f.time.value, text: f.text.value }) }));
+    renderReminders(await api('/reminders', { method: 'PUT', body: JSON.stringify({ time: f.off.checked ? 'off' : f.time.value, second: f.second_off.checked ? 'off' : f.second.value, text: f.text.value }) }));
     $('reminder-status').textContent = 'Tersimpan.';
     loadAudit();
   } catch (err) {
@@ -904,7 +910,8 @@ $('reminder-form').addEventListener('submit', async (event) => {
 
 $('reminder-reset').addEventListener('click', async () => {
   const custom = state.reminderStats?.custom ?? 0;
-  if (!confirm(`${fmt.format(custom)} pengguna yang memilih jam sendiri akan kembali ke jam default.\nPengguna yang mematikan pengingat tetap mati. Lanjut?`)) return;
+  const custom2 = state.reminderStats?.custom2 ?? 0;
+  if (!confirm(`${fmt.format(custom)} (pengingat 1) dan ${fmt.format(custom2)} (pengingat 2) pengguna yang memilih jam sendiri akan kembali ke jam default.\nPengguna yang mematikan pengingat tetap mati. Lanjut?`)) return;
   showError('reminder-error', '');
   try {
     const r = await api('/reminders/reset-all', { method: 'POST', body: '{}' });

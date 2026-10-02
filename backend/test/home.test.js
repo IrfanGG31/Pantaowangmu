@@ -39,7 +39,7 @@ describe('GET /api/me', () => {
     const res = await as(request(app).get('/api/me'));
     expect(res.status).toBe(200);
     expect(res.body.user).toEqual({ user_id: '42', first_name: 'Dev User', nickname: '', display_name: 'Dev User' });
-    expect(res.body.profile).toEqual({ monthly_income: null, payday: null, style: null, emoji: null, language: null, persona: null, reminder_time: null, smart_nudge: false });
+    expect(res.body.profile).toEqual({ monthly_income: null, payday: null, style: null, emoji: null, language: null, persona: null, reminder_time: null, reminder2_time: null, smart_nudge: false });
     expect(res.body.subscription).toMatchObject({
       tier: 'trial', state: 'active', plan_name: 'Trial', days_left: 7,
       ai_daily_limit: 20, ai_used_today: 0, receipt_monthly_limit: 10, receipts_used_this_month: 0

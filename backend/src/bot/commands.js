@@ -828,7 +828,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       const keyboard = budgetSuggestKeyboard(userId);
       return safeSendMessage(bot, chatId, budgetSuggestText(userId), keyboard ? { reply_markup: keyboard } : {});
     }
-    if (parsed.intent === 'reminder') return safeSendMessage(bot, chatId, doSetReminder(userId, { time: parsed.time }));
+    if (parsed.intent === 'reminder') return safeSendMessage(bot, chatId, doSetReminder(userId, { time: parsed.time, time2: parsed.time2 }));
     if (parsed.intent === 'profile_income') {
       const changes = { monthly_income: parsed.monthly_income, ...(parsed.payday ? { payday: parsed.payday } : {}) };
       setProfile(userId, changes);
@@ -1300,9 +1300,11 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       const ok = cancelChallenge(userId, parseInt(data.slice(3), 10));
       await safeAnswerCallback(bot, query.id, ok ? 'Dibatalkan' : 'Sudah selesai');
       await editMessage(chatId, messageId, challengesText(userId), { reply_markup: challengesKeyboard(userId) });
-    } else if (data.startsWith('rt:') || data.startsWith('rn:')) {
+    } else if (data.startsWith('rt:') || data.startsWith('rn:') || data.startsWith('r2:')) {
       const value = data.slice(3);
-      const text = data.startsWith('rt:') ? doSetReminder(userId, { time: value }) : doSetReminder(userId, { smart: value === 'on' });
+      const text = data.startsWith('rt:') ? doSetReminder(userId, { time: value })
+        : data.startsWith('r2:') ? doSetReminder(userId, { time2: value })
+        : doSetReminder(userId, { smart: value === 'on' });
       await safeAnswerCallback(bot, query.id, text.startsWith('❌') ? 'Tidak valid' : 'Disimpan');
       await editMessage(chatId, messageId, remindersText(userId), { reply_markup: remindersKeyboard(userId) });
     } else if (data.startsWith('gl:') || data.startsWith('gp:')) {
