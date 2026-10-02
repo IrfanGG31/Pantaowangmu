@@ -234,6 +234,20 @@ Admin melihatnya di bagian **💡 Ide dari pengguna**: dikelompokkan per topik d
 (tidak pernah menampilkan siapa), bisa diberi status (Baru/Direncanakan/Selesai/Diabaikan) dan catatan. Tombol
 **Rangkum jadi ide dengan AI** mengelompokkan pesan yang belum dipahami bot menjadi topik ide.
 
+## PWA (fase 1)
+
+Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak ada variabel baru.
+- **Manifest dan ikon**: `webapp/static/manifest.webmanifest` dan `webapp/static/icons/` (192, 512, maskable, apple-touch).
+- **Service worker** (`webapp/src/service-worker.ts`): menyimpan app shell; `/api`, `/admin`, `/health` tidak pernah di-cache.
+  Halaman memakai network-first, jadi deploy baru langsung terlihat. Beranda menyimpan ringkasan terakhir per pengguna di
+  perangkat dan menampilkannya saat offline.
+- **Di Telegram**: kartu "Pasang PantaUangmu" memakai `addToHomeScreen` (Telegram 8.0+), sehingga shortcut tetap login lewat Telegram.
+- **Di browser / PWA terpasang**: belum ada login (fase 2), jadi tampil layar "Buka di Telegram" (link dari `GET /api/app-config`)
+  plus tombol Pasang (Android/Chrome) atau panduan Bagikan → Tambah ke Layar Utama (iPhone). Tema mengikuti terang/gelap sistem.
+- **Keamanan**: `npm run build` menjalankan `scripts/check-bundle.mjs` dan gagal bila bundel memuat `X-Dev-User-Id`, `VITE_*`,
+  token bot, atau API key. CSP menambah `worker-src 'self'` dan `manifest-src 'self'`.
+- Cek installable: Chrome DevTools → Application → Manifest, atau Lighthouse.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

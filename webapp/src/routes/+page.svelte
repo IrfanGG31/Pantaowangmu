@@ -19,6 +19,8 @@
   import WalletSheet from '$lib/components/WalletSheet.svelte';
   import WalletIcon from '$lib/components/WalletIcon.svelte';
   import BillSheet from '$lib/components/BillSheet.svelte';
+  import InstallCard from '$lib/components/InstallCard.svelte';
+  import { readLocal, writeLocal } from '$lib/platform.js';
   import type { Summary, Transaction, MeResponse, InsightsResponse, Bill, Challenge } from '$lib/types.js';
   import { showToast } from '$lib/stores.js';
 
@@ -35,6 +37,11 @@
   let payingBill: number | null = null;
 
   const tgUser = getTelegramUser();
+
+  // Last good home data per user, shown when the network is down (PWA W6). Kept on this device only.
+  interface HomeSnapshot { at: string; summary: Summary; recent: Transaction[]; me: MeResponse | null; insights: InsightsResponse | null }
+  const SNAPSHOT_KEY = `panta.home.v1.${tgUser?.id ?? 'dev'}`;
+  let offlineSince: string | null = null;
 
   $: if ($txRevision >= 0) loadData();
 
@@ -85,16 +92,29 @@
     ]);
     if (sig.aborted) return;
 
-    if (s.status === 'fulfilled' && t.status === 'fulfilled') {
-      summary = s.value;
-      recent = t.value.data;
-    } else {
-      const reason = (s.status === 'rejected' ? s.reason : (t as PromiseRejectedResult).reason) as Error;
-      error = reason?.message || 'Gagal memuat data';
-    }
     // Optional parts: keep the previous value if a refresh fails.
     if (m.status === 'fulfilled') me = m.value;
     if (i.status === 'fulfilled') insights = i.value;
+
+    if (s.status === 'fulfilled' && t.status === 'fulfilled') {
+      summary = s.value;
+      recent = t.value.data;
+      offlineSince = null;
+      writeLocal(SNAPSHOT_KEY, { at: new Date().toISOString(), summary, recent, me, insights } satisfies HomeSnapshot);
+    } else {
+      const reason = (s.status === 'rejected' ? s.reason : (t as PromiseRejectedResult).reason) as Error;
+      // No response at all (offline): show the last saved home data instead of an error.
+      const snapshot = reason instanceof ApiError ? null : readLocal<HomeSnapshot>(SNAPSHOT_KEY);
+      if (snapshot?.summary) {
+        summary = snapshot.summary;
+        recent = snapshot.recent ?? [];
+        me = me ?? snapshot.me;
+        insights = insights ?? snapshot.insights;
+        offlineSince = snapshot.at;
+      } else {
+        error = reason?.message || 'Gagal memuat data';
+      }
+    }
     loading = false;
   }
 
@@ -258,6 +278,12 @@
       <button class="btn btn-primary mt-4" on:click={loadData}>Coba Lagi</button>
     </div>
   {:else}
+    {#if offlineSince}
+      <div class="notice" role="status">
+        📴 Sedang offline. Menampilkan data terakhir ({new Date(offlineSince).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}).
+        <button class="btn btn-ghost offline-retry" on:click={loadData}>Muat ulang</button>
+      </div>
+    {/if}
     <!-- Hero: remaining balance first, then today's money flow and today's safe-to-spend -->
     <section class="summary-card hero" aria-labelledby="hero-label">
       <div class="hero-top">
@@ -324,6 +350,8 @@
     </section>
 
     <!-- Kata Panta -->
+    <InstallCard />
+
     {#if insights && insights.tips.length > 0}
       <section class="card tips" aria-labelledby="tips-title">
         <div id="tips-title" class="tips-title">💡 Kata Panta</div>
@@ -598,6 +626,7 @@
     border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.18);
   }
+  .offline-retry { padding: 2px 8px; font-size: 13px; }
   .wallet-strip {
     display: flex;
     gap: 6px;

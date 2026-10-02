@@ -106,6 +106,11 @@ interface TelegramWebApp {
   // Viewport
   viewportHeight: number;
   viewportStableHeight: number;
+
+  // Home screen shortcut (Bot API 8.0+)
+  isVersionAtLeast?(version: string): boolean;
+  addToHomeScreen?(): void;
+  checkHomeScreenStatus?(callback: (status: 'unsupported' | 'unknown' | 'added' | 'missed') => void): void;
 }
 
 declare global {
@@ -118,9 +123,18 @@ declare global {
 
 // ── WebApp accessor ───────────────────────────────────────────────────────────
 
+// The SDK script also loads in a normal browser (PWA), where WebApp exists but has no initData and its
+// MainButton/BackButton/dialogs do nothing (dialog callbacks never fire). Only treat it as Telegram when opened by
+// Telegram, so every helper below falls back to plain browser behaviour otherwise.
 function getWebApp(): TelegramWebApp | null {
   if (typeof window === 'undefined') return null;
-  return window.Telegram?.WebApp ?? null;
+  const tg = window.Telegram?.WebApp;
+  return tg && tg.initData ? tg : null;
+}
+
+/** The Telegram WebApp object when opened inside Telegram, else null (for platform.ts). */
+export function telegramWebApp(): TelegramWebApp | null {
+  return getWebApp();
 }
 
 // ── Theme CSS vars ────────────────────────────────────────────────────────────
@@ -174,7 +188,9 @@ export function getInitData(): string {
 }
 
 export function getColorScheme(): 'light' | 'dark' {
-  return getWebApp()?.colorScheme ?? 'light';
+  const tg = getWebApp();
+  if (tg) return tg.colorScheme;
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 export function isInsideTelegram(): boolean {

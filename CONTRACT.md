@@ -228,6 +228,10 @@ Response:
 #### `GET /health`
 Response: `{ status: 'ok'; timestamp: string }`
 
+#### `GET /app-config` (tanpa auth)
+Pengaturan publik untuk PWA di luar Telegram. Response: `{ bot_username: string | null; bot_url: string | null }`
+(`bot_url` = `https://t.me/<bot_username>`; `null` bila bot belum tersambung).
+
 ---
 
 ## Data Types (snake_case WAJIB)
