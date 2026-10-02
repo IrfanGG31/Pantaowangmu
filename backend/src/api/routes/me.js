@@ -70,7 +70,7 @@ router.get('/', (req, res, next) => {
 });
 
 /**
- * PATCH /api/me/profile — { monthly_income?, payday?, language?, persona?, reminder_time?, smart_nudge? }; null clears a field.
+ * PATCH /api/me/profile — { monthly_income?, payday?, language?, persona?, reminder_time?, reminder2_time?, smart_nudge? }; null clears a field.
  */
 router.patch('/profile', (req, res, next) => {
   try {
@@ -102,11 +102,12 @@ router.patch('/profile', (req, res, next) => {
       }
       changes.persona = body.persona;
     }
-    if ('reminder_time' in body) {
-      if (body.reminder_time !== null && body.reminder_time !== 'off' && !REMINDER_TIME_RE.test(body.reminder_time)) {
-        return res.status(400).json({ error: 'reminder_time harus "HH:MM", "off", atau null' });
+    for (const key of ['reminder_time', 'reminder2_time']) {
+      if (!(key in body)) continue;
+      if (body[key] !== null && body[key] !== 'off' && !REMINDER_TIME_RE.test(body[key])) {
+        return res.status(400).json({ error: `${key} harus "HH:MM", "off", atau null` });
       }
-      changes.reminder_time = body.reminder_time;
+      changes[key] = body[key];
     }
     if ('smart_nudge' in body) {
       if (typeof body.smart_nudge !== 'boolean') return res.status(400).json({ error: 'smart_nudge harus true/false' });

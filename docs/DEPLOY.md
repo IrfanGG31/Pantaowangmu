@@ -33,8 +33,13 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `AI_BASE_URL` | tidak | API kompatibel OpenAI, mis. `https://ai.sumopod.com/v1`. Tanpa tanda kutip atau `< >`. |
 | `AI_API_KEY` | tidak (rahasia) | Key dari penyedia AI. Hanya di dashboard Railway. |
 | `AI_MODEL` | tidak | ID model persis seperti di dashboard penyedia. |
-| `AI_TIMEOUT_MS` | tidak | Default `15000`. |
-| `AI_PRIMARY_BASE_URL`, `AI_PRIMARY_API_KEY` (rahasia), `AI_PRIMARY_MODEL` | tidak | Model chat utama yang dicoba **sebelum** `AI_*`, mis. Groq (`https://api.groq.com/openai/v1`, `llama-3.1-8b-instant`) atau OpenAI (`https://api.openai.com/v1`, `gpt-4o-mini`). `AI_*` jadi cadangan dan tetap dipakai untuk foto nota & laporan. `AI_PRIMARY_TIMEOUT_MS` default `15000`. |
+| `AI_TIMEOUT_MS` | tidak | Default dan maksimum `15000` (15 detik per panggilan AI). |
+| `AI_FALLBACK_BASE_URL`, `AI_FALLBACK_API_KEY` (rahasia), `AI_FALLBACK_MODEL` | tidak | Model chat cadangan bila `AI_*` gagal/timeout. Contoh: `AI_*` = MiniMax di Sumopod, cadangan = OpenRouter (`https://openrouter.ai/api/v1`, `thinkingmachines/inkling-small:free`) atau Groq. Bila keduanya gagal, bot memakai parser regex lokal. |
+| `GROQ_WHISPER_MODEL` | tidak | Mis. `whisper-large-v3-turbo`. Mengaktifkan voice note (bahasa Indonesia) lewat Groq: pakai `GROQ_API_KEY` (rahasia; `GROQ_BASE_URL` default `https://api.groq.com/openai/v1`), atau `AI_API_KEY`/`AI_BASE_URL` bila `GROQ_API_KEY` kosong. Kosong = voice dibalas "belum aktif". |
+| `AI_AUDIO_MODEL` (+ `AI_AUDIO_BASE_URL`, `AI_AUDIO_API_KEY`) | tidak | Model chat yang menerima audio (mis. OpenRouter `thinkingmachines/inkling-small:free`). Bila diisi, voice note ditranskripsi model ini dulu; Groq Whisper jadi cadangan. Tanpa `*_BASE_URL` memakai `AI_BASE_URL`/`AI_API_KEY`. |
+| `AI_VISION_BASE_URL`, `AI_VISION_API_KEY` | tidak | Penyedia lain untuk `AI_VISION_MODEL` (mis. OpenRouter Inkling) saat membaca foto struk. |
+| `AI_SELFTEST` | tidak | `true` = saat server start, tiap model (chat utama/cadangan, foto, audio) dipanggil sekali dan hasilnya dicatat di log `[AI selftest]`. Matikan lagi setelah dicek. |
+| `RECEIPTS_ENABLED` | tidak | `true` untuk mengaktifkan baca foto struk (butuh model vision di `AI_VISION_MODEL`/`AI_MODEL`). Default mati: foto dibalas "fitur menyusul". |
 | `AI_COOLDOWN_MS` | tidak | Default `300000` (5 menit): model yang timeout/error 5xx/429 dilewati selama ini, sehingga bot langsung memakai model berikutnya atau parser biasa. |
 | `AI_VISION_MODEL` | tidak | Model untuk membaca foto nota. Kosong = pakai `AI_MODEL` (harus bisa menerima gambar). |
 | `AI_MAX_TOKENS` | tidak | Default `4000`. Naikkan bila model "thinking" sering membalas kosong. |
@@ -228,6 +233,42 @@ PIN/password/OTP atau nomor kartu/rekening tidak disimpan sama sekali. Batas 10 
 Admin melihatnya di bagian **💡 Ide dari pengguna**: dikelompokkan per topik dengan jumlah permintaan dan jumlah pengguna
 (tidak pernah menampilkan siapa), bisa diberi status (Baru/Direncanakan/Selesai/Diabaikan) dan catatan. Tombol
 **Rangkum jadi ide dengan AI** mengelompokkan pesan yang belum dipahami bot menjadi topik ide.
+
+## PWA (fase 1)
+
+Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak ada variabel baru.
+- **Manifest dan ikon**: `webapp/static/manifest.webmanifest` dan `webapp/static/icons/` (192, 512, maskable, apple-touch).
+- **Service worker** (`webapp/src/service-worker.ts`): menyimpan app shell; `/api`, `/admin`, `/health` tidak pernah di-cache.
+  Halaman memakai network-first, jadi deploy baru langsung terlihat. Beranda menyimpan ringkasan terakhir per pengguna di
+  perangkat dan menampilkannya saat offline.
+- **Di Telegram**: kartu "Pasang PantaUangmu" memakai `addToHomeScreen` (Telegram 8.0+), sehingga shortcut tetap login lewat Telegram.
+- **Di browser / PWA terpasang**: belum ada login (fase 2), jadi tampil layar "Buka di Telegram" (link dari `GET /api/app-config`)
+  plus tombol Pasang (Android/Chrome) atau panduan Bagikan → Tambah ke Layar Utama (iPhone). Tema mengikuti terang/gelap sistem.
+- **Keamanan**: `npm run build` menjalankan `scripts/check-bundle.mjs` dan gagal bila bundel memuat `X-Dev-User-Id`, `VITE_*`,
+  token bot, atau API key. CSP menambah `worker-src 'self'` dan `manifest-src 'self'`.
+- Cek installable: Chrome DevTools → Application → Manifest, atau Lighthouse.
+
+## Broadcast & pengingat default (web admin)
+
+- **📣 Broadcast**: tulis pesan (atau pakai template "pembaruan aplikasi"), pilih penerima (semua / trial & berbayar aktif /
+  trial / berbayar / gratis), opsional tombol "Buka PantaUangmu". Kirim tes ke Telegram user ID-mu dulu. Pengiriman berjalan
+  di latar belakang (~25 pesan/detik); riwayat menampilkan terkirim, gagal, dan yang memblokir bot. Broadcast yang terputus
+  oleh deploy ditandai "Terputus" dan tidak dilanjutkan otomatis.
+- **⏰ Pengingat harian default**: jam default (atau matikan) dan teks sendiri untuk pengingat "jangan lupa mencatat".
+  Berlaku untuk pengguna yang tidak memilih jam sendiri. "Terapkan jam default ke semua pengguna" mengembalikan pilihan jam
+  pribadi ke default; pengguna yang mematikan pengingat tetap mati.
+- **Pengingat 2x sehari**: isi "Pengingat 2 (siang)" di admin. Tiap pesan pengingat punya tombol 🔕 untuk mematikannya; di bot
+  juga bisa `/pengingat`, "pengingat siang jam 12", "matikan pengingat siang". Yang sudah mematikan pengingat 1 tidak dapat pengingat 2.
+
+## Analitik produk & kesehatan AI (web admin)
+
+- **🩺 Kesehatan AI**: per model dan jenis (chat/voice/foto) tingkat berhasil, waktu respons rata-rata dan P95, error terakhir,
+  dan biaya perkiraan. Peringatan merah bila ≥30% panggilan gagal dalam 1 jam (min. 5 panggilan), 3 panggilan terakhir gagal,
+  atau tidak ada AI yang berhasil dalam 24 jam; oranye bila P95 > 10 detik.
+- **📈 Funnel & retensi**: mulai bot → mencatat → mencatat di 3+ hari → masih mencatat 7 hari terakhir, plus berbayar.
+  Kohort per minggu daftar dengan D1/D7/D30.
+- **⚠️ Pengguna berisiko berhenti**: dulu rajin (3+ hari mencatat dalam sebulan) tapi diam 3–14 hari. Tombol "Kirim pesan
+  kangen" mengisi broadcast dengan segmen ini dan template `{nama}`.
 
 ## Risiko diketahui
 

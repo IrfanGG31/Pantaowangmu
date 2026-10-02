@@ -543,6 +543,150 @@ function setDays(days) {
 
 // ── Ideas from users ─────────────────────────────────────────────────────
 
+// ── Funnel, retention, users at risk ─────────────────────────────────────
+
+const pctText = (v) => (v === null || v === undefined ? '—' : `${String(v).replace('.', ',')}%`);
+const KANGEN_TEMPLATE = `Halo {nama}! 👋 Beberapa hari ini belum ada catatan nih.
+
+Nggak apa-apa, mulai lagi dari yang kecil: ketik saja pengeluaran hari ini, misalnya "makan siang 25rb".
+
+Panta siap bantu kapan pun 💙`;
+
+// The admin CSP blocks style="" attributes; setting the style through the DOM is allowed.
+function barFill(percent) {
+  const fill = el('div', { class: 'funnel-fill' });
+  fill.style.width = `${Math.max(0, Math.min(100, percent || 0))}%`;
+  return fill;
+}
+
+function renderAnalytics(a) {
+  $('funnel').replaceChildren(...a.funnel.map((step) => el('div', { class: step.separate ? 'funnel-row separate' : 'funnel-row' },
+    el('div', {}, step.label),
+    el('div', { class: 'funnel-bar', role: 'img', 'aria-label': `${step.label}: ${pctText(step.pct_of_start)}` },
+      barFill(step.pct_of_start)),
+    el('div', { class: 'funnel-num' }, `${fmt.format(step.count)} · ${pctText(step.pct_of_start)}`,
+      step.pct_of_previous !== null && step.step !== 'started' ? el('span', { class: 'muted small funnel-prev' }, `${pctText(step.pct_of_previous)} dari tahap sebelumnya`) : '',
+      step.separate ? el('span', { class: 'muted small funnel-prev' }, 'dari semua pengguna') : '')
+  )));
+
+  const rateCell = (v) => ({ text: pctText(v), class: v === null ? 'num muted' : v < 20 ? 'num rate-bad' : 'num' });
+  renderTable($('retention-table'), ['Minggu daftar', 'Pengguna', 'Pernah mencatat', 'D1', 'D7', 'D30'], a.retention.map((c) => [
+    `mulai ${fmtDate(c.week)}`, fmt.format(c.users), pctText(c.recorded_pct), rateCell(c.d1), rateCell(c.d7), rateCell(c.d30)
+  ]), 'Belum ada pengguna.', [1, 2, 3, 4, 5]);
+
+  renderTable($('at-risk-table'), ['Pengguna', 'Terakhir mencatat', 'Tidak mencatat', 'Hari aktif (30 hari sebelumnya)', 'Paket'], a.at_risk.map((u) => [
+    { text: `${u.name || '—'}${u.username ? ` (@${u.username})` : ''} · ${u.user_id}`, class: 'wrap' },
+    fmtDateTime(u.last_tx_at), `${fmt.format(u.days_quiet)} hari`, fmt.format(u.active_days_before),
+    u.state === 'free' ? 'Gratis' : u.tier === 'trial' ? 'Trial' : `Berbayar (${u.tier})`
+  ]), 'Tidak ada pengguna berisiko saat ini. 🎉', [2, 3]);
+  $('at-risk-message').disabled = a.at_risk.length === 0;
+}
+
+async function loadAnalytics() {
+  renderAnalytics(await api('/analytics'));
+}
+
+// ── AI health ────────────────────────────────────────────────────────────
+
+const HEALTH_LABEL = { ok: 'Sehat', warning: 'Perlu dicek', critical: 'Bermasalah', idle: 'Belum ada panggilan' };
+const KIND_LABEL = { chat: 'Chat', receipt: 'Foto struk', voice: 'Voice' };
+const ms = (v) => (v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1).replace('.', ',')} dtk` : `${v} ms`);
+
+function renderAiHealth(h) {
+  const pill = $('ai-health-status');
+  pill.className = `health-pill ${h.status}`;
+  pill.textContent = HEALTH_LABEL[h.status] || h.status;
+  $('ai-health-alerts').replaceChildren(...h.alerts.map((a) => el('li', { class: a.level }, `${a.level === 'critical' ? '🔴' : '🟠'} ${a.message}`)));
+  $('ai-health-summary').textContent = h.last_ok_at
+    ? `Panggilan AI terakhir yang berhasil: ${fmtRelative(h.last_ok_at)}. Data ${h.days} hari terakhir.`
+    : `Belum ada panggilan AI yang berhasil dalam ${h.days} hari terakhir.`;
+  renderTable($('ai-health-table'), ['Model', 'Untuk', 'Panggilan', 'Berhasil', 'Rata-rata', 'P95', '1 jam terakhir', 'Error terakhir', 'Biaya'], h.models.map((m) => [
+    { text: m.model, class: 'wrap' },
+    KIND_LABEL[m.kind] || m.kind,
+    fmt.format(m.calls),
+    { text: pctText(m.success_pct), class: m.success_pct !== null && m.success_pct < 90 ? 'num rate-bad' : 'num rate-ok' },
+    ms(m.avg_latency_ms), ms(m.p95_latency_ms),
+    m.calls_last_hour ? `${fmt.format(m.failed_last_hour)} gagal / ${fmt.format(m.calls_last_hour)}` : '—',
+    { text: m.last_error ? `${m.last_error} (${fmtRelative(m.last_error_at)})` : '—', class: 'wrap' },
+    fmtMoney(m.cost)
+  ]), 'Belum ada panggilan AI.', [2, 3]);
+  renderTable($('ai-health-daily'), ['Tanggal', 'Panggilan', 'Gagal', 'Tingkat gagal'], [...h.daily].reverse().map((d) => [
+    fmtDate(d.date), fmt.format(d.calls), fmt.format(d.failed),
+    { text: pctText(d.calls ? Math.round((d.failed / d.calls) * 1000) / 10 : null), class: d.calls && d.failed / d.calls >= 0.3 ? 'num rate-bad' : 'num' }
+  ]), 'Belum ada data.', [1, 2, 3]);
+}
+
+async function loadAiHealth() {
+  renderAiHealth(await api('/ai-health?days=7'));
+}
+
+// ── Broadcasts ──────────────────────────────────────────────────────────
+
+const BROADCAST_STATUS = { sending: 'Mengirim…', done: 'Selesai', interrupted: 'Terputus', test: 'Tes' };
+const UPDATE_TEMPLATE = `🎉 Ada yang baru di PantaUangmu!
+
+Sekarang PantaUangmu bisa dipasang di layar utama HP. Cukup satu ketukan, tanpa cari chat bot dulu.
+
+Caranya: buka Mini App → di Beranda tekan "📲 Pasang".
+
+Ketik /tips untuk lihat cara lain memakai Panta.`;
+let broadcastPoll = null;
+let segmentInfo = {};
+
+function renderBroadcasts(b) {
+  const select = $('broadcast-segment');
+  const chosen = select.value || 'all';
+  segmentInfo = Object.fromEntries(b.segments.map((s) => [s.id, s]));
+  select.replaceChildren(...b.segments.map((s) => el('option', { value: s.id, selected: s.id === chosen }, `${s.label} (${fmt.format(s.count)})`)));
+  $('broadcast-bot').textContent = b.bot_ready ? 'Bot aktif' : 'Bot tidak aktif: broadcast tidak bisa dikirim';
+  $('broadcast-send').disabled = !b.bot_ready || Boolean(b.running_id);
+  $('broadcast-test').disabled = !b.bot_ready;
+  renderTable($('broadcasts-table'), ['Waktu', 'Admin', 'Penerima', 'Pesan', 'Terkirim', 'Gagal', 'Blokir bot', 'Status'], b.data.map((x) => [
+    fmtDateTime(x.created_at),
+    x.admin_email,
+    x.segment === 'test' ? 'Tes (1 akun)' : `${segmentInfo[x.segment]?.label || x.segment} · ${fmt.format(x.total)}`,
+    { text: x.text.length > 120 ? `${x.text.slice(0, 120)}…` : x.text, class: 'wrap' },
+    fmt.format(x.sent), fmt.format(x.failed), fmt.format(x.blocked),
+    { text: BROADCAST_STATUS[x.status] || x.status, class: `status-${x.status}` }
+  ]), 'Belum ada broadcast.', [4, 5, 6]);
+
+  clearTimeout(broadcastPoll);
+  if (b.running_id) {
+    const run = b.data.find((x) => x.id === b.running_id);
+    $('broadcast-status').textContent = run ? `Mengirim… ${fmt.format(run.sent + run.failed + run.blocked)}/${fmt.format(run.total)}` : 'Mengirim…';
+    broadcastPoll = setTimeout(loadBroadcasts, 3000);
+  }
+}
+
+async function loadBroadcasts() {
+  renderBroadcasts(await api('/broadcasts'));
+}
+
+function broadcastForm() {
+  const f = $('broadcast-form');
+  return { text: f.text.value.trim(), segment: f.segment.value, with_button: f.with_button.checked, user_id: f.test_user_id.value.trim() };
+}
+
+// ── Daily reminder defaults ─────────────────────────────────────────────
+
+function renderReminders(r) {
+  const f = $('reminder-form');
+  f.off.checked = r.time === 'off';
+  f.time.value = r.time === 'off' ? r.builtin_time : r.time;
+  f.time.disabled = r.time === 'off';
+  f.second_off.checked = r.second === 'off';
+  f.second.value = r.second === 'off' ? '12:00' : r.second;
+  f.second.disabled = r.second === 'off';
+  f.text.value = r.text || '';
+  const s = r.stats;
+  $('reminder-stats').textContent = `${fmt.format(s.users)} pengguna. Pengingat 1: ${fmt.format(s.custom)} memilih jam sendiri, ${fmt.format(s.off)} mematikan. Pengingat 2: ${fmt.format(s.custom2)} memilih jam sendiri, ${fmt.format(s.off2)} mematikan. ${fmt.format(s.smart)} memakai pengingat pintar. Sisanya mengikuti default.`;
+  state.reminderStats = s;
+}
+
+async function loadReminders() {
+  renderReminders(await api('/reminders'));
+}
+
 const IDEA_LABEL = { new: 'Baru', planned: 'Direncanakan', done: 'Selesai', ignored: 'Diabaikan' };
 
 function renderIdeas(state) {
@@ -613,7 +757,7 @@ async function loadBackups() {
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadReminders(), loadAnalytics(), loadAiHealth()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -779,6 +923,93 @@ $('backup-now').addEventListener('click', async (event) => {
 });
 
 $('idea-status').addEventListener('change', () => ideasState && renderIdeas(ideasState));
+
+$('at-risk-message').addEventListener('click', () => {
+  const f = $('broadcast-form');
+  f.segment.value = 'at_risk';
+  if (!f.text.value.trim() || confirm('Ganti pesan broadcast yang sudah ditulis dengan template "kangen"?')) {
+    f.text.value = KANGEN_TEMPLATE;
+    f.text.dispatchEvent(new Event('input'));
+  }
+  f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('broadcast-status').textContent = 'Penerima: pengguna berisiko berhenti. {nama} diganti nama tiap pengguna. Kirim tes dulu.';
+});
+
+$('broadcast-form').text.addEventListener('input', (event) => {
+  $('broadcast-count').textContent = `${event.target.value.length}/3500 karakter`;
+});
+
+$('broadcast-template').addEventListener('click', () => {
+  const f = $('broadcast-form');
+  if (f.text.value.trim() && !confirm('Ganti pesan yang sudah ditulis dengan template?')) return;
+  f.text.value = UPDATE_TEMPLATE;
+  f.text.dispatchEvent(new Event('input'));
+});
+
+$('broadcast-test').addEventListener('click', async (event) => {
+  const data = broadcastForm();
+  showError('broadcast-error', '');
+  event.target.disabled = true;
+  try {
+    await api('/broadcasts/test', { method: 'POST', body: JSON.stringify(data) });
+    $('broadcast-status').textContent = `Tes terkirim ke ${data.user_id}. Cek Telegram.`;
+    loadBroadcasts();
+  } catch (err) {
+    showError('broadcast-error', err.message);
+  } finally {
+    event.target.disabled = false;
+  }
+});
+
+$('broadcast-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = broadcastForm();
+  const seg = segmentInfo[data.segment];
+  showError('broadcast-error', '');
+  if (!data.text) return showError('broadcast-error', 'Pesan tidak boleh kosong');
+  if (!confirm(`Kirim pesan ini ke ${fmt.format(seg?.count ?? 0)} pengguna (${seg?.label || data.segment})?\n\nPesan yang sudah terkirim tidak bisa ditarik kembali.`)) return;
+  try {
+    renderBroadcasts(await api('/broadcasts', { method: 'POST', body: JSON.stringify({ text: data.text, segment: data.segment, with_button: data.with_button }) }));
+    loadAudit();
+  } catch (err) {
+    showError('broadcast-error', err.message);
+  }
+});
+
+$('reminder-form').off.addEventListener('change', (event) => {
+  $('reminder-form').time.disabled = event.target.checked;
+});
+$('reminder-form').second_off.addEventListener('change', (event) => {
+  $('reminder-form').second.disabled = event.target.checked;
+});
+
+$('reminder-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.target;
+  showError('reminder-error', '');
+  try {
+    renderReminders(await api('/reminders', { method: 'PUT', body: JSON.stringify({ time: f.off.checked ? 'off' : f.time.value, second: f.second_off.checked ? 'off' : f.second.value, text: f.text.value }) }));
+    $('reminder-status').textContent = 'Tersimpan.';
+    loadAudit();
+  } catch (err) {
+    showError('reminder-error', err.message);
+  }
+});
+
+$('reminder-reset').addEventListener('click', async () => {
+  const custom = state.reminderStats?.custom ?? 0;
+  const custom2 = state.reminderStats?.custom2 ?? 0;
+  if (!confirm(`${fmt.format(custom)} (pengingat 1) dan ${fmt.format(custom2)} (pengingat 2) pengguna yang memilih jam sendiri akan kembali ke jam default.\nPengguna yang mematikan pengingat tetap mati. Lanjut?`)) return;
+  showError('reminder-error', '');
+  try {
+    const r = await api('/reminders/reset-all', { method: 'POST', body: '{}' });
+    renderReminders(r);
+    $('reminder-status').textContent = `${fmt.format(r.reset)} pengguna kembali ke jam default.`;
+    loadAudit();
+  } catch (err) {
+    showError('reminder-error', err.message);
+  }
+});
 
 $('cluster-ideas').addEventListener('click', async (event) => {
   const button = event.currentTarget;

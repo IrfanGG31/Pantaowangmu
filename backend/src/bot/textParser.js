@@ -181,6 +181,9 @@ const RECURRING_RE = /\b(?:tiap|setiap|per|rutin)\s+(?:bulan(?:nya)?(?:\s+(?:tan
 // "ingatkan aku jam 8 malam", "pengingat jam 20.30", "matikan pengingat"
 const REMINDER_RE = /^(?:tolong\s+)?(?:ingatkan|ingetin|ingatin|pengingat|reminder)(?:\s+(?:aku|saya|gue|gw))?(?:\s+(?:catat|nyatat|buat\s+catat))?(?:\s+(?:tiap\s+hari|setiap\s+hari))?\s+(?:jam|pukul|pkl)\s+(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
 const REMINDER_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)(?:\s+harian)?\b/i;
+// The second (midday) reminder: "pengingat siang jam 12", "matikan pengingat siang", "pengingat kedua jam 13.30".
+const REMINDER2_RE = /^(?:atur\s+)?(?:pengingat|reminder)\s+(?:siang|kedua|ke-?2)\s+(?:jam|pukul|pkl)?\s*(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
+const REMINDER2_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)\s+(?:siang|kedua|ke-?2)\b/i;
 
 // ── v3: tags, split bills, debts, challenges ───────────────────────────────
 
@@ -323,7 +326,7 @@ function parseWalletBalance(original, text, found, wallets) {
  *   { intent: 'transfer', kind: string, amount: number, from_wallet_id: number|null, to_wallet_id: number|null } |
  *   { intent: 'add_bill', name: string, amount: number, day_of_month: number|null, type: 'income'|'expense', category: string|null } |
  *   { intent: 'profile_income', monthly_income: number, payday: number|null } |
- *   { intent: 'reminder', time: string } |
+ *   { intent: 'reminder', time?: string, time2?: string } |
  *   { intent: 'unknown' }
  * )}
  */
@@ -376,6 +379,13 @@ export function parseFreeText(input, options = {}) {
     if (name) return { intent: 'add_category', name, type: kind === 'pemasukan' ? 'income' : 'expense', emoji };
   }
 
+  if (REMINDER2_OFF_RE.test(original)) return { intent: 'reminder', time2: 'off' };
+  const rem2 = REMINDER2_RE.exec(original);
+  if (rem2) {
+    const hour = to24h(Number(rem2[1]), rem2[3]?.toLowerCase() || (Number(rem2[1]) <= 6 ? 'siang' : undefined));
+    const minute = rem2[2] ? Number(rem2[2]) : 0;
+    if (hour <= 23 && minute <= 59) return { intent: 'reminder', time2: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` };
+  }
   if (REMINDER_OFF_RE.test(original)) return { intent: 'reminder', time: 'off' };
   const rem = REMINDER_RE.exec(original);
   if (rem) {
@@ -534,4 +544,40 @@ function parseDebt(original, found, options) {
     return { intent: 'debt', direction: 'owed_to_me', person: owesMe[1].trim(), amount: found.amount, note: noteOf(rest) };
   }
   return null;
+}
+
+const ITEM_JOINERS_RE = /^(?:[,;+&/\-–]+\s*|(?:dan|sama|terus|lalu|plus|trus)\s+)+|(?:\s*[,;+&/\-–]+|\s+(?:dan|sama|terus|lalu|plus|trus))+$/giu;
+
+/**
+ * Splits a message with several amounts into one transaction per item: "cat 95rb timah 30rb",
+ * "makan 200 ribu, parkir 5rb", "95rb cat 30rb timah". Text after the last amount (e.g. "pakai gopay #rumah")
+ * applies to every item. Returns null unless every part reads as a transaction.
+ * @returns {Array<{ intent: 'transaction', type: string, amount: number, category: string|null, note: string }> | null}
+ */
+export function splitItems(input, options = {}) {
+  const text = String(input || '').replace(/\s+/g, ' ').trim();
+  const amounts = [];
+  for (const m of text.matchAll(AMOUNT_RE)) {
+    const suffix = m[2] ? m[2].toLowerCase() : '';
+    const amount = parseRupiah(m[1] + (SUFFIX_ALIASES[suffix] || suffix));
+    const strong = Boolean(suffix) || /^rp/i.test(m[0]) || /[.,]/.test(m[1]);
+    if (amount && (strong || amount >= 1000)) amounts.push({ raw: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  if (amounts.length < 2) return null;
+
+  const clean = (s) => s.trim().replace(ITEM_JOINERS_RE, '').trim();
+  const amountFirst = !clean(text.slice(0, amounts[0].start));
+  const shared = amountFirst ? '' : clean(text.slice(amounts.at(-1).end));
+  const items = [];
+  for (let i = 0; i < amounts.length; i++) {
+    const a = amounts[i];
+    const desc = amountFirst
+      ? clean(text.slice(a.end, i + 1 < amounts.length ? amounts[i + 1].start : text.length))
+      : clean(text.slice(i ? amounts[i - 1].end : 0, a.start));
+    if (!/\p{L}/u.test(desc)) return null;
+    const parsed = parseFreeText(`${desc} ${a.raw}${shared ? ` ${shared}` : ''}`, options);
+    if (parsed.intent !== 'transaction') return null;
+    items.push(parsed);
+  }
+  return items;
 }

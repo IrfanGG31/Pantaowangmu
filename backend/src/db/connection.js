@@ -105,7 +105,9 @@ const ADDED_COLUMNS = {
     // Onboarding: NULL = never introduced, 'ask_name' = waiting for a nickname, 'done'.
     ['onboarding', 'TEXT'],
     ['tips_seen', 'INTEGER DEFAULT 0'],
-    ['last_tip_at', 'DATETIME']
+    ['last_tip_at', 'DATETIME'],
+    // Second daily reminder: NULL = admin default, 'off', or 'HH:MM'.
+    ['reminder2_time', 'TEXT']
   ],
   transactions: [
     ['wallet_id', 'INTEGER'],

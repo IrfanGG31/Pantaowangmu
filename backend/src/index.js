@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import http from 'node:http';
 import { initDatabase } from './db/connection.js';
+import { markInterruptedBroadcasts } from './bot/broadcast.js';
 import app, { logger } from './api/server.js';
 import { initBot, getBot } from './bot/index.js';
 import { startBackupSchedule } from './backup/index.js';
@@ -12,6 +13,7 @@ async function bootstrap() {
     // 1. Initialize SQLite Database
     logger.info('[Bootstrap] Initializing database...');
     initDatabase();
+    markInterruptedBroadcasts(); // a broadcast cut off by a restart/deploy can't resume
     logger.info('[Bootstrap] Database schema initialized.');
     startBackupSchedule(logger);
 
@@ -39,6 +41,13 @@ async function bootstrap() {
 
     // 3. Initialize Telegram Bot & Cron Schedulers
     await initBot();
+
+    // Optional: check every configured AI model once from this server (AI_SELFTEST=true). Never blocks startup.
+    if (process.env.AI_SELFTEST === 'true') {
+      import('./ai/selftest.js')
+        .then(({ runAiSelfTest }) => runAiSelfTest({ logger }))
+        .catch((err) => logger.warn({ err: err.message }, '[AI selftest] failed to run'));
+    }
 
     // Graceful Shutdown
     const shutdown = async (signal) => {

@@ -58,6 +58,38 @@
         <div class="table-wrap"><table id="daily-table"></table></div>
       </details>
 
+      <section class="card" id="ai-health">
+        <div class="section-head">
+          <h2>🩺 Kesehatan AI</h2>
+          <span id="ai-health-status" class="health-pill"></span>
+        </div>
+        <ul id="ai-health-alerts" class="health-alerts"></ul>
+        <p id="ai-health-summary" class="muted small"></p>
+        <div class="table-wrap"><table id="ai-health-table"></table></div>
+        <details class="add-plan">
+          <summary>Panggilan & kegagalan per hari (7 hari)</summary>
+          <div class="table-wrap"><table id="ai-health-daily"></table></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>📈 Funnel & retensi</h2>
+        <p class="muted small">Di tahap mana pengguna berhenti. "Mencatat" = ada transaksi; berdasarkan semua data, bukan hanya periode di atas.</p>
+        <div id="funnel" class="funnel"></div>
+        <h3 class="small muted">Retensi per minggu daftar</h3>
+        <p class="muted small">D1/D7/D30 = persen pengguna yang masih mencatat setelah hari ke-1/7/30 sejak daftar. Kosong bila belum ada pengguna seumur itu.</p>
+        <div class="table-wrap"><table id="retention-table"></table></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>⚠️ Pengguna berisiko berhenti</h2>
+          <button id="at-risk-message" class="btn primary" type="button">Kirim pesan "kangen"</button>
+        </div>
+        <p class="muted small">Dulu rajin (mencatat di 3+ hari dalam sebulan) tapi 3–14 hari terakhir tidak mencatat. Sapa sebelum mereka lupa.</p>
+        <div class="table-wrap"><table id="at-risk-table"></table></div>
+      </section>
+
       <section class="card">
         <div class="section-head">
           <h2>Pengguna</h2>
@@ -138,6 +170,58 @@
 
       <section class="card">
         <div class="section-head">
+          <h2>📣 Broadcast ke pengguna</h2>
+          <span id="broadcast-bot" class="muted small"></span>
+        </div>
+        <p class="muted small">Kirim pengumuman, misalnya pembaruan aplikasi, lewat bot. Teks biasa tanpa format. Coba kirim tes ke akun Telegram-mu dulu.</p>
+        <form id="broadcast-form" class="stack">
+          <div class="row row-wrap">
+            <label class="field">Penerima <select name="segment" id="broadcast-segment"></select></label>
+            <label class="check"><input type="checkbox" name="with_button" checked> Tombol "📱 Buka PantaUangmu"</label>
+            <button class="btn" type="button" id="broadcast-template">Template: pembaruan aplikasi</button>
+          </div>
+          <textarea name="text" rows="7" maxlength="3500" placeholder="Tulis pesan untuk pengguna…"></textarea>
+          <div class="muted small" id="broadcast-count">0/3500 karakter</div>
+          <div class="row row-wrap">
+            <label class="field">Tes ke Telegram user ID <input name="test_user_id" inputmode="numeric" placeholder="mis. 123456789"></label>
+            <button class="btn" type="button" id="broadcast-test">Kirim tes</button>
+            <button class="btn primary" type="submit" id="broadcast-send">Kirim ke penerima</button>
+            <span id="broadcast-status" class="muted small"></span>
+          </div>
+        </form>
+        <p id="broadcast-error" class="error" role="alert" hidden></p>
+        <h3 class="small muted">Riwayat broadcast</h3>
+        <div class="table-wrap"><table id="broadcasts-table"></table></div>
+      </section>
+
+      <section class="card">
+        <h2>⏰ Pengingat harian default</h2>
+        <p class="muted small">Pengingat "jangan lupa mencatat" dikirim hanya ke pengguna yang hari itu belum mencatat. Default ini berlaku untuk semua pengguna yang tidak memilih jam sendiri.</p>
+        <form id="reminder-form" class="stack">
+          <div class="row row-wrap">
+            <label class="field">Pengingat 1 · jam default (zona waktu bot) <input type="time" name="time" step="60"></label>
+            <label class="check"><input type="checkbox" name="off"> Matikan pengingat 1</label>
+          </div>
+          <div class="row row-wrap">
+            <label class="field">Pengingat 2 (siang) · jam default <input type="time" name="second" step="60"></label>
+            <label class="check"><input type="checkbox" name="second_off"> Matikan pengingat 2</label>
+          </div>
+          <p class="muted small">Tiap pesan pengingat punya tombol 🔕 supaya pengguna bisa mematikannya sendiri. Pengguna yang sudah mematikan pengingat 1 tidak menerima pengingat 2.</p>
+          <label class="grow">Teks pengingat (opsional). Tulis {nama} untuk nama pengguna. Kosongkan untuk teks bawaan.
+            <textarea name="text" rows="4" maxlength="600" placeholder="Halo {nama}! Hari ini belum ada catatan. Yuk catat pengeluaranmu, misalnya &quot;makan siang 25rb&quot;."></textarea>
+          </label>
+          <div class="row row-wrap">
+            <button class="btn primary" type="submit">Simpan default</button>
+            <button id="reminder-reset" class="btn" type="button">Terapkan jam default ke semua pengguna</button>
+            <span id="reminder-status" class="muted small"></span>
+          </div>
+        </form>
+        <p id="reminder-stats" class="muted small"></p>
+        <p id="reminder-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
           <h2>💡 Ide dari pengguna</h2>
           <div class="user-filters">
             <select id="idea-status" aria-label="Filter status ide">
@@ -153,7 +237,7 @@
         <div class="table-wrap"><table id="ideas-table"></table></div>
         <details class="add-plan" id="unparsed-box">
           <summary id="unparsed-summary">Pesan yang belum dipahami bot</summary>
-          <div class="row" style="margin: 8px 0;">
+          <div class="row spaced">
             <button id="cluster-ideas" class="btn primary" type="button">Rangkum jadi ide dengan AI</button>
             <span id="cluster-status" class="muted small"></span>
           </div>

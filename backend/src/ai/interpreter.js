@@ -29,35 +29,58 @@ export function getAiConfig() {
     baseUrl,
     apiKey,
     model,
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
     maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
 
-const DEFAULT_TIMEOUT_MS = 15000;
+// Every AI call gives up after at most 15 s (AI_TIMEOUT_MS can only lower it), so the user is never kept waiting long.
+const MAX_TIMEOUT_MS = 15000;
+const timeoutFromEnv = (value) => Math.min(Number(value) || MAX_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
 /**
- * Optional primary chat model tried before AI_* (e.g. Groq or OpenAI): AI_PRIMARY_BASE_URL, AI_PRIMARY_API_KEY,
- * AI_PRIMARY_MODEL. AI_* stays the secondary fallback and is still the only model for receipts and reports.
+ * Fallback chat model tried when AI_* fails or times out (e.g. MiniMax): AI_FALLBACK_BASE_URL, AI_FALLBACK_API_KEY,
+ * AI_FALLBACK_MODEL. Used for chat only; receipts and reports use AI_*.
  */
-export function getPrimaryAiConfig() {
-  const baseUrl = cleanEnv(process.env.AI_PRIMARY_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_PRIMARY_API_KEY);
-  const model = cleanEnv(process.env.AI_PRIMARY_MODEL);
+export function getFallbackAiConfig() {
+  const baseUrl = cleanEnv(process.env.AI_FALLBACK_BASE_URL).replace(/\/+$/, '');
+  const apiKey = cleanEnv(process.env.AI_FALLBACK_API_KEY);
+  const model = cleanEnv(process.env.AI_FALLBACK_MODEL);
   if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
   return {
     baseUrl,
     apiKey,
     model,
-    timeoutMs: Number(process.env.AI_PRIMARY_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
     maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
 
-/** Chat models in the order they are tried: AI_PRIMARY_* (if set), then AI_*. */
+/** Chat models in the order they are tried: AI_* (e.g. Groq), then AI_FALLBACK_* (e.g. MiniMax). */
 export function getAiChain() {
-  return [getPrimaryAiConfig(), getAiConfig()].filter(Boolean);
+  return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
 }
+
+/**
+ * A model for one kind of media, e.g. AI_VISION_* or AI_AUDIO_*: <PREFIX>_MODEL (+ <PREFIX>_BASE_URL and
+ * <PREFIX>_API_KEY for another provider such as OpenRouter; without them AI_BASE_URL / AI_API_KEY are used).
+ * @param {string} prefix
+ * @param {{ defaultModel?: string }} [options]
+ */
+function mediaConfig(prefix, { defaultModel = '' } = {}) {
+  const ownBase = cleanEnv(process.env[`${prefix}_BASE_URL`]);
+  const baseUrl = (ownBase || cleanEnv(process.env.AI_BASE_URL)).replace(/\/+$/, '');
+  const apiKey = ownBase ? cleanEnv(process.env[`${prefix}_API_KEY`]) : cleanEnv(process.env.AI_API_KEY);
+  const model = cleanEnv(process.env[`${prefix}_MODEL`]) || defaultModel;
+  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
+  return { baseUrl, apiKey, model, timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS), maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000 };
+}
+
+/** Receipt photos: AI_VISION_* (e.g. OpenRouter Inkling), else AI_MODEL on AI_*. */
+export const getVisionConfig = () => mediaConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
+
+/** Voice notes through a chat model that accepts audio: AI_AUDIO_* (e.g. OpenRouter Inkling). Off unless AI_AUDIO_MODEL is set. */
+export const getAudioConfig = () => mediaConfig('AI_AUDIO');
 
 export const aiAvailable = () => getAiChain().length > 0;
 
@@ -175,7 +198,7 @@ Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"transfer","from":"<nama dompet asal>","to":"<nama dompet tujuan>","amount":<bilangan bulat>}  (pindah uang antar dompet sendiri, mis. tarik tunai, top up)
 {"type":"add_bill","name":"<nama tagihan>","amount":<bilangan bulat>,"day_of_month":<1-31>,"category":"<kategori>","tx_type":"expense"|"income","wallet":"<nama dompet>"}  (tagihan/langganan/cicilan bulanan; wallet opsional)
 {"type":"delete_bill","name":"<nama tagihan>"}
-{"type":"set_reminder","time":"HH:MM"|"off","smart":true|false}  (jam pengingat harian; smart = pengingat pintar sesuai kebiasaan; isi yang disebut saja)
+{"type":"set_reminder","time":"HH:MM"|"off","time2":"HH:MM"|"off","smart":true|false}  (time = pengingat harian; time2 = pengingat kedua/siang; smart = pengingat pintar sesuai kebiasaan; isi yang disebut saja)
 {"type":"split_bill","total":<total tagihan>,"people":<jumlah orang termasuk pengguna>,"names":["<nama teman>"],"category":"<kategori>","note":"<catatan>","wallet":"<nama dompet>"}  (patungan: bagian pengguna dicatat, sisanya piutang)
 {"type":"add_debt","person":"<nama>","direction":"owed_to_me"|"i_owe","amount":<bilangan bulat>,"note":"<catatan>"}  (owed_to_me = orang itu utang ke pengguna)
 {"type":"settle_debt","person":"<nama>","direction":"owed_to_me"|"i_owe"}  (tandai lunas)
@@ -199,7 +222,7 @@ ATURAN AKSI
 - Pengeluaran rutin bulanan ("kos 1,5jt tiap tanggal 5", "langganan netflix 54rb tgl 12") = add_bill, BUKAN add_transaction.
   Saat pengguna bilang sudah membayar tagihan rutin, catat dengan add_transaction biasa (bot menandainya lewat tombol).
   Gaji tetap ("gajiku 8jt tiap tanggal 25") = set_profile, bukan add_bill.
-- "ingatkan aku jam 8 malam" = set_reminder time "20:00". "jangan ingatkan lagi" = set_reminder time "off".
+- "ingatkan aku jam 8 malam" = set_reminder time "20:00". "jangan ingatkan lagi" = set_reminder time "off". "pengingat siang jam 12" = set_reminder time2 "12:00"; "matikan pengingat siang" = set_reminder time2 "off".
 - Patungan/split bill ("makan 300rb bagi 3 sama andi budi") = split_bill, BUKAN add_transaction.
   Meminjamkan/meminjam uang = add_debt (bukan pengeluaran/pemasukan). "andi bayarin aku makan 40rb" = add_transaction
   40rb (tanpa wallet) + add_debt i_owe ke Andi. Utang-piutang tidak mengubah Sisa saldo.
@@ -237,7 +260,7 @@ Pengguna: "jelasin dong apa itu inflasi"
 
 // ── Model call and output handling ──────────────────────────────────────────
 
-function stripThinking(content) {
+export function stripThinking(content) {
   return String(content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
@@ -370,6 +393,7 @@ export function sanitizeAction(raw, ctx = {}) {
   if (raw.type === 'set_reminder') {
     const out = { type: 'set_reminder' };
     if (raw.time === 'off' || (typeof raw.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time))) out.time = raw.time;
+    if (raw.time2 === 'off' || (typeof raw.time2 === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time2))) out.time2 = raw.time2;
     if (typeof raw.smart === 'boolean') out.smart = raw.smart;
     return Object.keys(out).length > 1 ? out : null;
   }
@@ -556,7 +580,10 @@ export async function runAssistant({ userId, text, context, hint = null, categor
       logger?.warn({ err: err.message }, '[AI] Failed to record usage');
     }
 
-    if (output) break;
+    if (output) {
+      logger?.info?.({ model: config.model, fallback: config !== chain[0], latency_ms: result.latencyMs }, '[AI] Reply');
+      break;
+    }
     if (!result.ok) {
       if (isOutage(result)) cooldowns.set(modelKey(config), Date.now() + cooldownMs());
       logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Request failed');
@@ -633,14 +660,13 @@ export function sanitizeReceipt(raw, categories = EXPENSE_CATEGORIES) {
 }
 
 /**
- * Reads a receipt photo with the vision model (AI_VISION_MODEL, falling back to AI_MODEL).
+ * Reads a receipt photo with the vision model (AI_VISION_*, falling back to AI_MODEL on AI_*).
  * Resolves to sanitizeReceipt()'s result, or null when AI is off or the call fails.
  * @param {{ imageBase64: string, mimeType: string, caption?: string }} input
  */
 export async function readReceipt({ imageBase64, mimeType, caption = '', categories = EXPENSE_CATEGORIES }, { fetchImpl = fetch, logger, onUsage } = {}) {
-  const base = getAiConfig();
-  if (!base) return null;
-  const config = { ...base, model: cleanEnv(process.env.AI_VISION_MODEL) || base.model };
+  const config = getVisionConfig();
+  if (!config) return null;
 
   const text = caption ? `Keterangan dari pengguna: ${String(caption).slice(0, 200)}` : 'Baca nota ini.';
   const messages = [

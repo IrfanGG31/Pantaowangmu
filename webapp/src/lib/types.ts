@@ -84,7 +84,8 @@ export interface Profile {
   emoji: boolean | null;
   language: 'auto' | 'id' | 'jawa' | 'sunda' | 'en' | 'campur' | null;
   persona: 'teman' | 'konsultan' | 'coach' | null;
-  reminder_time: string | null; // "HH:MM", "off", or null (default 21:00)
+  reminder_time: string | null; // "HH:MM", "off", or null (admin default)
+  reminder2_time: string | null; // second (midday) reminder: "HH:MM", "off", or null (admin default, off unless set)
   smart_nudge: boolean;
 }
 

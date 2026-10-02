@@ -3,6 +3,7 @@ import { registerHandlers } from './commands.js';
 import { BOT_COMMANDS } from './commandList.js';
 import { startScheduler } from './scheduler.js';
 import { logger } from '../api/server.js';
+import { setBotUsername, setActiveBot } from './identity.js';
 
 let botInstance = null;
 
@@ -21,9 +22,15 @@ export async function initBot() {
   try {
     const bot = new TelegramBot(token, { polling: true });
     botInstance = bot;
+    setActiveBot(bot);
 
     // Register command handlers
     registerHandlers(bot);
+
+    // Public @username for "Buka di Telegram" links in the web app (PWA).
+    bot.getMe().then((me) => setBotUsername(me?.username)).catch((err) => {
+      logger.warn({ err: err.message }, '[Bot] getMe failed');
+    });
 
     // Register BotFather commands list
     bot.setMyCommands(BOT_COMMANDS).catch((err) => {

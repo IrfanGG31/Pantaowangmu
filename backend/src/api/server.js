@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import pino from 'pino';
 import healthRouter from './routes/health.js';
+import { getBotUsername } from '../bot/identity.js';
 import transactionsRouter from './routes/transactions.js';
 import budgetsRouter from './routes/budgets.js';
 import exportRouter from './routes/export.js';
@@ -59,7 +60,10 @@ app.use(helmet({
     directives: {
       'script-src': ["'self'", 'https://telegram.org', ...inlineScriptHashes(webappIndex)],
       'connect-src': ["'self'"],
-      'frame-ancestors': ["'self'", 'https://web.telegram.org', 'https://*.telegram.org']
+      'frame-ancestors': ["'self'", 'https://web.telegram.org', 'https://*.telegram.org'],
+      // PWA: service worker and web app manifest from this origin only.
+      'worker-src': ["'self'"],
+      'manifest-src': ["'self'"]
     }
   }
 }));
@@ -108,6 +112,12 @@ app.get(['/categories', '/api/categories'], (req, res) => {
 
 // Route Mounting
 app.use(['/health', '/api/health'], healthRouter);
+
+// Public, non-secret settings for the web app outside Telegram (PWA): where to open the bot.
+app.get('/api/app-config', (req, res) => {
+  const bot = getBotUsername();
+  res.json({ bot_username: bot, bot_url: bot ? `https://t.me/${bot}` : null });
+});
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/budgets', budgetsRouter);
 app.use('/api/export', exportRouter);

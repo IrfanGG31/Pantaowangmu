@@ -21,7 +21,7 @@ const TIMEZONE = process.env.TIMEZONE || 'Asia/Jakarta';
 export function startScheduler(bot) {
   logger.info(`[Scheduler] Initializing cron jobs with timezone ${TIMEZONE}`);
 
-  // ── 1. Daily reminder at each user's own time (default 21:00), smart habit nudges ──
+  // ── 1. Daily reminder at each user's own time (else the admin default), smart habit nudges ──
   cron.schedule(
     `*/${TICK_MINUTES} * * * *`,
     async () => {

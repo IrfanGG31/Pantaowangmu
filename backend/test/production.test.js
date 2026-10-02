@@ -32,6 +32,8 @@ describe('Production mode (NODE_ENV=production)', () => {
       path.join(buildDir, 'index.html'),
       `<!doctype html><html><body><div id="app"></div><script>${INLINE_SCRIPT}</script></body></html>`
     );
+    fs.writeFileSync(path.join(buildDir, 'manifest.webmanifest'), JSON.stringify({ name: 'PantaUangmu', display: 'standalone' }));
+    fs.writeFileSync(path.join(buildDir, 'service-worker.js'), 'self.addEventListener("fetch", () => {});');
 
     process.env.NODE_ENV = 'production';
     process.env.BOT_TOKEN = BOT_TOKEN;
@@ -101,6 +103,35 @@ describe('Production mode (NODE_ENV=production)', () => {
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('ok');
+    });
+  });
+
+  describe('PWA', () => {
+    it('serves the manifest as JSON and the service worker without long caching', async () => {
+      const manifest = await request(app).get('/manifest.webmanifest');
+      expect(manifest.status).toBe(200);
+      expect(manifest.headers['content-type']).toMatch(/application\/manifest\+json/);
+      expect(JSON.parse(manifest.text)).toMatchObject({ display: 'standalone' });
+
+      const sw = await request(app).get('/service-worker.js');
+      expect(sw.status).toBe(200);
+      expect(sw.headers['content-type']).toMatch(/javascript/);
+      expect(sw.headers['cache-control']).toBe('no-cache');
+    });
+
+    it('allows the service worker and manifest from this origin only', async () => {
+      const csp = (await request(app).get('/')).headers['content-security-policy'];
+      expect(csp).toContain("worker-src 'self'");
+      expect(csp).toContain("manifest-src 'self'");
+    });
+
+    it('exposes only the public bot username in /api/app-config', async () => {
+      const { setBotUsername } = await import('../src/bot/identity.js');
+      expect((await request(app).get('/api/app-config')).body).toEqual({ bot_username: null, bot_url: null });
+      setBotUsername('PantaUangmuBot');
+      expect((await request(app).get('/api/app-config')).body).toEqual({ bot_username: 'PantaUangmuBot', bot_url: 'https://t.me/PantaUangmuBot' });
+      setBotUsername('bad name; <script>');
+      expect((await request(app).get('/api/app-config')).body.bot_username).toBeNull();
     });
   });
 

@@ -6,6 +6,13 @@
   import { goto } from '$app/navigation';
   import { initWebApp, getColorScheme } from '$lib/telegram.js';
   import { colorScheme, toasts, loadUserCategories, loadWallets } from '$lib/stores.js';
+  import { getPlatform, refreshInstall, watchSystemTheme } from '$lib/platform.js';
+  import WebGate from '$lib/components/WebGate.svelte';
+
+  // Browser / installed PWA without Telegram: no sign-in yet (PWA phase 2), so show the gate instead of failing
+  // requests. The dev server keeps the full app (X-Dev-User-Id bypass).
+  const platform = getPlatform();
+  const showGate = platform === 'browser' && !import.meta.env.DEV;
 
   // ── Nav definition ─────────────────────────────────────────────
   interface NavItem { path: string; label: string; icon: string }
@@ -26,13 +33,19 @@
     colorScheme.set(getColorScheme());
   }
 
+  let stopSystemTheme: (() => void) | null = null;
+
   onMount(() => {
     tg = initWebApp();
     colorScheme.set(getColorScheme());
 
     if (tg) {
       tg.onEvent('themeChanged', onThemeChanged);
+    } else {
+      stopSystemTheme = watchSystemTheme((scheme) => colorScheme.set(scheme));
     }
+    refreshInstall();
+    if (showGate) return;
     loadUserCategories();
     loadWallets();
   });
@@ -41,6 +54,7 @@
     if (tg) {
       tg.offEvent('themeChanged', onThemeChanged);
     }
+    stopSystemTheme?.();
   });
 
   // ── Derived nav active state ───────────────────────────────────
@@ -56,6 +70,9 @@
   }
 </script>
 
+{#if showGate}
+<WebGate />
+{:else}
 <!-- App shell -->
 <div id="app-root">
   <slot />
@@ -76,6 +93,7 @@
     </button>
   {/each}
 </nav>
+{/if}
 
 <!-- Toast layer -->
 <div class="toast-container" aria-live="polite" aria-atomic="false">

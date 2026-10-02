@@ -13,7 +13,8 @@ import { getBalance, createTransaction, tagSummary, getTransactionsByUser } from
 import { addDebt, getDebt, listDebts, debtSummary, settleDebt, settlePerson, splitShares } from '../db/debts.js';
 import { suggestBudgets, setBudget } from '../db/budgets.js';
 import { startChallenge, listChallenges, challengesHitBy, challengeTitle } from '../db/challenges.js';
-import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL, DEFAULT_REMINDER_TIME } from '../db/memory.js';
+import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
+import { defaultReminderTime, defaultSecondReminderTime } from '../db/reminders.js';
 import { listBills, createBill, payBill, deleteBill, findBillByName } from '../db/bills.js';
 import { formatRupiah, getDateStr, getMonthStr } from '../utils/formatter.js';
 
@@ -307,38 +308,51 @@ export function doDeleteBill(userId, name) {
 
 // ── Reminders ───────────────────────────────────────────────────────────────
 
+// The second reminder follows the admin default, except for users who turned the daily reminder off.
+function secondReminderTime(p, time) {
+  return p.reminder2_time || (time === 'off' ? 'off' : defaultSecondReminderTime());
+}
+
 export function remindersText(userId) {
   const p = getMemory(userId).profile;
-  const time = p.reminder_time || DEFAULT_REMINDER_TIME;
+  const time = p.reminder_time || defaultReminderTime();
+  const time2 = secondReminderTime(p, time);
   return [
     '🔔 Pengingat',
     '',
     `Pengingat harian: ${time === 'off' ? 'mati' : `jam ${time}`} (hanya kalau hari itu belum ada catatan)`,
+    `Pengingat siang: ${time2 === 'off' ? 'mati' : `jam ${time2}`}`,
     `Pengingat pintar: ${p.smart_nudge ? 'aktif' : 'mati'} (Panta menyapa di jam kamu biasanya jajan, kalau belum mencatat)`,
     '',
-    'Atur lewat tombol, atau chat: "ingatkan aku jam 8 malam" / "matikan pengingat".'
+    'Atur lewat tombol, atau chat: "ingatkan aku jam 8 malam", "pengingat siang jam 12", "matikan pengingat siang".'
   ].join('\n');
 }
 
 export function remindersKeyboard(userId) {
   const p = getMemory(userId).profile;
-  const time = p.reminder_time || DEFAULT_REMINDER_TIME;
+  const time = p.reminder_time || defaultReminderTime();
+  const time2 = secondReminderTime(p, time);
   const mark = (on, text) => (on ? `✅ ${text}` : text);
   return {
     inline_keyboard: [
       ['19:00', '20:00', '21:00', '22:00'].map((t) => ({ text: mark(time === t, t), callback_data: `rt:${t}` })),
       [{ text: mark(time === 'off', 'Matikan harian'), callback_data: 'rt:off' }],
+      ['11:00', '12:00', '13:00'].map((t) => ({ text: mark(time2 === t, `☀️ ${t}`), callback_data: `r2:${t}` }))
+        .concat([{ text: mark(time2 === 'off', 'Matikan siang'), callback_data: 'r2:off' }]),
       [{ text: p.smart_nudge ? '🧠 Matikan pengingat pintar' : '🧠 Aktifkan pengingat pintar', callback_data: `rn:${p.smart_nudge ? 'off' : 'on'}` }]
     ]
   };
 }
 
-export function doSetReminder(userId, { time, smart }) {
+export function doSetReminder(userId, { time, time2, smart }) {
   const changes = {};
   if (time !== undefined) changes.reminder_time = time;
+  if (time2 !== undefined) changes.reminder2_time = time2;
   if (smart !== undefined) changes.smart_nudge = smart;
   const saved = setProfile(userId, changes);
   if (!saved.length) return '❌ Jam tidak valid. Contoh: "ingatkan aku jam 20:30".';
+  if (time2 === 'off' && time === undefined) return '🔕 Pengingat siang dimatikan. Nyalakan lagi: "pengingat siang jam 12" atau /pengingat';
+  if (time2 && time === undefined) return `☀️ Siap! Pengingat siang jam ${time2} kalau hari itu kamu belum mencatat. Atur lagi: /pengingat`;
   if (time === 'off') return '🔕 Pengingat harian dimatikan. Nyalakan lagi: "ingatkan aku jam 9 malam" atau /pengingat';
   if (time) return `🔔 Siap! Aku ingatkan jam ${time} kalau hari itu kamu belum mencatat. Atur lagi: /pengingat`;
   return smart ? '🧠 Pengingat pintar aktif. Aku pelajari jam kamu biasanya jajan.' : '🧠 Pengingat pintar dimatikan.';
