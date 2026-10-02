@@ -45,8 +45,8 @@ import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText, splitItems } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
-import { transcribeAudio, getSttConfig } from '../ai/transcribe.js';
-import { getAiConfig, aiAvailable, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
+import { transcribeVoice, voiceAvailable } from '../ai/transcribe.js';
+import { getVisionConfig, aiAvailable, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
 import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL, getOnboarding, setOnboarding } from '../db/memory.js';
 import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
 import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransactionWallet, walletParserOptions, updateWallet } from '../db/wallets.js';
@@ -1018,7 +1018,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const userId = ensureUser(msg);
     const typeIt = 'Ketik saja transaksinya, misalnya `beli cat 95rb`.';
 
-    if (!getSttConfig()) {
+    if (!voiceAvailable()) {
       return safeSendMessage(bot, chatId, `🎙️ Voice note belum aktif. ${typeIt}`, { parse_mode: 'Markdown' });
     }
     const entitlement = getEntitlement(getUser(userId));
@@ -1038,16 +1038,17 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       const audio = await downloadTelegramFile(media.file_id, MAX_VOICE_BYTES);
       const mimeType = media.mime_type || 'audio/ogg';
       const ext = (mimeType.split('/')[1] || 'ogg').replace('mpeg', 'mp3').replace(/[^a-z0-9]/g, '') || 'ogg';
-      result = await transcribeAudio({ audio, mimeType, filename: `voice.${ext}` });
+      const attempts = await transcribeVoice({ audio, mimeType, filename: `voice.${ext}` });
+      for (const attempt of attempts) {
+        try {
+          recordAiUsage({ user_id: userId, kind: 'voice', model: attempt.model, ok: attempt.ok && Boolean(attempt.text), http_status: attempt.status || null, latency_ms: attempt.latencyMs, error: attempt.ok ? null : attempt.error });
+        } catch {}
+        if (attempt.ok) logger.info({ model: attempt.model, latency_ms: attempt.latencyMs }, '[Voice] Transcribed');
+        else logger.warn({ model: attempt.model, status: attempt.status, error: attempt.error }, '[Voice] Transcription failed');
+      }
+      result = attempts.find((a) => a.ok && a.text) || attempts.at(-1) || null;
     } catch (err) {
       logger.warn({ err: err.message }, '[Voice] Download failed');
-    }
-    if (result) {
-      try {
-        recordAiUsage({ user_id: userId, kind: 'voice', model: result.model, ok: result.ok && Boolean(result.text), http_status: result.status || null, latency_ms: result.latencyMs, error: result.ok ? null : result.error });
-      } catch {}
-      if (result.ok) logger.info({ model: result.model, latency_ms: result.latencyMs }, '[Voice] Transcribed');
-      else logger.warn({ model: result.model, status: result.status, error: result.error }, '[Voice] Transcription failed');
     }
     if (!result?.ok) {
       return safeSendMessage(bot, chatId, `🎙️ Maaf, voice note belum bisa diproses sekarang. ${typeIt}`, { parse_mode: 'Markdown' });
@@ -1064,7 +1065,7 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
-    if (!getAiConfig()) {
+    if (!getVisionConfig()) {
       return safeSendMessage(bot, chatId, 'ℹ️ Baca foto nota butuh fitur AI yang belum aktif. Ketik saja, misalnya `belanja 87rb indomaret`.', { parse_mode: 'Markdown' });
     }
     const entitlement = getEntitlement(getUser(userId));

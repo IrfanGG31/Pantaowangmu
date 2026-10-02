@@ -3,7 +3,8 @@ import { initDatabase, db } from '../src/db/connection.js';
 import { registerHandlers, PROCESSING_FAILED } from '../src/bot/commands.js';
 import { getAllTransactions } from '../src/db/transactions.js';
 import { runAssistant, resetAiState, getAiChain } from '../src/ai/interpreter.js';
-import { transcribeAudio } from '../src/ai/transcribe.js';
+import { transcribeAudio, transcribeVoice } from '../src/ai/transcribe.js';
+import { getVisionConfig, readReceipt } from '../src/ai/interpreter.js';
 import { parseFreeText, splitItems } from '../src/bot/textParser.js';
 import { markOnboarded } from './helpers.js';
 import { logger as appLogger } from '../src/api/server.js';
@@ -38,7 +39,7 @@ class FakeBot {
 const GROQ = { AI_BASE_URL: 'https://api.groq.example/openai/v1', AI_API_KEY: 'groq-key', AI_MODEL: 'llama-3.1-8b-instant' };
 const MINIMAX = { AI_FALLBACK_BASE_URL: 'https://minimax.example/v1', AI_FALLBACK_API_KEY: 'mm-key', AI_FALLBACK_MODEL: 'MiniMax-M3.1-Flash-Preview' };
 const WHISPER = { GROQ_WHISPER_MODEL: 'whisper-large-v3-turbo' };
-const ENV_KEYS = [...Object.keys(GROQ), ...Object.keys(MINIMAX), ...Object.keys(WHISPER), 'AI_TIMEOUT_MS', 'GROQ_API_KEY', 'GROQ_BASE_URL'];
+const ENV_KEYS = [...Object.keys(GROQ), ...Object.keys(MINIMAX), ...Object.keys(WHISPER), 'AI_TIMEOUT_MS', 'GROQ_API_KEY', 'GROQ_BASE_URL', ...Object.keys({ AI_AUDIO_BASE_URL: 1, AI_AUDIO_API_KEY: 1, AI_AUDIO_MODEL: 1, AI_VISION_BASE_URL: 1, AI_VISION_API_KEY: 1, AI_VISION_MODEL: 1, RECEIPTS_ENABLED: 1 })];
 
 const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
 const chat = (content) => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content } }] }) });
@@ -46,6 +47,7 @@ const audioFile = () => ({ ok: true, status: 200, arrayBuffer: async () => new U
 const transcript = (text) => ({ ok: true, status: 200, json: async () => ({ text }) });
 const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const TURN = { userId: '42', text: 'halo', context: '' };
+const INKLING = (prefix) => ({ [`${prefix}_BASE_URL`]: 'https://openrouter.example/api/v1', [`${prefix}_API_KEY`]: 'or-key', [`${prefix}_MODEL`]: 'thinkingmachines/inkling-small:free' });
 
 let bot;
 beforeAll(() => initDatabase(':memory:'));
@@ -247,5 +249,52 @@ describe('/catat [jumlah] [keterangan]', () => {
 
     await bot.message('/catat 25000 makan nasi padang');
     expect(getAllTransactions('42')[0]).toMatchObject({ amount: 25000, category: 'makan', note: 'nasi padang' });
+  });
+});
+
+describe('Voice and photos through Inkling (OpenRouter)', () => {
+  it('sends the voice note as input_audio to the audio model, falling back to Whisper when it fails', async () => {
+    Object.assign(process.env, GROQ, WHISPER, INKLING('AI_AUDIO'));
+    let inklingUp = true;
+    const fetchImpl = vi.fn(async (url) => {
+      if (url.startsWith('https://openrouter.example')) {
+        return inklingUp ? chat('"beli cat 95 ribu"') : { ok: false, status: 429, json: async () => ({ error: { message: 'rate limited' } }) };
+      }
+      return transcript('beli cat 95rb');
+    });
+
+    let attempts = await transcribeVoice({ audio: Buffer.from([1, 2, 3]), mimeType: 'audio/ogg' }, { fetchImpl });
+    expect(attempts.map((a) => [a.model, a.text])).toEqual([['thinkingmachines/inkling-small:free', 'beli cat 95 ribu']]);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://openrouter.example/api/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer or-key');
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe('thinkingmachines/inkling-small:free');
+    expect(body.messages[1].content[0]).toEqual({ type: 'input_audio', input_audio: { data: Buffer.from([1, 2, 3]).toString('base64'), format: 'ogg' } });
+
+    inklingUp = false;
+    attempts = await transcribeVoice({ audio: Buffer.from([1]), mimeType: 'audio/ogg' }, { fetchImpl });
+    expect(attempts.map((a) => [a.model, a.ok])).toEqual([['thinkingmachines/inkling-small:free', false], ['whisper-large-v3-turbo', true]]);
+    expect(attempts.at(-1).text).toBe('beli cat 95rb');
+  });
+
+  it('bot: voice works with only the audio model configured', async () => {
+    Object.assign(process.env, INKLING('AI_AUDIO'));
+    vi.stubGlobal('fetch', vi.fn(async (url) => (url === TG_FILE_URL ? audioFile() : chat('kopi 20 ribu'))));
+    await bot.media({ voice: { file_id: 'v1', duration: 3 } });
+    expect(bot.sent[0].text).toBe('🎙️ "kopi 20 ribu"');
+    expect(getAllTransactions('42')[0]).toMatchObject({ amount: 20000, category: 'makan' });
+  });
+
+  it('reads receipt photos with AI_VISION_* on another provider', async () => {
+    Object.assign(process.env, MINIMAX, { AI_BASE_URL: 'https://ai.sumopod.example/v1', AI_API_KEY: 'sp', AI_MODEL: 'MiniMax-M3.1-Flash-Preview' }, INKLING('AI_VISION'));
+    expect(getVisionConfig()).toMatchObject({ baseUrl: 'https://openrouter.example/api/v1', apiKey: 'or-key', model: 'thinkingmachines/inkling-small:free' });
+    const fetchImpl = vi.fn(async () => chat(JSON.stringify({ is_receipt: true, merchant: 'Toko Cat', total: 95000, category: 'belanja', items: [] })));
+    const receipt = await readReceipt({ imageBase64: 'aGk=', mimeType: 'image/jpeg' }, { fetchImpl });
+    expect(receipt).toMatchObject({ ok: true, total: 95000, merchant: 'Toko Cat' });
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://openrouter.example/api/v1/chat/completions');
+
+    for (const k of Object.keys(INKLING('AI_VISION'))) delete process.env[k];
+    expect(getVisionConfig()).toMatchObject({ baseUrl: 'https://ai.sumopod.example/v1', model: 'MiniMax-M3.1-Flash-Preview' });
   });
 });

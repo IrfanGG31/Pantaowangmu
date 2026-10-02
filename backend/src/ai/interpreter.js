@@ -61,6 +61,27 @@ export function getAiChain() {
   return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
 }
 
+/**
+ * A model for one kind of media, e.g. AI_VISION_* or AI_AUDIO_*: <PREFIX>_MODEL (+ <PREFIX>_BASE_URL and
+ * <PREFIX>_API_KEY for another provider such as OpenRouter; without them AI_BASE_URL / AI_API_KEY are used).
+ * @param {string} prefix
+ * @param {{ defaultModel?: string }} [options]
+ */
+function mediaConfig(prefix, { defaultModel = '' } = {}) {
+  const ownBase = cleanEnv(process.env[`${prefix}_BASE_URL`]);
+  const baseUrl = (ownBase || cleanEnv(process.env.AI_BASE_URL)).replace(/\/+$/, '');
+  const apiKey = ownBase ? cleanEnv(process.env[`${prefix}_API_KEY`]) : cleanEnv(process.env.AI_API_KEY);
+  const model = cleanEnv(process.env[`${prefix}_MODEL`]) || defaultModel;
+  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
+  return { baseUrl, apiKey, model, timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS), maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000 };
+}
+
+/** Receipt photos: AI_VISION_* (e.g. OpenRouter Inkling), else AI_MODEL on AI_*. */
+export const getVisionConfig = () => mediaConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
+
+/** Voice notes through a chat model that accepts audio: AI_AUDIO_* (e.g. OpenRouter Inkling). Off unless AI_AUDIO_MODEL is set. */
+export const getAudioConfig = () => mediaConfig('AI_AUDIO');
+
 export const aiAvailable = () => getAiChain().length > 0;
 
 // A model that just failed (timeout, network, 5xx, rate limit) is skipped for a while, so users get the next model
@@ -239,7 +260,7 @@ Pengguna: "jelasin dong apa itu inflasi"
 
 // ── Model call and output handling ──────────────────────────────────────────
 
-function stripThinking(content) {
+export function stripThinking(content) {
   return String(content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
@@ -638,14 +659,13 @@ export function sanitizeReceipt(raw, categories = EXPENSE_CATEGORIES) {
 }
 
 /**
- * Reads a receipt photo with the vision model (AI_VISION_MODEL, falling back to AI_MODEL).
+ * Reads a receipt photo with the vision model (AI_VISION_*, falling back to AI_MODEL on AI_*).
  * Resolves to sanitizeReceipt()'s result, or null when AI is off or the call fails.
  * @param {{ imageBase64: string, mimeType: string, caption?: string }} input
  */
 export async function readReceipt({ imageBase64, mimeType, caption = '', categories = EXPENSE_CATEGORIES }, { fetchImpl = fetch, logger, onUsage } = {}) {
-  const base = getAiConfig();
-  if (!base) return null;
-  const config = { ...base, model: cleanEnv(process.env.AI_VISION_MODEL) || base.model };
+  const config = getVisionConfig();
+  if (!config) return null;
 
   const text = caption ? `Keterangan dari pengguna: ${String(caption).slice(0, 200)}` : 'Baca nota ini.';
   const messages = [

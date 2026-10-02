@@ -2,6 +2,8 @@
 // Uses GROQ_API_KEY (+ GROQ_BASE_URL, default Groq) so chat can run on another provider; without GROQ_API_KEY it
 // falls back to AI_API_KEY / AI_BASE_URL. Built-in FormData/Blob (Node 18+), so no extra dependency.
 
+import { callChat, getAudioConfig, stripThinking } from './interpreter.js';
+
 const GROQ_DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
 
 const TIMEOUT_MS = 15000;
@@ -55,3 +57,35 @@ export async function transcribeAudio({ audio, mimeType = 'audio/ogg', filename 
     };
   }
 }
+
+const AUDIO_FORMATS = { ogg: 'ogg', oga: 'ogg', opus: 'ogg', mpeg: 'mp3', mp3: 'mp3', wav: 'wav', 'x-wav': 'wav', mp4: 'm4a', m4a: 'm4a', 'x-m4a': 'm4a', aac: 'aac', flac: 'flac' };
+
+/**
+ * Transcribes with a chat model that accepts audio (OpenRouter `input_audio`, e.g. Inkling Small). Never throws.
+ * @param {{ audio: Buffer, mimeType?: string }} input
+ */
+export async function transcribeWithChat({ audio, mimeType = 'audio/ogg' }, { fetchImpl = fetch, config = getAudioConfig() } = {}) {
+  if (!config) return { ok: false, status: 0, latencyMs: 0, model: '', error: 'not configured' };
+  const format = AUDIO_FORMATS[String(mimeType).split('/')[1]?.split(';')[0]] || 'ogg';
+  const messages = [
+    { role: 'system', content: 'Kamu mentranskripsi voice note berbahasa Indonesia untuk aplikasi pencatat keuangan. Tulis persis apa yang diucapkan, angka boleh ditulis seperti diucapkan (mis. "95 ribu"). Balas HANYA teks transkripnya tanpa tambahan apa pun. Jika tidak ada ucapan yang jelas, balas kosong.' },
+    { role: 'user', content: [{ type: 'input_audio', input_audio: { data: Buffer.from(audio).toString('base64'), format } }] }
+  ];
+  const result = await callChat(config, messages, { fetchImpl });
+  if (!result.ok) return { ok: false, status: result.status, latencyMs: result.latencyMs, model: config.model, error: result.error };
+  const text = stripThinking(result.content).replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim();
+  return { ok: true, text, status: result.status, latencyMs: result.latencyMs, model: config.model };
+}
+
+/**
+ * Voice note → text: the audio chat model first (AI_AUDIO_*), then Groq Whisper; the first readable result wins.
+ * @returns {Promise<{ ok: boolean, text?: string, status: number, latencyMs: number, model: string, error?: string }[]>} every attempt, last = final
+ */
+export async function transcribeVoice({ audio, mimeType, filename }, { fetchImpl = fetch } = {}) {
+  const attempts = [];
+  if (getAudioConfig()) attempts.push(await transcribeWithChat({ audio, mimeType }, { fetchImpl }));
+  if (!attempts.at(-1)?.text && getSttConfig()) attempts.push(await transcribeAudio({ audio, mimeType, filename }, { fetchImpl }));
+  return attempts;
+}
+
+export const voiceAvailable = () => Boolean(getAudioConfig() || getSttConfig());
