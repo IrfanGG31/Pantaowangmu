@@ -45,7 +45,7 @@ import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
 import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
 import { parseFreeText } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
-import { getAiConfig, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
+import { getAiConfig, aiAvailable, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
 import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL, getOnboarding, setOnboarding } from '../db/memory.js';
 import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
 import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransactionWallet, walletParserOptions, updateWallet } from '../db/wallets.js';
@@ -247,6 +247,9 @@ const UNSUPPORTED_MEDIA = 'ℹ️ Voice dan file ini belum bisa dibaca. Ketik sa
 // A bare hello on first contact gets the introduction instead of a generic answer.
 const GREETING_RE = /^(?:halo+|hai+|hi+|hello|hey|helo|hallo|p|ping|test|tes|mulai|start|assalamu'?alaikum|selamat\s+(?:pagi|siang|sore|malam)|pagi|siang|sore|malam)(?:\s+\S+){0,2}[\s!.?]*$/i;
 
+// Sent whenever handling a message fails, so the user is never left without a reply.
+export const PROCESSING_FAILED = 'Maaf, tidak bisa memproses pesanmu. Coba format: /catat [jumlah] [keterangan]\nContoh: /catat 95000 cat';
+
 const UPSELL = '💎 Asisten AI dan baca foto nota tersedia di paket berbayar. Lihat /langganan';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -398,6 +401,7 @@ export function registerHandlers(bot) {
       await fn(msg, match);
     } catch (err) {
       logger.error({ err: err.message }, '[Bot] Command handler failed');
+      await safeSendMessage(bot, msg.chat.id, PROCESSING_FAILED).catch(() => {});
     }
   });
 
@@ -499,8 +503,21 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
       return safeSendMessage(bot, chatId, '❌ Jumlah nominal tidak valid. Contoh: `/catat 25000 makan`', { parse_mode: 'Markdown' });
     }
 
-    if (!categoryToken) {
-      return safeSendMessage(bot, chatId, '❌ Kategori harus diisi. Contoh: `/catat 25000 makan`', { parse_mode: 'Markdown' });
+    // "/catat 95000 cat" or "/catat 95000": the words are a description; detect the category or ask with buttons.
+    if (!isValidCategory(userId, 'expense', categoryToken) && !isValidCategory(userId, 'income', categoryToken)) {
+      const description = tokens.slice(1).join(' ');
+      const guess = description ? parseFreeText(`${description} ${amount}`, parseOptionsFor(userId)) : null;
+      if (guess?.intent === 'transaction' && guess.category && guess.amount === amount) {
+        const saved = saveTransaction(userId, {
+          type: guess.type, amount, category: guess.category, note: guess.note || description,
+          ...(guess.wallet_id ? { wallet_id: guess.wallet_id } : {}), ...(guess.tags ? { tags: guess.tags } : {})
+        });
+        if (saved.error) return safeSendMessage(bot, chatId, `❌ ${saved.error}`);
+        return safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
+      }
+      const entry = { userId, type: guess?.type || 'expense', amount, note: description, learnFrom: description };
+      const key = putPending(entry);
+      return safeSendMessage(bot, chatId, pendingPrompt(entry), { parse_mode: 'Markdown', reply_markup: pendingKeyboard(key, entry) });
     }
 
     // Income when the category is one of the user's income categories (and not also an expense one, like "lainnya").
@@ -936,14 +953,19 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
 
   const answerFreeText = async (msg, userId, parsed) => {
     const chatId = msg.chat.id;
-    const ai = getAiConfig();
+    const ai = aiAvailable();
     const entitlement = getEntitlement(getUser(userId));
     if (ai && entitlement.ai && countAiCallsToday(userId) < entitlement.ai_daily_limit) {
-      bot.sendChatAction?.(chatId, 'typing').catch(() => {});
-      const turn = await runAssistant(
-        { userId, text: msg.text, context: buildUserContext(userId, msg.from), hint: parsed, categories: allCategoryNames(userId) },
-        { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
-      );
+      Promise.resolve().then(() => bot.sendChatAction?.(chatId, 'typing')).catch(() => {});
+      let turn = null;
+      try {
+        turn = await runAssistant(
+          { userId, text: msg.text, context: buildUserContext(userId, msg.from), hint: parsed, categories: allCategoryNames(userId) },
+          { logger, onUsage: (usage) => recordAiUsage({ user_id: userId, ...usage }) }
+        );
+      } catch (err) {
+        logger.warn({ err: err.message }, '[AI] Assistant failed; using the rule parser');
+      }
       if (turn) return respondAsAssistant(chatId, userId, turn);
     }
 
@@ -1031,11 +1053,12 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       }
     } catch (err) {
       logger.error({ err: err.message }, '[Bot] Free-text handler failed');
+      await safeSendMessage(bot, msg.chat.id, PROCESSING_FAILED).catch(() => {});
     }
   });
 
   // ── Callback Query Handler ────────────────────────────────────────────
-  bot.on('callback_query', async (query) => {
+  const handleCallback = async (query) => {
     const chatId = query.message?.chat?.id;
     const messageId = query.message?.message_id;
     const data = query.data;
@@ -1225,6 +1248,16 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       }
       await safeAnswerCallback(bot, query.id, 'Budget disimpan');
       await editMessage(chatId, messageId, budgetText(userId, category, amount), { parse_mode: 'Markdown' });
+    }
+  };
+
+  bot.on('callback_query', async (query) => {
+    try {
+      await handleCallback(query);
+    } catch (err) {
+      logger.error({ err: err.message }, '[Bot] Button handler failed');
+      await safeAnswerCallback(bot, query.id, 'Gagal memproses');
+      if (query.message?.chat?.id) await safeSendMessage(bot, query.message.chat.id, PROCESSING_FAILED).catch(() => {});
     }
   });
 }

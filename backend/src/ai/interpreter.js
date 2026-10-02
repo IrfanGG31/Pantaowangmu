@@ -29,10 +29,45 @@ export function getAiConfig() {
     baseUrl,
     apiKey,
     model,
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 30000,
+    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
     maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
   };
 }
+
+const DEFAULT_TIMEOUT_MS = 15000;
+
+/**
+ * Optional primary chat model tried before AI_* (e.g. Groq or OpenAI): AI_PRIMARY_BASE_URL, AI_PRIMARY_API_KEY,
+ * AI_PRIMARY_MODEL. AI_* stays the secondary fallback and is still the only model for receipts and reports.
+ */
+export function getPrimaryAiConfig() {
+  const baseUrl = cleanEnv(process.env.AI_PRIMARY_BASE_URL).replace(/\/+$/, '');
+  const apiKey = cleanEnv(process.env.AI_PRIMARY_API_KEY);
+  const model = cleanEnv(process.env.AI_PRIMARY_MODEL);
+  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
+  return {
+    baseUrl,
+    apiKey,
+    model,
+    timeoutMs: Number(process.env.AI_PRIMARY_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
+  };
+}
+
+/** Chat models in the order they are tried: AI_PRIMARY_* (if set), then AI_*. */
+export function getAiChain() {
+  return [getPrimaryAiConfig(), getAiConfig()].filter(Boolean);
+}
+
+export const aiAvailable = () => getAiChain().length > 0;
+
+// A model that just failed (timeout, network, 5xx, rate limit) is skipped for a while, so users get the next model
+// or the rule-based reply right away instead of waiting for another timeout.
+const cooldowns = new Map();
+const cooldownMs = () => Number(process.env.AI_COOLDOWN_MS) || 5 * 60 * 1000;
+const modelKey = (config) => `${config.baseUrl}|${config.model}`;
+const coolingDown = (config) => (cooldowns.get(modelKey(config)) || 0) > Date.now();
+const isOutage = (result) => result.status === 0 || result.status === 429 || result.status >= 500;
 
 // ── Short conversation memory (in-process; single replica) ──
 
@@ -55,6 +90,7 @@ export function forgetConversation(userId) {
 
 export function resetAiState() {
   histories.clear();
+  cooldowns.clear();
 }
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
@@ -488,8 +524,8 @@ export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
  *   onUsage receives { model, ok, http_status, prompt_tokens, completion_tokens, latency_ms, error } for every call.
  */
 export async function runAssistant({ userId, text, context, hint = null, categories = null }, { fetchImpl = fetch, logger, onUsage } = {}) {
-  const config = getAiConfig();
-  if (!config) return null;
+  const chain = getAiChain();
+  if (!chain.length) return null;
 
   const input = String(text).slice(0, MAX_INPUT_LENGTH);
   const hintText = hint && hint.intent !== 'unknown' ? `\n\nPETUNJUK PARSER (pesan terakhir): ${JSON.stringify(hint)}` : '';
@@ -499,32 +535,36 @@ export async function runAssistant({ userId, text, context, hint = null, categor
     { role: 'user', content: input }
   ];
 
-  const result = await callChat(config, messages, { fetchImpl });
-  const output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
+  let result = null;
+  let output = null;
+  for (const config of chain) {
+    if (coolingDown(config)) continue;
+    result = await callChat(config, messages, { fetchImpl });
+    output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
 
-  try {
-    onUsage?.({
-      model: config.model,
-      ok: Boolean(output),
-      http_status: result.status || null,
-      prompt_tokens: result.usage?.prompt_tokens || 0,
-      completion_tokens: result.usage?.completion_tokens || 0,
-      latency_ms: result.latencyMs || 0,
-      error: result.ok ? (output ? null : `unusable response (finish_reason ${result.finishReason})`) : result.error
-    });
-  } catch (err) {
-    logger?.warn({ err: err.message }, '[AI] Failed to record usage');
-  }
+    try {
+      onUsage?.({
+        model: config.model,
+        ok: Boolean(output),
+        http_status: result.status || null,
+        prompt_tokens: result.usage?.prompt_tokens || 0,
+        completion_tokens: result.usage?.completion_tokens || 0,
+        latency_ms: result.latencyMs || 0,
+        error: result.ok ? (output ? null : `unusable response (finish_reason ${result.finishReason})`) : result.error
+      });
+    } catch (err) {
+      logger?.warn({ err: err.message }, '[AI] Failed to record usage');
+    }
 
-  if (!result.ok) {
-    logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Request failed');
-    return null;
+    if (output) break;
+    if (!result.ok) {
+      if (isOutage(result)) cooldowns.set(modelKey(config), Date.now() + cooldownMs());
+      logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Request failed');
+    } else {
+      logger?.warn({ model: config.model, finish_reason: result.finishReason, content_length: String(result.content || '').length }, '[AI] Unusable response');
+    }
   }
-
-  if (!output) {
-    logger?.warn({ finish_reason: result.finishReason, content_length: String(result.content || '').length }, '[AI] Unusable response');
-    return null;
-  }
+  if (!output) return null;
 
   const actions = applyHint(output.actions, hint);
   const summary = actions.length ? ` [aksi: ${actions.map((a) => a.type).join(', ')}]` : '';
