@@ -5,6 +5,7 @@ import { getMemory, getOnboarding, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/m
 import { listCategories, listKeywords } from '../db/categories.js';
 import { listWallets } from '../db/wallets.js';
 import { listBills } from '../db/bills.js';
+import { defaultReminderTime } from '../db/reminders.js';
 import { debtSummary } from '../db/debts.js';
 import { listChallenges, challengeTitle } from '../db/challenges.js';
 import { computeInsights, insightsText } from './insights.js';
@@ -101,7 +102,7 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
     `Kata yang diajarkan pengguna: ${keywords.length ? keywords.slice(0, 40).map((k) => `${k.keyword}→${k.category}`).join(', ') : 'belum ada'}`,
     `Dompet: ${walletLines}`,
     `Tagihan rutin bulanan: ${billLines}`,
-    `Pengingat harian: ${p.reminder_time === 'off' ? 'mati' : p.reminder_time || '21:00 (default)'}; pengingat pintar: ${p.smart_nudge ? 'aktif' : 'mati'}`,
+    `Pengingat harian: ${p.reminder_time === 'off' ? 'mati' : p.reminder_time || `${defaultReminderTime()} (default)`}; pengingat pintar: ${p.smart_nudge ? 'aktif' : 'mati'}`,
     `Utang-piutang terbuka: ${debtLine}`,
     `Tantangan: ${challengeLine}`,
     `Tag teratas: ${tagLine}`,

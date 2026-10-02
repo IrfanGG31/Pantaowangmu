@@ -4,8 +4,8 @@
 import db from '../db/connection.js';
 import { getAllUsers, getUser } from '../db/users.js';
 import { getAccess } from '../db/subscriptions.js';
-import { getMemory, DEFAULT_REMINDER_TIME } from '../db/memory.js';
-import { getUsersWithoutTransactionToday, markReminded } from '../db/reminders.js';
+import { getMemory } from '../db/memory.js';
+import { getUsersWithoutTransactionToday, markReminded, getReminderDefaults } from '../db/reminders.js';
 import { listBills, claimNudge } from '../db/bills.js';
 import { formatRupiah, getDateStr, getDayRange, getTimeZone, toDate, toSqlDateTime } from '../utils/formatter.js';
 import { safeSendMessage } from '../utils/telegram.js';
@@ -66,7 +66,7 @@ Yuk catat pengeluaran atau pemasukanmu hari ini agar keuangan tetap terkontrol:
 _Ubah jam atau matikan: /pengingat_`;
 
 /**
- * Daily reminder (at each user's reminder_time, default 21:00) and smart habit nudges. Run every TICK_MINUTES.
+ * Daily reminder (at each user's reminder_time, else the admin default, 21:00 unless changed) and smart habit nudges. Run every TICK_MINUTES.
  * @returns {Promise<{ reminders: number, nudges: number }>}
  */
 export async function runReminderTick(bot, now = new Date()) {
@@ -75,15 +75,21 @@ export async function runReminderTick(bot, now = new Date()) {
   const inactive = new Set(getUsersWithoutTransactionToday(today).map((u) => u.user_id));
   let reminders = 0;
   let nudges = 0;
+  const defaults = getReminderDefaults();
 
   for (const user of getAllUsers()) {
     if (!getAccess(user, now).allowed) continue;
     const { profile, nickname } = getMemory(user.user_id);
     const name = String(nickname || user.first_name || 'Kak').replace(/([_*`\[])/g, '\\$1');
 
-    const time = profile.reminder_time || DEFAULT_REMINDER_TIME;
+    const time = profile.reminder_time || defaults.time;
     if (time !== 'off' && inactive.has(user.user_id) && inWindow(toMinutes(time), minutes) && markReminded(user.user_id, today)) {
-      await safeSendMessage(bot, user.user_id, REMINDER_TEXT(name), { parse_mode: 'Markdown' });
+      // Admin's own wording (plain text, {nama} = the user's name), else the built-in message.
+      if (defaults.text) {
+        await safeSendMessage(bot, user.user_id, `${defaults.text.replaceAll('{nama}', nickname || user.first_name || 'Kak')}\n\nUbah jam atau matikan: /pengingat`);
+      } else {
+        await safeSendMessage(bot, user.user_id, REMINDER_TEXT(name), { parse_mode: 'Markdown' });
+      }
       reminders += 1;
     }
 

@@ -543,6 +543,70 @@ function setDays(days) {
 
 // ── Ideas from users ─────────────────────────────────────────────────────
 
+// ── Broadcasts ──────────────────────────────────────────────────────────
+
+const BROADCAST_STATUS = { sending: 'Mengirim…', done: 'Selesai', interrupted: 'Terputus', test: 'Tes' };
+const UPDATE_TEMPLATE = `🎉 Ada yang baru di PantaUangmu!
+
+Sekarang PantaUangmu bisa dipasang di layar utama HP. Cukup satu ketukan, tanpa cari chat bot dulu.
+
+Caranya: buka Mini App → di Beranda tekan "📲 Pasang".
+
+Ketik /tips untuk lihat cara lain memakai Panta.`;
+let broadcastPoll = null;
+let segmentInfo = {};
+
+function renderBroadcasts(b) {
+  const select = $('broadcast-segment');
+  const chosen = select.value || 'all';
+  segmentInfo = Object.fromEntries(b.segments.map((s) => [s.id, s]));
+  select.replaceChildren(...b.segments.map((s) => el('option', { value: s.id, selected: s.id === chosen }, `${s.label} (${fmt.format(s.count)})`)));
+  $('broadcast-bot').textContent = b.bot_ready ? 'Bot aktif' : 'Bot tidak aktif: broadcast tidak bisa dikirim';
+  $('broadcast-send').disabled = !b.bot_ready || Boolean(b.running_id);
+  $('broadcast-test').disabled = !b.bot_ready;
+  renderTable($('broadcasts-table'), ['Waktu', 'Admin', 'Penerima', 'Pesan', 'Terkirim', 'Gagal', 'Blokir bot', 'Status'], b.data.map((x) => [
+    fmtDateTime(x.created_at),
+    x.admin_email,
+    x.segment === 'test' ? 'Tes (1 akun)' : `${segmentInfo[x.segment]?.label || x.segment} · ${fmt.format(x.total)}`,
+    { text: x.text.length > 120 ? `${x.text.slice(0, 120)}…` : x.text, class: 'wrap' },
+    fmt.format(x.sent), fmt.format(x.failed), fmt.format(x.blocked),
+    { text: BROADCAST_STATUS[x.status] || x.status, class: `status-${x.status}` }
+  ]), 'Belum ada broadcast.', [4, 5, 6]);
+
+  clearTimeout(broadcastPoll);
+  if (b.running_id) {
+    const run = b.data.find((x) => x.id === b.running_id);
+    $('broadcast-status').textContent = run ? `Mengirim… ${fmt.format(run.sent + run.failed + run.blocked)}/${fmt.format(run.total)}` : 'Mengirim…';
+    broadcastPoll = setTimeout(loadBroadcasts, 3000);
+  }
+}
+
+async function loadBroadcasts() {
+  renderBroadcasts(await api('/broadcasts'));
+}
+
+function broadcastForm() {
+  const f = $('broadcast-form');
+  return { text: f.text.value.trim(), segment: f.segment.value, with_button: f.with_button.checked, user_id: f.test_user_id.value.trim() };
+}
+
+// ── Daily reminder defaults ─────────────────────────────────────────────
+
+function renderReminders(r) {
+  const f = $('reminder-form');
+  f.off.checked = r.time === 'off';
+  f.time.value = r.time === 'off' ? r.builtin_time : r.time;
+  f.time.disabled = r.time === 'off';
+  f.text.value = r.text || '';
+  const s = r.stats;
+  $('reminder-stats').textContent = `${fmt.format(s.users)} pengguna · ${fmt.format(s.custom)} memilih jam sendiri · ${fmt.format(s.off)} mematikan pengingat · ${fmt.format(s.smart)} memakai pengingat pintar. Sisanya mengikuti default.`;
+  state.reminderStats = s;
+}
+
+async function loadReminders() {
+  renderReminders(await api('/reminders'));
+}
+
 const IDEA_LABEL = { new: 'Baru', planned: 'Direncanakan', done: 'Selesai', ignored: 'Diabaikan' };
 
 function renderIdeas(state) {
@@ -613,7 +677,7 @@ async function loadBackups() {
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadReminders()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -779,6 +843,78 @@ $('backup-now').addEventListener('click', async (event) => {
 });
 
 $('idea-status').addEventListener('change', () => ideasState && renderIdeas(ideasState));
+
+$('broadcast-form').text.addEventListener('input', (event) => {
+  $('broadcast-count').textContent = `${event.target.value.length}/3500 karakter`;
+});
+
+$('broadcast-template').addEventListener('click', () => {
+  const f = $('broadcast-form');
+  if (f.text.value.trim() && !confirm('Ganti pesan yang sudah ditulis dengan template?')) return;
+  f.text.value = UPDATE_TEMPLATE;
+  f.text.dispatchEvent(new Event('input'));
+});
+
+$('broadcast-test').addEventListener('click', async (event) => {
+  const data = broadcastForm();
+  showError('broadcast-error', '');
+  event.target.disabled = true;
+  try {
+    await api('/broadcasts/test', { method: 'POST', body: JSON.stringify(data) });
+    $('broadcast-status').textContent = `Tes terkirim ke ${data.user_id}. Cek Telegram.`;
+    loadBroadcasts();
+  } catch (err) {
+    showError('broadcast-error', err.message);
+  } finally {
+    event.target.disabled = false;
+  }
+});
+
+$('broadcast-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = broadcastForm();
+  const seg = segmentInfo[data.segment];
+  showError('broadcast-error', '');
+  if (!data.text) return showError('broadcast-error', 'Pesan tidak boleh kosong');
+  if (!confirm(`Kirim pesan ini ke ${fmt.format(seg?.count ?? 0)} pengguna (${seg?.label || data.segment})?\n\nPesan yang sudah terkirim tidak bisa ditarik kembali.`)) return;
+  try {
+    renderBroadcasts(await api('/broadcasts', { method: 'POST', body: JSON.stringify({ text: data.text, segment: data.segment, with_button: data.with_button }) }));
+    loadAudit();
+  } catch (err) {
+    showError('broadcast-error', err.message);
+  }
+});
+
+$('reminder-form').off.addEventListener('change', (event) => {
+  $('reminder-form').time.disabled = event.target.checked;
+});
+
+$('reminder-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.target;
+  showError('reminder-error', '');
+  try {
+    renderReminders(await api('/reminders', { method: 'PUT', body: JSON.stringify({ time: f.off.checked ? 'off' : f.time.value, text: f.text.value }) }));
+    $('reminder-status').textContent = 'Tersimpan.';
+    loadAudit();
+  } catch (err) {
+    showError('reminder-error', err.message);
+  }
+});
+
+$('reminder-reset').addEventListener('click', async () => {
+  const custom = state.reminderStats?.custom ?? 0;
+  if (!confirm(`${fmt.format(custom)} pengguna yang memilih jam sendiri akan kembali ke jam default.\nPengguna yang mematikan pengingat tetap mati. Lanjut?`)) return;
+  showError('reminder-error', '');
+  try {
+    const r = await api('/reminders/reset-all', { method: 'POST', body: '{}' });
+    renderReminders(r);
+    $('reminder-status').textContent = `${fmt.format(r.reset)} pengguna kembali ke jam default.`;
+    loadAudit();
+  } catch (err) {
+    showError('reminder-error', err.message);
+  }
+});
 
 $('cluster-ideas').addEventListener('click', async (event) => {
   const button = event.currentTarget;

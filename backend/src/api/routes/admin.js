@@ -25,6 +25,9 @@ import { listBackups, backupFilePath, backupKeep, lastBackupStatus, runBackup } 
 import { getS3Config } from '../../backup/s3.js';
 import { listIdeas, listUnparsed, setIdeaStatus, applyClusters, IDEA_STATUSES } from '../../db/ideas.js';
 import { clusterIdeas, getAiConfig } from '../../ai/interpreter.js';
+import { segmentCounts, listBroadcasts, startBroadcast, sendTestBroadcast, runningBroadcastId, MAX_BROADCAST_LENGTH } from '../../bot/broadcast.js';
+import { getActiveBot } from '../../bot/identity.js';
+import { getReminderDefaults, setReminderDefaults, reminderStats, resetReminderOverrides, BUILTIN_REMINDER_TIME } from '../../db/reminders.js';
 
 const router = Router();
 
@@ -203,6 +206,58 @@ router.put('/settings', (req, res) => {
   setSetting('payment_instructions', text.trim());
   logAdminAction(req.admin.email, 'update_settings', null, { payment_instructions: 'updated' });
   res.json({ payment_instructions: text.trim() });
+});
+
+// ── Broadcasts ───────────────────────────────────────────────────────────
+
+const broadcastState = () => ({
+  bot_ready: Boolean(getActiveBot()),
+  running_id: runningBroadcastId(),
+  max_length: MAX_BROADCAST_LENGTH,
+  segments: segmentCounts(),
+  data: listBroadcasts(30)
+});
+
+router.get('/broadcasts', (req, res) => res.json(broadcastState()));
+
+router.post('/broadcasts', (req, res) => {
+  const { text, segment = 'all', with_button: withButton = false } = req.body || {};
+  const result = startBroadcast({ adminEmail: req.admin.email, text, segment, withButton: Boolean(withButton) });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  logAdminAction(req.admin.email, 'broadcast', null, { id: result.broadcast.id, segment, total: result.broadcast.total });
+  res.status(202).json({ broadcast: result.broadcast, ...broadcastState() });
+});
+
+router.post('/broadcasts/test', async (req, res, next) => {
+  try {
+    const { text, with_button: withButton = false, user_id: userId } = req.body || {};
+    const result = await sendTestBroadcast({ adminEmail: req.admin.email, text, withButton: Boolean(withButton), userId });
+    logAdminAction(req.admin.email, 'broadcast_test', String(userId || '') || null, { ok: Boolean(result.ok) });
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Daily reminder defaults ──────────────────────────────────────────────
+
+const reminderState = () => ({ ...getReminderDefaults(), builtin_time: BUILTIN_REMINDER_TIME, stats: reminderStats() });
+
+router.get('/reminders', (req, res) => res.json(reminderState()));
+
+router.put('/reminders', (req, res) => {
+  const { time, text } = req.body || {};
+  const result = setReminderDefaults({ time, text });
+  if (result.error) return res.status(400).json({ error: result.error });
+  logAdminAction(req.admin.email, 'update_reminders', null, { time: result.time, custom_text: Boolean(result.text) });
+  res.json(reminderState());
+});
+
+router.post('/reminders/reset-all', (req, res) => {
+  const reset = resetReminderOverrides();
+  logAdminAction(req.admin.email, 'reset_reminders', null, { reset });
+  res.json({ reset, ...reminderState() });
 });
 
 router.get('/audit', (req, res, next) => {

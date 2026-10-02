@@ -13,7 +13,8 @@ import { getBalance, createTransaction, tagSummary, getTransactionsByUser } from
 import { addDebt, getDebt, listDebts, debtSummary, settleDebt, settlePerson, splitShares } from '../db/debts.js';
 import { suggestBudgets, setBudget } from '../db/budgets.js';
 import { startChallenge, listChallenges, challengesHitBy, challengeTitle } from '../db/challenges.js';
-import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL, DEFAULT_REMINDER_TIME } from '../db/memory.js';
+import { getMemory, setProfile, LANGUAGES, PERSONAS, LANGUAGE_LABEL, PERSONA_LABEL } from '../db/memory.js';
+import { defaultReminderTime } from '../db/reminders.js';
 import { listBills, createBill, payBill, deleteBill, findBillByName } from '../db/bills.js';
 import { formatRupiah, getDateStr, getMonthStr } from '../utils/formatter.js';
 
@@ -309,7 +310,7 @@ export function doDeleteBill(userId, name) {
 
 export function remindersText(userId) {
   const p = getMemory(userId).profile;
-  const time = p.reminder_time || DEFAULT_REMINDER_TIME;
+  const time = p.reminder_time || defaultReminderTime();
   return [
     '🔔 Pengingat',
     '',
@@ -322,7 +323,7 @@ export function remindersText(userId) {
 
 export function remindersKeyboard(userId) {
   const p = getMemory(userId).profile;
-  const time = p.reminder_time || DEFAULT_REMINDER_TIME;
+  const time = p.reminder_time || defaultReminderTime();
   const mark = (on, text) => (on ? `✅ ${text}` : text);
   return {
     inline_keyboard: [

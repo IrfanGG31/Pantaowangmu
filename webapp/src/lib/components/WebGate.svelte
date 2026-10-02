@@ -17,8 +17,9 @@
 </script>
 
 <main class="gate">
-  <img class="gate-logo" src="/icons/icon-192.png" alt="" width="88" height="88" />
-  <h1 class="gate-title">PantaUangmu</h1>
+  <h1 class="gate-title">
+    <img class="gate-logo" src="/brand/logo-full.webp" alt="PantaUangmu: Catat. Pahami. Kelola." width="240" height="240" />
+  </h1>
   <p class="gate-text">Asisten keuangan pribadimu. Untuk sekarang, catatanmu dibuka lewat Telegram, datanya tetap sama di mana pun.</p>
 
   {#if botUrl}
@@ -44,8 +45,8 @@
     max-width: 480px;
     margin: 0 auto;
   }
-  .gate-logo { border-radius: 22px; box-shadow: var(--shadow-md); }
-  .gate-title { font-size: 24px; font-weight: 800; margin-top: 6px; }
+  .gate-logo { display: block; border-radius: 28px; background: #ffffff; }
+  .gate-title { margin: 0; line-height: 0; }
   .gate-text { color: var(--tg-hint); font-size: 15px; }
   .gate-cta { margin-top: 10px; padding: 14px; font-size: 16px; text-decoration: none; }
   .gate-hint { font-size: 13px; color: var(--tg-hint); }

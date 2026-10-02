@@ -217,3 +217,12 @@ fieldset + fieldset { margin-top: 0; }
 
 .billing-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
 @media (max-width: 1000px) { .billing-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Broadcast & reminder defaults */
+.row-wrap { flex-wrap: wrap; align-items: flex-end; }
+.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+#broadcast-form textarea, #reminder-form textarea { width: 100%; }
+.status-sending { color: var(--warning-text); font-weight: 600; }
+.status-done { color: var(--good-text); font-weight: 600; }
+.status-interrupted { color: var(--critical-text); font-weight: 600; }

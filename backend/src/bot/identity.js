@@ -8,3 +8,14 @@ export function setBotUsername(value) {
 export function getBotUsername() {
   return username;
 }
+
+// The running bot, for jobs started outside the bot handlers (admin broadcasts). Null when the bot is off.
+let activeBot = null;
+
+export function setActiveBot(bot) {
+  activeBot = bot || null;
+}
+
+export function getActiveBot() {
+  return activeBot;
+}

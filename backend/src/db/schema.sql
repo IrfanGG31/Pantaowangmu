@@ -315,3 +315,19 @@ CREATE TABLE IF NOT EXISTS idea_topics (
   note TEXT,
   updated_at DATETIME DEFAULT (datetime('now'))
 );
+
+-- Admin broadcasts to users (counts only; recipients are not stored)
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_email TEXT NOT NULL,
+  segment TEXT NOT NULL,
+  text TEXT NOT NULL,
+  with_button INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  sent INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  blocked INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'sending' CHECK(status IN ('sending', 'done', 'interrupted', 'test')),
+  created_at DATETIME DEFAULT (datetime('now')),
+  finished_at DATETIME
+);

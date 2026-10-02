@@ -338,4 +338,10 @@ Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
 | `GET /api/admin/ideas?days=1..365&status=` | Ide dari pengguna (tanpa identitas): `{ statuses, ai_configured, ideas: [{ topic, count, users, last_at, examples[], status, note }], unparsed: [{ id, summary, count, users, last_at }] }` |
 | `PATCH /api/admin/ideas/:topic` | `{ status?: "new"\|"planned"\|"done"\|"ignored", note? }` → `{ topic, status, note }`. Dicatat di audit log. |
 | `POST /api/admin/ideas/cluster` `{}` | AI mengelompokkan pesan yang belum dipahami bot menjadi ide → `{ ...GET /ideas, clustered, idea_count }`; 503 AI belum dikonfigurasi; 502 AI gagal. Dicatat di audit log. |
+| `GET /api/admin/broadcasts` | `{ bot_ready, running_id, max_length, segments: [{ id, label, count }], data: [{ id, admin_email, segment, text, with_button, total, sent, failed, blocked, status, created_at, finished_at }] }`. Segmen: `all`, `active`, `trial`, `paid`, `free` (pengguna yang diblokir admin tidak pernah dikirimi) |
+| `POST /api/admin/broadcasts` `{ text, segment?, with_button? }` | Kirim di latar belakang (~25 pesan/detik) → 202 `{ broadcast, ...GET }`. 409 bila masih ada yang berjalan, 503 bila bot mati. Teks biasa, maks. 3500 karakter. Hanya jumlah yang disimpan, bukan daftar penerima. Dicatat di audit log. |
+| `POST /api/admin/broadcasts/test` `{ text, with_button?, user_id }` | Kirim ke satu Telegram user ID (pratinjau). 502 bila gagal/diblokir. Dicatat di audit log. |
+| `GET /api/admin/reminders` | `{ time: "HH:MM"\|"off", text, builtin_time, stats: { users, custom, off, smart } }` |
+| `PUT /api/admin/reminders` `{ time?, text? }` | Jam default pengingat harian (atau `"off"`) dan teks opsional (`{nama}` = nama pengguna, maks. 600). Berlaku untuk pengguna tanpa jam sendiri. Dicatat di audit log. |
+| `POST /api/admin/reminders/reset-all` `{}` | Pengguna yang memilih jam sendiri kembali ke default (yang mematikan tetap mati) → `{ reset, ...GET }`. Dicatat di audit log. |
 | `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |

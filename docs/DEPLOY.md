@@ -248,6 +248,16 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
   token bot, atau API key. CSP menambah `worker-src 'self'` dan `manifest-src 'self'`.
 - Cek installable: Chrome DevTools → Application → Manifest, atau Lighthouse.
 
+## Broadcast & pengingat default (web admin)
+
+- **📣 Broadcast**: tulis pesan (atau pakai template "pembaruan aplikasi"), pilih penerima (semua / trial & berbayar aktif /
+  trial / berbayar / gratis), opsional tombol "Buka PantaUangmu". Kirim tes ke Telegram user ID-mu dulu. Pengiriman berjalan
+  di latar belakang (~25 pesan/detik); riwayat menampilkan terkirim, gagal, dan yang memblokir bot. Broadcast yang terputus
+  oleh deploy ditandai "Terputus" dan tidak dilanjutkan otomatis.
+- **⏰ Pengingat harian default**: jam default (atau matikan) dan teks sendiri untuk pengingat "jangan lupa mencatat".
+  Berlaku untuk pengguna yang tidak memilih jam sendiri. "Terapkan jam default ke semua pengguna" mengembalikan pilihan jam
+  pribadi ke default; pengguna yang mematikan pengingat tetap mati.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"
