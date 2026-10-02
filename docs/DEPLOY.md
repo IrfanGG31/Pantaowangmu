@@ -38,6 +38,7 @@ SQLite ──► Railway Volume /data/finance.db (WAL)
 | `GROQ_WHISPER_MODEL` | tidak | Mis. `whisper-large-v3-turbo`. Mengaktifkan voice note (bahasa Indonesia) lewat Groq: pakai `GROQ_API_KEY` (rahasia; `GROQ_BASE_URL` default `https://api.groq.com/openai/v1`), atau `AI_API_KEY`/`AI_BASE_URL` bila `GROQ_API_KEY` kosong. Kosong = voice dibalas "belum aktif". |
 | `AI_AUDIO_MODEL` (+ `AI_AUDIO_BASE_URL`, `AI_AUDIO_API_KEY`) | tidak | Model chat yang menerima audio (mis. OpenRouter `thinkingmachines/inkling-small:free`). Bila diisi, voice note ditranskripsi model ini dulu; Groq Whisper jadi cadangan. Tanpa `*_BASE_URL` memakai `AI_BASE_URL`/`AI_API_KEY`. |
 | `AI_VISION_BASE_URL`, `AI_VISION_API_KEY` | tidak | Penyedia lain untuk `AI_VISION_MODEL` (mis. OpenRouter Inkling) saat membaca foto struk. |
+| `AI_SELFTEST` | tidak | `true` = saat server start, tiap model (chat utama/cadangan, foto, audio) dipanggil sekali dan hasilnya dicatat di log `[AI selftest]`. Matikan lagi setelah dicek. |
 | `RECEIPTS_ENABLED` | tidak | `true` untuk mengaktifkan baca foto struk (butuh model vision di `AI_VISION_MODEL`/`AI_MODEL`). Default mati: foto dibalas "fitur menyusul". |
 | `AI_COOLDOWN_MS` | tidak | Default `300000` (5 menit): model yang timeout/error 5xx/429 dilewati selama ini, sehingga bot langsung memakai model berikutnya atau parser biasa. |
 | `AI_VISION_MODEL` | tidak | Model untuk membaca foto nota. Kosong = pakai `AI_MODEL` (harus bisa menerima gambar). |

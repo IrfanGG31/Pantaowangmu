@@ -298,3 +298,26 @@ describe('Voice and photos through Inkling (OpenRouter)', () => {
     expect(getVisionConfig()).toMatchObject({ baseUrl: 'https://ai.sumopod.example/v1', model: 'MiniMax-M3.1-Flash-Preview' });
   });
 });
+
+describe('AI self-test (AI_SELFTEST=true)', () => {
+  it('calls chat, vision and audio models once and reports each, without keys', async () => {
+    const { runAiSelfTest, toneWav } = await import('../src/ai/selftest.js');
+    Object.assign(process.env, { AI_BASE_URL: 'https://ai.sumopod.example/v1', AI_API_KEY: 'sp-key', AI_MODEL: 'MiniMax-M3.1-Flash-Preview' },
+      INKLING('AI_AUDIO'), INKLING('AI_VISION'));
+    const fetchImpl = vi.fn(async (url, init) => {
+      const body = JSON.parse(init.body);
+      if (body.messages[1].content?.[1]?.type === 'image_url') return chat(JSON.stringify({ is_receipt: true, total: 12500, merchant: 'Warung', category: 'makan' }));
+      if (body.messages[1].content?.[0]?.type === 'input_audio') return chat('');
+      return url.includes('sumopod') ? chat('{"reply":"ok","actions":[]}') : chat('');
+    });
+    const log = logger();
+    const results = await runAiSelfTest({ logger: log, fetchImpl });
+    expect(results.map((r) => [r.check, r.model, r.ok])).toEqual([
+      ['chat utama', 'MiniMax-M3.1-Flash-Preview', true],
+      ['foto struk', 'thinkingmachines/inkling-small:free', true],
+      ['audio (input_audio)', 'thinkingmachines/inkling-small:free', true]
+    ]);
+    expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls])).not.toMatch(/sp-key|or-key/);
+    expect(toneWav().subarray(0, 4).toString()).toBe('RIFF');
+  });
+});

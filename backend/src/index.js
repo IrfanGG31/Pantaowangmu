@@ -40,6 +40,13 @@ async function bootstrap() {
     // 3. Initialize Telegram Bot & Cron Schedulers
     await initBot();
 
+    // Optional: check every configured AI model once from this server (AI_SELFTEST=true). Never blocks startup.
+    if (process.env.AI_SELFTEST === 'true') {
+      import('./ai/selftest.js')
+        .then(({ runAiSelfTest }) => runAiSelfTest({ logger }))
+        .catch((err) => logger.warn({ err: err.message }, '[AI selftest] failed to run'));
+    }
+
     // Graceful Shutdown
     const shutdown = async (signal) => {
       logger.info(`[Shutdown] Received ${signal}. Closing server gracefully...`);
