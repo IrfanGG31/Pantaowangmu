@@ -6,7 +6,12 @@ import { callChat, getAudioConfig, stripThinking } from './interpreter.js';
 
 const GROQ_DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
 
-const TIMEOUT_MS = 15000;
+// Falls back to the per-task timeout when AI_TIMEOUT_STT_MS isn't set (default 15 s, bounded to 60 s).
+const SAFETY_TIMEOUT_MS = 60000;
+const sttTimeoutMs = () => {
+  const n = Number(process.env.AI_TIMEOUT_STT_MS);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, SAFETY_TIMEOUT_MS) : 15000;
+};
 
 const cleanEnv = (value) => String(value || '').trim().replace(/^["'<\s]+|["'>\s]+$/g, '');
 
@@ -40,7 +45,7 @@ export async function transcribeAudio({ audio, mimeType = 'audio/ogg', filename 
       method: 'POST',
       headers: { Authorization: `Bearer ${config.apiKey}` },
       body: form,
-      signal: AbortSignal.timeout(TIMEOUT_MS)
+      signal: AbortSignal.timeout(sttTimeoutMs())
     });
     const body = await res.json().catch(() => null);
     const latencyMs = Date.now() - started;
@@ -53,7 +58,7 @@ export async function transcribeAudio({ audio, mimeType = 'audio/ogg', filename 
   } catch (err) {
     return {
       ok: false, status: 0, latencyMs: Date.now() - started, model: config.model,
-      error: err.name === 'TimeoutError' ? `timeout ${TIMEOUT_MS}ms` : redact(err.cause?.code || err.message)
+      error: err.name === 'TimeoutError' ? `timeout ${sttTimeoutMs()}ms` : redact(err.cause?.code || err.message)
     };
   }
 }

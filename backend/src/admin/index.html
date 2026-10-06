@@ -108,6 +108,17 @@
       </section>
 
       <section class="tab-panel" id="tab-insights" role="tabpanel" aria-labelledby="tabnav-insights" hidden>
+      <section class="card" id="ai-config">
+        <div class="section-head">
+          <h2>⚙️ Konfigurasi AI</h2>
+          <span id="ai-config-status" class="muted small"></span>
+        </div>
+        <p class="muted small">Pilih model utama dan cadangan dari preset yang disetel di Railway (<code>AI_PRESETS</code>). Kunci API tersimpan di <code>AI_KEYS</code> dan tidak pernah dikirim ke browser. Ganti preset tidak butuh redeploy.</p>
+        <div id="ai-config-roles" class="ai-config-grid"></div>
+        <p id="ai-config-error" class="error" role="alert" hidden></p>
+        <p class="muted small">Pengaturan tersimpan permanen di database dan tetap aktif setelah redeploy. Pilih "Pakai dari Variables" untuk kembali ke env.</p>
+      </section>
+
       <section class="card" id="ai-health">
         <div class="section-head">
           <h2>🩺 Kesehatan AI</h2>

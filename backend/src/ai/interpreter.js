@@ -3,84 +3,90 @@
 // validates and executes. Never logs the API key.
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
 import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH, MAX_GOAL_NAME_LENGTH, STYLES, LANGUAGES, PERSONAS } from '../db/memory.js';
+import { getOverride, resolvePreset } from '../db/aiConfig.js';
 
 const MAX_AMOUNT = 999999999;
 const MAX_NOTE_LENGTH = 200;
 const MAX_INPUT_LENGTH = 2000;
 const MAX_REPLY_LENGTH = 3800;
 const MAX_ACTIONS = 5;
-const HISTORY_TURNS = 12;
+const HISTORY_TURNS = 4;
 const HISTORY_IDLE_MS = 60 * 60 * 1000;
+
+// Per-task timeouts: chat is short so users don't wait; receipts and weekly reports are longer because the model
+// genuinely needs more time. AI_TIMEOUT_<kind>_MS override each, AI_TIMEOUT_MS stays as a general fallback.
+const SAFETY_TIMEOUT_MS = 60000;
+const DEFAULT_TIMEOUT_MS = {
+  chat: 12000,
+  fallback: 6000,
+  receipt: 20000,
+  report: 20000
+};
+const envTimeout = (envName) => {
+  const n = Number(process.env[envName]);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, SAFETY_TIMEOUT_MS) : null;
+};
+export const timeoutFor = (kind) => envTimeout(`AI_TIMEOUT_${kind.toUpperCase()}_MS`)
+  || envTimeout('AI_TIMEOUT_MS')
+  || DEFAULT_TIMEOUT_MS[kind]
+  || DEFAULT_TIMEOUT_MS.chat;
+
+// Short answers are the goal — these caps keep both latency and cost down.
+const DEFAULT_MAX_TOKENS = { chat: 400, receipt: 500, report: 2000 };
+const maxTokensFor = (kind) => Number(process.env[`AI_MAX_TOKENS_${kind.toUpperCase()}`]) || Number(process.env.AI_MAX_TOKENS) || DEFAULT_MAX_TOKENS[kind] || DEFAULT_MAX_TOKENS.chat;
 
 // Tolerates values pasted with surrounding quotes or angle brackets, e.g. "<https://...>".
 function cleanEnv(value) {
   return String(value || '').trim().replace(/^["'<\s]+|["'>\s]+$/g, '');
 }
 
-/**
- * @returns {{ baseUrl: string, apiKey: string, model: string, timeoutMs: number, maxTokens: number } | null}
- */
-export function getAiConfig() {
-  const baseUrl = cleanEnv(process.env.AI_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_API_KEY);
-  const model = cleanEnv(process.env.AI_MODEL);
-  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
-  return {
-    baseUrl,
-    apiKey,
-    model,
-    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
-    maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
-  };
+/** Admin override (preset from AI_PRESETS) takes precedence over the env var; returns null when nothing is set. */
+function overrideConfig(role) {
+  try {
+    const row = getOverride(role);
+    if (!row) return null;
+    const resolved = resolvePreset(row.preset_id);
+    return resolved ? { ...resolved, source: 'override' } : null;
+  } catch {
+    // DB not ready during cold boot: fall back to env. Never throw to callers.
+    return null;
+  }
 }
 
-// Every AI call gives up after at most 15 s (AI_TIMEOUT_MS can only lower it), so the user is never kept waiting long.
-const MAX_TIMEOUT_MS = 15000;
-const timeoutFromEnv = (value) => Math.min(Number(value) || MAX_TIMEOUT_MS, MAX_TIMEOUT_MS);
-
-/**
- * Fallback chat model tried when AI_* fails or times out (e.g. MiniMax): AI_FALLBACK_BASE_URL, AI_FALLBACK_API_KEY,
- * AI_FALLBACK_MODEL. Used for chat only; receipts and reports use AI_*.
- */
-export function getFallbackAiConfig() {
-  const baseUrl = cleanEnv(process.env.AI_FALLBACK_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_FALLBACK_API_KEY);
-  const model = cleanEnv(process.env.AI_FALLBACK_MODEL);
-  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
-  return {
-    baseUrl,
-    apiKey,
-    model,
-    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
-    maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
-  };
-}
-
-/** Chat models in the order they are tried: AI_* (e.g. Groq), then AI_FALLBACK_* (e.g. MiniMax). */
-export function getAiChain() {
-  return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
-}
-
-/**
- * A model for one kind of media, e.g. AI_VISION_* or AI_AUDIO_*: <PREFIX>_MODEL (+ <PREFIX>_BASE_URL and
- * <PREFIX>_API_KEY for another provider such as OpenRouter; without them AI_BASE_URL / AI_API_KEY are used).
- * @param {string} prefix
- * @param {{ defaultModel?: string }} [options]
- */
-function mediaConfig(prefix, { defaultModel = '' } = {}) {
+function envConfig(prefix, { defaultModel = '' } = {}) {
   const ownBase = cleanEnv(process.env[`${prefix}_BASE_URL`]);
   const baseUrl = (ownBase || cleanEnv(process.env.AI_BASE_URL)).replace(/\/+$/, '');
   const apiKey = ownBase ? cleanEnv(process.env[`${prefix}_API_KEY`]) : cleanEnv(process.env.AI_API_KEY);
   const model = cleanEnv(process.env[`${prefix}_MODEL`]) || defaultModel;
   if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
-  return { baseUrl, apiKey, model, timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS), maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000 };
+  return { baseUrl, apiKey, model, source: 'env' };
 }
 
-/** Receipt photos: AI_VISION_* (e.g. OpenRouter Inkling), else AI_MODEL on AI_*. */
-export const getVisionConfig = () => mediaConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
+/**
+ * @returns {{ baseUrl: string, apiKey: string, model: string, source: 'env'|'override' } | null}
+ */
+export function getAiConfig() {
+  return overrideConfig('primary') || envConfig('AI');
+}
 
-/** Voice notes through a chat model that accepts audio: AI_AUDIO_* (e.g. OpenRouter Inkling). Off unless AI_AUDIO_MODEL is set. */
-export const getAudioConfig = () => mediaConfig('AI_AUDIO');
+/**
+ * Fallback chat model tried when primary fails or times out. Admin override (role='fallback') takes precedence,
+ * otherwise AI_FALLBACK_* env.
+ */
+export function getFallbackAiConfig() {
+  return overrideConfig('fallback') || envConfig('AI_FALLBACK');
+}
+
+/** Chat models in the order they are tried: primary, then fallback. */
+export function getAiChain() {
+  return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
+}
+
+/** Receipt photos: override, then AI_VISION_*, else AI_MODEL on AI_*. */
+export const getVisionConfig = () => overrideConfig('vision') || envConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
+
+/** Voice notes through a chat model that accepts audio: override, then AI_AUDIO_*. Off unless configured. */
+export const getAudioConfig = () => overrideConfig('audio') || envConfig('AI_AUDIO');
 
 export const aiAvailable = () => getAiChain().length > 0;
 
@@ -91,6 +97,25 @@ const cooldownMs = () => Number(process.env.AI_COOLDOWN_MS) || 5 * 60 * 1000;
 const modelKey = (config) => `${config.baseUrl}|${config.model}`;
 const coolingDown = (config) => (cooldowns.get(modelKey(config)) || 0) > Date.now();
 const isOutage = (result) => result.status === 0 || result.status === 429 || result.status >= 500;
+
+/** Clears every model cooldown. Called when admin switches presets so a stale cooldown doesn't disable the new pick. */
+export function clearCooldowns() {
+  cooldowns.clear();
+}
+
+// Admin visibility: how many user messages are being answered by the rule parser alone (zero AI call).
+// Counted per-day in the bot's local timezone; falls through to today's bucket in getAiShortCircuitStats().
+const skipped = new Map(); // 'YYYY-MM-DD' → count
+const skipKey = (now = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.TIMEZONE || 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+export function recordShortCircuit(now = new Date()) {
+  const key = skipKey(now);
+  skipped.set(key, (skipped.get(key) || 0) + 1);
+}
+export function getAiShortCircuitStats(now = new Date()) {
+  const today = skipKey(now);
+  const yesterday = skipKey(new Date(now.getTime() - 86400000));
+  return { today: skipped.get(today) || 0, yesterday: skipped.get(yesterday) || 0 };
+}
 
 // ── Short conversation memory (in-process; single replica) ──
 
@@ -508,33 +533,43 @@ function applyHint(actions, hint) {
 /**
  * One chat-completions call. Resolves to { ok, status, content, finishReason, usage, latencyMs, error } and never throws.
  * `error` is a short provider message with the API key redacted, for logs and diagnostics.
+ * @param {{ fetchImpl?: typeof fetch, timeoutMs?: number, maxTokens?: number, temperature?: number, jsonMode?: boolean }} [options]
  */
-export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
+export async function callChat(config, messages, { fetchImpl = fetch, timeoutMs, maxTokens, temperature, jsonMode } = {}) {
+  const effectiveTimeout = timeoutMs || timeoutFor('chat');
   const redact = (s) => String(s || '').split(config.apiKey).join('<AI_API_KEY>').slice(0, 300);
   const started = Date.now();
+  const body = {
+    model: config.model,
+    temperature: temperature ?? 0.3,
+    max_tokens: maxTokens || maxTokensFor('chat'),
+    messages
+  };
+  // MiniMax and GLM both honour OpenAI's JSON mode; providers that don't should ignore the field.
+  if (jsonMode) body.response_format = { type: 'json_object' };
   try {
     const res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: config.model, temperature: 0.5, max_tokens: config.maxTokens, messages }),
-      signal: AbortSignal.timeout(config.timeoutMs)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(effectiveTimeout)
     });
-    const body = await res.json().catch(() => null);
+    const resp = await res.json().catch(() => null);
     if (!res.ok) {
-      const message = body?.error?.message || body?.message || body?.error || `HTTP ${res.status}`;
+      const message = resp?.error?.message || resp?.message || resp?.error || `HTTP ${res.status}`;
       return { ok: false, status: res.status, latencyMs: Date.now() - started, error: redact(typeof message === 'string' ? message : JSON.stringify(message)) };
     }
-    const choice = body?.choices?.[0];
+    const choice = resp?.choices?.[0];
     return {
       ok: true,
       status: res.status,
       content: choice?.message?.content ?? '',
       finishReason: choice?.finish_reason ?? null,
-      usage: { prompt_tokens: Number(body?.usage?.prompt_tokens) || 0, completion_tokens: Number(body?.usage?.completion_tokens) || 0 },
+      usage: { prompt_tokens: Number(resp?.usage?.prompt_tokens) || 0, completion_tokens: Number(resp?.usage?.completion_tokens) || 0 },
       latencyMs: Date.now() - started
     };
   } catch (err) {
-    return { ok: false, status: 0, latencyMs: Date.now() - started, error: err.name === 'TimeoutError' ? `timeout ${config.timeoutMs}ms` : redact(err.cause?.code || err.message) };
+    return { ok: false, status: 0, latencyMs: Date.now() - started, error: err.name === 'TimeoutError' ? `timeout ${effectiveTimeout}ms` : redact(err.cause?.code || err.message) };
   }
 }
 
@@ -561,9 +596,10 @@ export async function runAssistant({ userId, text, context, hint = null, categor
 
   let result = null;
   let output = null;
-  for (const config of chain) {
+  for (const [i, config] of chain.entries()) {
     if (coolingDown(config)) continue;
-    result = await callChat(config, messages, { fetchImpl });
+    const kind = i === 0 ? 'chat' : 'fallback';
+    result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor(kind), maxTokens: maxTokensFor('chat') });
     output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
 
     try {
@@ -680,7 +716,7 @@ export async function readReceipt({ imageBase64, mimeType, caption = '', categor
     }
   ];
 
-  const result = await callChat(config, messages, { fetchImpl });
+  const result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor('receipt'), maxTokens: maxTokensFor('receipt'), temperature: 0, jsonMode: true });
   const json = result.ok ? extractJson(stripThinking(result.content)) : null;
   reportUsage(onUsage, logger, config.model, result, Boolean(json), result.ok ? 'unusable receipt response' : result.error);
   if (!result.ok) {
@@ -710,7 +746,7 @@ export async function writeWeeklyReport({ context, week }, { fetchImpl = fetch, 
     { role: 'system', content: WEEKLY_PROMPT },
     { role: 'user', content: `DATA PENGGUNA:\n${context}\n\nRINGKASAN 7 HARI TERAKHIR:\n${week}` }
   ];
-  const result = await callChat(config, messages, { fetchImpl });
+  const result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor('report'), maxTokens: maxTokensFor('report') });
   const text = result.ok ? stripThinking(result.content).replace(/[*_#`]/g, '').trim().slice(0, MAX_REPLY_LENGTH) : '';
   reportUsage(onUsage, logger, config.model, result, Boolean(text), result.ok ? 'empty weekly report' : result.error);
   if (!result.ok) logger?.warn({ status: result.status, error: result.error }, '[AI] Weekly report failed');
@@ -737,7 +773,7 @@ export async function clusterIdeas(texts, { fetchImpl = fetch, logger } = {}) {
   const result = await callChat(config, [
     { role: 'system', content: CLUSTER_PROMPT },
     { role: 'user', content: list }
-  ], { fetchImpl });
+  ], { fetchImpl, timeoutMs: timeoutFor('report'), maxTokens: maxTokensFor('report'), jsonMode: true });
   if (!result.ok) {
     logger?.warn({ status: result.status, error: result.error }, '[AI] Idea clustering failed');
     return null;

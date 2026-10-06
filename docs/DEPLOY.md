@@ -298,6 +298,37 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
 - Pratinjau menunjukkan pesan Telegram yang persis; "Kirim tes" mengirimnya ke satu akun dulu.
   Semua pengiriman memakai antrean broadcast (satu per satu) dan tercatat di Riwayat broadcast & log admin.
 
+## Konfigurasi AI (ganti model tanpa redeploy)
+
+Dua env di Railway menyediakan preset yang bisa dipilih admin:
+
+```
+AI_PRESETS=[
+  {"id":"minimax-3.1-flash","label":"MiniMax 3.1 Flash","base_url":"https://ai.sumopod.com/v1","model":"MiniMax-M3.1-Flash-Preview","key_ref":"sumopod"},
+  {"id":"minimax-2.7-high","label":"MiniMax 2.7 Highspeed","base_url":"https://ai.sumopod.com/v1","model":"MiniMax-M2.7-highspeed","key_ref":"sumopod"},
+  {"id":"glm-4-flash","label":"GLM-4 Flash","base_url":"https://open.bigmodel.cn/api/paas/v4","model":"glm-4-flash","key_ref":"zhipu"}
+]
+AI_KEYS={"sumopod":"<KEY>","zhipu":"<KEY>"}
+```
+
+- Admin membuka **Analitik → Konfigurasi AI**, memilih preset per peran (utama, cadangan, foto struk, voice), menekan **Tes**
+  (menampilkan latency), lalu **Simpan**. Perubahan tersimpan di tabel `ai_overrides` dan **tidak butuh redeploy**.
+- `AI_KEYS` tidak pernah dikirim ke browser; preset hanya memuat `key_ref` sebagai referensi.
+- Bila belum ada override, bot memakai `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` lama (back-compat).
+- MiMo bisa ditambahkan dengan menambah entry baru di `AI_PRESETS` ketika providernya tersedia; tidak perlu commit.
+
+## Timeout AI & short-circuit (akar penyebab "timeout 15000ms")
+
+- **Short-circuit regex**: pesan sederhana ("makan 25rb", "parkir 5000") dijawab regex parser **tanpa memanggil AI**.
+  Hemat biaya, kuota, dan menghilangkan timeout untuk pesan rutin. Jumlah "pesan dilewati" tampil di kartu Kesehatan AI.
+- Timeout dipisah per task (default): chat 12 s, cadangan 6 s, receipt 20 s, laporan 20 s, STT 15 s. Semua bisa dioverride
+  via `AI_TIMEOUT_<KIND>_MS` di Variables, dengan batas aman 60 s.
+- Output dibatasi (`max_tokens`): chat 400, receipt 500, laporan 2000. Override via `AI_MAX_TOKENS_<KIND>`.
+- JSON mode (`response_format`) dipakai untuk receipt dan clustering ide — provider yang mendukung (MiniMax, GLM) men-generate
+  lebih cepat dan deterministis.
+- Fallback dicatat di kartu Kesehatan AI: % chat yang baru berhasil setelah utama gagal (heuristik 5 detik, 24 jam).
+- Tabel Error AI menampilkan **Model**, **Jenis** (chat/foto struk/voice/laporan), dan timeout aktual.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

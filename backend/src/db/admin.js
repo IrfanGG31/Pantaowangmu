@@ -97,7 +97,7 @@ export function getOverview({ days = 30, now = new Date() } = {}) {
   );
 
   const recentErrors = db.prepare(`
-    SELECT created_at, user_id, model, http_status, error FROM ai_usage WHERE ok = 0 ORDER BY id DESC LIMIT 10
+    SELECT created_at, user_id, model, COALESCE(kind, 'chat') AS kind, http_status, latency_ms, error FROM ai_usage WHERE ok = 0 ORDER BY id DESC LIMIT 10
   `).all();
 
   const promptTokens = Number(ai.prompt_tokens);

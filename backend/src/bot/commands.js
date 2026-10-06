@@ -48,7 +48,7 @@ import { previewReset, performReset, undoLastReset, formatResetCounts, RESET_SCO
 import { parseFreeText, splitItems } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
 import { transcribeVoice, voiceAvailable } from '../ai/transcribe.js';
-import { getVisionConfig, aiAvailable, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
+import { getVisionConfig, aiAvailable, runAssistant, forgetConversation, readReceipt, recordShortCircuit } from '../ai/interpreter.js';
 import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL, getOnboarding, setOnboarding } from '../db/memory.js';
 import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
 import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransactionWallet, walletParserOptions, updateWallet } from '../db/wallets.js';
@@ -1076,10 +1076,36 @@ Mau per bulan saja? Buka Laporan di Mini App.`;
     return answerFreeText(msg, userId, parsed);
   };
 
+  // Intents the rule parser is certain about: no need to spend an AI call (saves 2-15 s and keeps quota for free chat).
+  // Only clear-cut short messages qualify; a long or compound message may carry more intent than the parser catches
+  // (e.g. "panggil aku X, aku gajian tgl 25") and still goes to AI.
+  const confidentIntent = (parsed, text) => {
+    if (!parsed || parsed.intent === 'unknown') return false;
+    if ((text || '').length > 60) return false;
+    switch (parsed.intent) {
+      case 'transaction': return parsed.amount > 0 && !!parsed.category;
+      case 'budget': return parsed.amount > 0 && !!parsed.category;
+      case 'learn': return !!parsed.keyword && !!parsed.category;
+      case 'add_category': return !!parsed.name && (text || '').length < 40;
+      case 'add_wallet': return !!parsed.name;
+      case 'wallet_balance': return parsed.amount >= 0;
+      case 'transfer': return parsed.amount > 0 && !!parsed.kind;
+      case 'tag_summary': return true;
+      default: return false;
+    }
+  };
+
   const answerFreeText = async (msg, userId, parsed) => {
     const chatId = msg.chat.id;
     const ai = aiAvailable();
     const entitlement = getEntitlement(getUser(userId));
+
+    // Short-circuit: the rule parser is sure what the user wants — skip AI entirely.
+    if (confidentIntent(parsed, msg.text)) {
+      recordShortCircuit();
+      return handleRuleBased(chatId, userId, parsed, { upsell: entitlement.tier === 'free' && Boolean(ai), text: msg.text });
+    }
+
     if (ai && entitlement.ai && countAiCallsToday(userId) < entitlement.ai_daily_limit) {
       Promise.resolve().then(() => bot.sendChatAction?.(chatId, 'typing')).catch(() => {});
       let turn = null;

@@ -206,8 +206,13 @@ function renderOverview(o) {
     )))
   );
 
-  renderTable($('errors-table'), ['Waktu', 'User', 'Status', 'Pesan'], ai.recent_errors.map((e) => [
-    fmtDateTime(e.created_at), e.user_id, e.http_status ?? '—', { text: e.error || '—', class: 'wrap' }
+  renderTable($('errors-table'), ['Waktu', 'User', 'Model', 'Jenis', 'Status', 'Pesan'], ai.recent_errors.map((e) => [
+    fmtDateTime(e.created_at),
+    e.user_id,
+    { text: e.model || '—', class: 'wrap' },
+    KIND_LABEL[e.kind] || e.kind || 'chat',
+    e.http_status ? e.http_status : (/^timeout/.test(e.error || '') ? `⏱ ${e.latency_ms ? ms(e.latency_ms) : 'timeout'}` : '—'),
+    { text: e.error || '—', class: 'wrap' }
   ]), 'Tidak ada error AI. 🎉');
 
   $('updated-at').textContent = `Diperbarui ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`;
@@ -633,7 +638,7 @@ async function loadAnalytics() {
 // ── AI health ────────────────────────────────────────────────────────────
 
 const HEALTH_LABEL = { ok: 'Sehat', warning: 'Perlu dicek', critical: 'Bermasalah', idle: 'Belum ada panggilan' };
-const KIND_LABEL = { chat: 'Chat', receipt: 'Foto struk', voice: 'Voice' };
+const KIND_LABEL = { chat: 'Chat', receipt: 'Foto struk', voice: 'Voice', weekly: 'Laporan' };
 const ms = (v) => (v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1).replace('.', ',')} dtk` : `${v} ms`);
 
 function renderAiHealth(h) {
@@ -641,9 +646,19 @@ function renderAiHealth(h) {
   pill.className = `health-pill ${h.status}`;
   pill.textContent = HEALTH_LABEL[h.status] || h.status;
   $('ai-health-alerts').replaceChildren(...h.alerts.map((a) => el('li', { class: a.level }, `${a.level === 'critical' ? '🔴' : '🟠'} ${a.message}`)));
-  $('ai-health-summary').textContent = h.last_ok_at
+  const chain = h.chain_24h || {};
+  const skipped = state.aiSkipped || { today: 0, yesterday: 0 };
+  const lines = [];
+  lines.push(h.last_ok_at
     ? `Panggilan AI terakhir yang berhasil: ${fmtRelative(h.last_ok_at)}. Data ${h.days} hari terakhir.`
-    : `Belum ada panggilan AI yang berhasil dalam ${h.days} hari terakhir.`;
+    : `Belum ada panggilan AI yang berhasil dalam ${h.days} hari terakhir.`);
+  if (chain.total_chats) {
+    lines.push(`24 jam: ${fmt.format(chain.total_chats)} chat, ${fmt.format(chain.fallback_rescued)} diselamatkan model cadangan (${pctText(chain.fallback_rate_pct)}).`);
+  }
+  if (skipped.today || skipped.yesterday) {
+    lines.push(`${fmt.format(skipped.today)} pesan dijawab regex parser tanpa AI hari ini (kemarin: ${fmt.format(skipped.yesterday)}) → hemat biaya & tidak kena timeout.`);
+  }
+  $('ai-health-summary').textContent = lines.join(' ');
   renderTable($('ai-health-table'), ['Model', 'Untuk', 'Panggilan', 'Berhasil', 'Rata-rata', 'P95', '1 jam terakhir', 'Error terakhir', 'Biaya'], h.models.map((m) => [
     { text: m.model, class: 'wrap' },
     KIND_LABEL[m.kind] || m.kind,
@@ -661,7 +676,94 @@ function renderAiHealth(h) {
 }
 
 async function loadAiHealth() {
-  renderAiHealth(await api('/ai-health?days=7'));
+  const [health, skipped] = await Promise.all([
+    api('/ai-health?days=7'),
+    api('/ai/skipped').catch(() => ({ today: 0, yesterday: 0 }))
+  ]);
+  state.aiSkipped = skipped;
+  renderAiHealth(health);
+}
+
+// ── AI config: pick primary / fallback / vision / audio from presets ──────────
+
+const AI_ROLE_LABEL = {
+  primary: { title: 'Model utama (chat)', hint: 'Dipakai untuk menjawab pesan pengguna.' },
+  fallback: { title: 'Model cadangan', hint: 'Dicoba kalau utama timeout atau error.' },
+  vision: { title: 'Model foto struk', hint: 'Membaca foto nota pengguna.' },
+  audio: { title: 'Model voice note', hint: 'Mendengar voice note (opsional).' }
+};
+
+function renderAiConfig(c) {
+  state.aiPresets = c.presets;
+  const container = $('ai-config-roles');
+  container.replaceChildren(...c.roles.map((role) => {
+    const info = AI_ROLE_LABEL[role] || { title: role, hint: '' };
+    const active = c.active[role] || {};
+    const presetId = active.preset_id || '';
+    const options = [
+      el('option', { value: '' }, 'Pakai dari Variables (env)'),
+      ...c.presets.map((p) => el('option', { value: p.id, selected: p.id === presetId }, `${p.label} · ${p.model}`))
+    ];
+    const select = el('select', { 'aria-label': info.title }, options);
+    const source = active.env
+      ? el('div', { class: 'source' }, `Aktif: ${active.env.source === 'override' ? '🔧 override' : '📦 env'} · ${active.env.model}`)
+      : el('div', { class: 'source' }, 'Belum dikonfigurasi');
+    const result = el('span', { class: 'test-result' });
+    const saveBtn = el('button', { class: 'btn primary', type: 'button' }, 'Simpan');
+    const testBtn = el('button', { class: 'btn', type: 'button' }, 'Tes');
+    saveBtn.addEventListener('click', async () => {
+      showError('ai-config-error', '');
+      saveBtn.disabled = true;
+      try {
+        await api('/ai/override', { method: 'PUT', body: JSON.stringify({ role, preset_id: select.value || null }) });
+        $('ai-config-status').textContent = 'Tersimpan.';
+        loadAiConfig();
+        loadAudit();
+      } catch (err) {
+        showError('ai-config-error', err.message);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+    testBtn.addEventListener('click', async () => {
+      if (!select.value) {
+        result.textContent = 'Pilih preset dulu.';
+        result.className = 'test-result';
+        return;
+      }
+      testBtn.disabled = true;
+      result.textContent = '⏳ menguji…';
+      result.className = 'test-result';
+      try {
+        const r = await api('/ai/test', { method: 'POST', body: JSON.stringify({ preset_id: select.value, prompt: 'ok?' }) });
+        result.textContent = r.ok ? `✓ ${r.model} · ${ms(r.latency_ms)}` : `✗ ${r.error || r.status}`;
+        result.className = `test-result ${r.ok ? 'ok' : 'err'}`;
+      } catch (err) {
+        result.textContent = `✗ ${err.message}`;
+        result.className = 'test-result err';
+      } finally {
+        testBtn.disabled = false;
+      }
+    });
+    return el('div', { class: 'ai-role' },
+      el('div', { class: 'ai-role-head' }, el('strong', {}, info.title), el('span', {}, active.updated_by ? `oleh ${active.updated_by}` : '')),
+      el('div', { class: 'muted small' }, info.hint),
+      select,
+      el('div', { class: 'ai-role-actions' }, saveBtn, testBtn, result),
+      source
+    );
+  }));
+  $('ai-config-status').textContent = c.presets.length
+    ? `${c.presets.length} preset tersedia dari Variables.`
+    : '⚠️ AI_PRESETS kosong — set di Railway Variables agar bisa memilih model.';
+}
+
+async function loadAiConfig() {
+  try {
+    renderAiConfig(await api('/ai/config'));
+  } catch (err) {
+    showError('ai-config-error', err.message);
+  }
 }
 
 // ── Broadcasts ──────────────────────────────────────────────────────────
@@ -912,7 +1014,7 @@ async function loadBackups() {
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadAnnouncements(), loadReminders(), loadAnalytics(), loadAiHealth()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadAnnouncements(), loadReminders(), loadAnalytics(), loadAiHealth(), loadAiConfig()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }

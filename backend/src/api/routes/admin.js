@@ -24,12 +24,23 @@ import { getTrialDays } from '../../db/users.js';
 import { listBackups, backupFilePath, backupKeep, lastBackupStatus, runBackup } from '../../backup/index.js';
 import { getS3Config } from '../../backup/s3.js';
 import { listIdeas, listUnparsed, setIdeaStatus, applyClusters, IDEA_STATUSES } from '../../db/ideas.js';
-import { clusterIdeas, getAiConfig } from '../../ai/interpreter.js';
+import { clusterIdeas } from '../../ai/interpreter.js';
 import { segmentCounts, listBroadcasts, startBroadcast, sendTestBroadcast, runningBroadcastId, MAX_BROADCAST_LENGTH } from '../../bot/broadcast.js';
 import { getActiveBot } from '../../bot/identity.js';
 import { getFunnel, getRetention, getAtRiskUsers, getAiHealth } from '../../db/analytics.js';
 import { resetStats } from '../../db/resets.js';
 import { listAnnouncements, createAnnouncement, endAnnouncement, cancelAnnouncement, previewAnnouncement, MAX_TITLE, MAX_BODY } from '../../bot/announcements.js';
+import { getAiConfig, getFallbackAiConfig, getVisionConfig, getAudioConfig, callChat, clearCooldowns, getAiShortCircuitStats } from '../../ai/interpreter.js';
+import { getPresets, getOverrides, setOverride, resolvePreset, ROLES as AI_ROLES } from '../../db/aiConfig.js';
+
+const envActive = (role) => {
+  const cfg = role === 'primary' ? getAiConfig()
+    : role === 'fallback' ? getFallbackAiConfig()
+    : role === 'vision' ? getVisionConfig()
+    : role === 'audio' ? getAudioConfig()
+    : null;
+  return cfg ? { model: cfg.model, base_url: cfg.baseUrl, source: cfg.source || 'env' } : null;
+};
 import { getReminderDefaults, setReminderDefaults, reminderStats, resetReminderOverrides, BUILTIN_REMINDER_TIME } from '../../db/reminders.js';
 
 const router = Router();
@@ -229,6 +240,56 @@ router.get('/ai-health', (req, res, next) => {
     next(err);
   }
 });
+
+// ── AI config: pick primary/fallback/vision/audio from preset list without redeploy ──
+
+router.get('/ai/config', (req, res) => {
+  const presets = getPresets();
+  const overrides = getOverrides();
+  const active = {};
+  for (const role of AI_ROLES) {
+    const row = overrides[role];
+    active[role] = {
+      preset_id: row?.preset_id || null,
+      updated_at: row?.updated_at || null,
+      updated_by: row?.updated_by || null,
+      env: envActive(role)
+    };
+  }
+  res.json({ presets, active, roles: AI_ROLES });
+});
+
+router.put('/ai/override', (req, res) => {
+  const { role, preset_id: presetId } = req.body || {};
+  const result = setOverride(role, presetId ?? null, req.admin.email);
+  if (result.error) return res.status(400).json({ error: result.error });
+  clearCooldowns();
+  logAdminAction(req.admin.email, 'ai_override', null, { role: result.role, preset_id: result.preset_id });
+  res.json({ role: result.role, preset_id: result.preset_id });
+});
+
+router.post('/ai/test', async (req, res, next) => {
+  try {
+    const presetId = String(req.body?.preset_id || '').trim();
+    const prompt = String(req.body?.prompt || 'ok?').slice(0, 200);
+    const config = presetId ? resolvePreset(presetId) : getAiConfig();
+    if (!config) return res.status(400).json({ error: 'Preset tidak tersedia' });
+    const result = await callChat(config, [{ role: 'user', content: prompt }], { timeoutMs: 10000, maxTokens: 32, temperature: 0 });
+    res.json({
+      ok: result.ok,
+      model: config.model,
+      base_url: config.baseUrl,
+      status: result.status,
+      latency_ms: result.latencyMs,
+      content: result.ok ? String(result.content || '').slice(0, 160) : null,
+      error: result.ok ? null : result.error
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/ai/skipped', (req, res) => res.json(getAiShortCircuitStats()));
 
 // ── Announcements (maintenance & what's new) ─────────────────────────────
 
