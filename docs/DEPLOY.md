@@ -285,6 +285,19 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
   File berupa Excel (.xlsx): lembar Ringkasan (arus kas, saldo awal → akhir, per kategori, per bulan) dan Buku Kas
   (saldo berjalan, filter). Semua total memakai rumus. `/export` di bot juga mengirim file ini.
 
+## Pengumuman pemeliharaan & pembaruan (web admin)
+
+- **🛠️ Pemeliharaan terjadwal**: isi judul, tanggal/jam mulai–selesai (zona waktu bot), dan keterangan.
+  - Pilihan: kirim ke semua pengguna sekarang, ingatkan 1 jam sebelum mulai, dan kabari saat selesai.
+  - Pengingat dan kabar selesai dikirim otomatis oleh scheduler (cek tiap 5 menit). Pesan yang terlewat tidak dikirim terlambat.
+  - Mini App menampilkan banner sejak 3 hari sebelum mulai sampai selesai.
+  - Tombol "Selesai sekarang" mengakhiri lebih cepat; "Batalkan" menghapus banner dan pengingat.
+- **✨ Pembaruan / fitur baru**: judul + daftar perubahan (satu baris satu poin).
+  - Dikirim ke semua pengguna dengan tombol Mini App, lalu tersimpan di `/baru` (bot) dan kartu "Yang baru" di Beranda Mini App
+    (tampil 14 hari atau sampai ditutup pengguna).
+- Pratinjau menunjukkan pesan Telegram yang persis; "Kirim tes" mengirimnya ke satu akun dulu.
+  Semua pengiriman memakai antrean broadcast (satu per satu) dan tercatat di Riwayat broadcast & log admin.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

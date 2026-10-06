@@ -34,6 +34,7 @@ import type {
   ReportPeriodKey,
   ReportResponse,
   ReportLink,
+  AnnouncementsResponse,
 } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -231,6 +232,12 @@ export const meApi = {
   /** null clears a field. */
   updateProfile(data: { monthly_income?: number | null; payday?: number | null }): Promise<MeResponse> {
     return request<MeResponse>('PATCH', '/me/profile', data);
+  },
+};
+
+export const announcementsApi = {
+  get(signal?: AbortSignal): Promise<AnnouncementsResponse> {
+    return request<AnnouncementsResponse>('GET', '/announcements', undefined, signal);
   },
 };
 

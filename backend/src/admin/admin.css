@@ -252,3 +252,70 @@ fieldset + fieldset { margin-top: 0; }
 .rate-bad { color: var(--critical-text); font-weight: 600; }
 .rate-ok { color: var(--good-text); font-weight: 600; }
 .row.spaced { margin: 8px 0; }
+
+/* Announcements */
+#announce-form input[name="title"] { width: 100%; }
+#announce-form textarea { width: 100%; }
+.announce-preview { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.announce-preview pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; color: var(--text-primary);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 520px;
+}
+.announce-preview details pre + pre { margin-top: 6px; }
+.status-upcoming { color: var(--warning-text); font-weight: 600; }
+.status-ongoing { color: var(--critical-text); font-weight: 600; }
+.status-ended, .status-published { color: var(--good-text); font-weight: 600; }
+.status-cancelled { color: var(--text-secondary); text-decoration: line-through; }
+
+/* ── Tab menu ─────────────────────────────────────────────────────────── */
+
+.tabnav {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 4px;
+  margin: -4px -4px 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  backdrop-filter: blur(8px);
+  scrollbar-width: thin;
+}
+.tabnav::-webkit-scrollbar { height: 4px; }
+.tabnav-item {
+  flex: 1 0 auto;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tabnav-item:hover { background: var(--surface-2); color: var(--text-primary); }
+.tabnav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tabnav-item.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.tab-panel { display: grid; gap: 16px; }
+.tab-panel[hidden] { display: none; }
+
+@media (max-width: 720px) {
+  .tabnav { position: static; top: auto; margin: 0; border-radius: 10px; }
+  .tabnav-item { padding: 10px 12px; font-size: 13px; }
+  .content { padding: 12px; gap: 12px; }
+}
+@media (max-width: 560px) {
+  .topbar h1 { font-size: 15px; }
+  .topbar-actions .muted { display: none; }
+}

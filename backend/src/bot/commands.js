@@ -64,6 +64,7 @@ import { detectWalletId } from './textParser.js';
 import { startOnboarding, handleNameReply, nicknameSet, withTip, tipsText, greetName, SKIPPED_NAME, QUICKSTART } from './onboarding.js';
 import { cancelChallenge } from '../db/challenges.js';
 import { recordRequest, looksLikeRequest } from '../db/ideas.js';
+import { whatsNewText } from './announcements.js';
 import { logger } from '../api/server.js';
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -484,6 +485,12 @@ export function registerHandlers(bot) {
     await safeSendMessage(bot, msg.chat.id, tipsText(), { parse_mode: 'Markdown' });
   });
 
+  // ── /baru: what's new (admin announcements) ───────────────────────────
+  onText(/^\/baru(?:@\w+)?$/, async (msg) => {
+    ensureUser(msg);
+    await safeSendMessage(bot, msg.chat.id, whatsNewText(), { reply_markup: { inline_keyboard: [miniAppRow()] } });
+  });
+
   // ── /help ─────────────────────────────────────────────────────────────
   onText(/^\/help(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
@@ -515,6 +522,7 @@ _Contoh: /budget makan 1000000_
 /reset - Hapus data keuangan & mulai dari nol (bisa dibatalkan 7 hari)
 /langganan - Status paket, kuota, dan cara berlangganan
 /aktivasi KODE - Aktifkan paket dengan kode
+/baru - Fitur & pembaruan terbaru
 /tips - Tutorial singkat & tips memakai Panta
 /help - Tampilkan bantuan ini
 

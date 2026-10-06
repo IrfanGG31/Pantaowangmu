@@ -5,9 +5,10 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { initWebApp, getColorScheme } from '$lib/telegram.js';
-  import { colorScheme, toasts, loadUserCategories, loadWallets } from '$lib/stores.js';
+  import { colorScheme, toasts, loadUserCategories, loadWallets, loadAnnouncements } from '$lib/stores.js';
   import { getPlatform, refreshInstall, watchSystemTheme } from '$lib/platform.js';
   import WebGate from '$lib/components/WebGate.svelte';
+  import MaintenanceBanner from '$lib/components/MaintenanceBanner.svelte';
 
   // Browser / installed PWA without Telegram: no sign-in yet (PWA phase 2), so show the gate instead of failing
   // requests. The dev server keeps the full app (X-Dev-User-Id bypass).
@@ -48,6 +49,7 @@
     if (showGate) return;
     loadUserCategories();
     loadWallets();
+    loadAnnouncements();
   });
 
   onDestroy(() => {
@@ -75,6 +77,7 @@
 {:else}
 <!-- App shell -->
 <div id="app-root">
+  <MaintenanceBanner />
   <slot />
 </div>
 

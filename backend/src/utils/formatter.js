@@ -115,6 +115,18 @@ function zonedMidnight(year, month, day) {
 }
 
 /**
+ * UTC instant of a local wall-clock time in the configured timezone, e.g. ("2026-10-07", "22:00") in WIB.
+ * @returns {Date|null} null when the date or time is malformed
+ */
+export function zonedDateTime(dateStr, timeStr = '00:00') {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  const t = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(timeStr || ''));
+  if (!d || !t) return null;
+  const midnight = zonedMidnight(Number(d[1]), Number(d[2]), Number(d[3]));
+  return new Date(midnight.getTime() + (Number(t[1]) * 60 + Number(t[2])) * 60000);
+}
+
+/**
  * Local calendar date "YYYY-MM-DD" in the configured timezone.
  * @param {Date|string|number} [date=new Date()]
  * @returns {string}

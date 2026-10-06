@@ -7,6 +7,7 @@ import { getAiConfig, writeWeeklyReport } from '../ai/interpreter.js';
 import { buildUserContext } from '../ai/context.js';
 import { runReminderTick, runBillTick, runDailyTick, TICK_MINUTES } from './nudges.js';
 import { purgeExpiredResets } from '../db/resets.js';
+import { runAnnouncementTick } from './announcements.js';
 import { getBudgetsByUser } from '../db/budgets.js';
 import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr, formatDateShort } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
@@ -31,6 +32,12 @@ export function startScheduler(bot) {
         if (reminders || nudges) logger.info({ reminders, nudges }, '[Scheduler] Reminders sent');
       } catch (err) {
         logger.error({ err: err.message }, 'Reminder tick error');
+      }
+      try {
+        const sent = runAnnouncementTick();
+        if (sent.reminders || sent.ends) logger.info(sent, '[Scheduler] Maintenance notices started');
+      } catch (err) {
+        logger.error({ err: err.message }, 'Announcement tick error');
       }
     },
     { timezone: TIMEZONE }
