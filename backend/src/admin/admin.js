@@ -100,8 +100,49 @@ async function showApp() {
   $('login-view').hidden = true;
   $('app-view').hidden = false;
   fillPlanSelects();
+  initTabs();
   setDays(state.days);
 }
+
+const TABS = ['overview', 'users', 'insights', 'outreach', 'billing', 'system'];
+
+function switchTab(tab, { scroll = true } = {}) {
+  if (!TABS.includes(tab)) tab = 'overview';
+  for (const name of TABS) {
+    const btn = $(`tabnav-${name}`);
+    const panel = $(`tab-${name}`);
+    if (!btn || !panel) continue;
+    const active = name === tab;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    btn.tabIndex = active ? 0 : -1;
+    panel.hidden = !active;
+  }
+  try { localStorage.setItem('panta-admin-tab', tab); } catch {}
+  if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function initTabs() {
+  let saved = 'overview';
+  try { saved = localStorage.getItem('panta-admin-tab') || 'overview'; } catch {}
+  switchTab(saved, { scroll: false });
+  for (const name of TABS) {
+    const btn = $(`tabnav-${name}`);
+    if (!btn) continue;
+    btn.addEventListener('click', () => switchTab(name));
+    btn.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+      event.preventDefault();
+      const i = TABS.indexOf(name);
+      const next = event.key === 'Home' ? 0
+        : event.key === 'End' ? TABS.length - 1
+        : (i + (event.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
+      switchTab(TABS[next], { scroll: false });
+      $(`tabnav-${TABS[next]}`)?.focus();
+    });
+  }
+}
+
 
 const paidPlans = () => state.config.plans.filter((p) => p.id !== 'trial');
 const planName = (id) => state.config?.plans.find((p) => p.id === id)?.name || id || '—';

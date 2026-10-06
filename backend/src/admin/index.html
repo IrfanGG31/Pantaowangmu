@@ -32,6 +32,16 @@
     </header>
 
     <main class="content">
+      <nav class="tabnav" role="tablist" aria-label="Menu dashboard">
+        <button type="button" class="tabnav-item" id="tabnav-overview" role="tab" aria-controls="tab-overview" data-tab="overview">📊 Ringkasan</button>
+        <button type="button" class="tabnav-item" id="tabnav-users" role="tab" aria-controls="tab-users" data-tab="users">👥 Pengguna</button>
+        <button type="button" class="tabnav-item" id="tabnav-insights" role="tab" aria-controls="tab-insights" data-tab="insights">📈 Analitik</button>
+        <button type="button" class="tabnav-item" id="tabnav-outreach" role="tab" aria-controls="tab-outreach" data-tab="outreach">📣 Komunikasi</button>
+        <button type="button" class="tabnav-item" id="tabnav-billing" role="tab" aria-controls="tab-billing" data-tab="billing">💳 Berlangganan</button>
+        <button type="button" class="tabnav-item" id="tabnav-system" role="tab" aria-controls="tab-system" data-tab="system">⚙️ Sistem</button>
+      </nav>
+
+      <section class="tab-panel" id="tab-overview" role="tabpanel" aria-labelledby="tabnav-overview" hidden>
       <div class="filters" role="group" aria-label="Periode">
         <span class="muted">Periode:</span>
         <button class="chip" data-days="7">7 hari</button>
@@ -58,31 +68,9 @@
         <div class="table-wrap"><table id="daily-table"></table></div>
       </details>
 
-      <section class="card" id="ai-health">
-        <div class="section-head">
-          <h2>🩺 Kesehatan AI</h2>
-          <span id="ai-health-status" class="health-pill"></span>
-        </div>
-        <ul id="ai-health-alerts" class="health-alerts"></ul>
-        <p id="ai-health-summary" class="muted small"></p>
-        <div class="table-wrap"><table id="ai-health-table"></table></div>
-        <details class="add-plan">
-          <summary>Panggilan & kegagalan per hari (7 hari)</summary>
-          <div class="table-wrap"><table id="ai-health-daily"></table></div>
-        </details>
       </section>
 
-      <section class="card">
-        <h2>📈 Funnel & retensi</h2>
-        <p class="muted small">Di tahap mana pengguna berhenti. "Mencatat" = ada transaksi; berdasarkan semua data, bukan hanya periode di atas.</p>
-        <div id="funnel" class="funnel"></div>
-        <h3 class="small muted">Retensi per minggu daftar</h3>
-        <p class="muted small">D1/D7/D30 = persen pengguna yang masih mencatat setelah hari ke-1/7/30 sejak daftar. Kosong bila belum ada pengguna seumur itu.</p>
-        <div class="table-wrap"><table id="retention-table"></table></div>
-        <h3 class="small muted">🧹 Reset data (/reset)</h3>
-        <p id="reset-stats" class="small"></p>
-      </section>
-
+      <section class="tab-panel" id="tab-users" role="tabpanel" aria-labelledby="tabnav-users" hidden>
       <section class="card">
         <div class="section-head">
           <h2>⚠️ Pengguna berisiko berhenti</h2>
@@ -117,59 +105,37 @@
         </div>
       </section>
 
-      <section class="billing-grid">
-        <div class="card">
-          <h2>Paket &amp; harga</h2>
-          <p class="muted small">Harga dalam rupiah. Kosongkan harga untuk "tanya admin". Paket nonaktif tidak tampil di /langganan.</p>
-          <div class="table-wrap"><table id="plans-table"></table></div>
-          <details class="add-plan">
-            <summary>Tambah paket</summary>
-            <form id="plan-create" class="inline-form">
-              <input name="id" placeholder="ID (mis. tahunan)" required pattern="[a-z0-9_-]{2,20}">
-              <input name="name" placeholder="Nama (mis. Pro Tahunan)" required>
-              <input name="price" type="number" min="0" placeholder="Harga (Rp)">
-              <input name="period_days" type="number" min="1" placeholder="Periode (hari)" required>
-              <button class="btn primary" type="submit">Tambah</button>
-            </form>
-          </details>
-          <p id="plans-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section class="tab-panel" id="tab-insights" role="tabpanel" aria-labelledby="tabnav-insights" hidden>
+      <section class="card" id="ai-health">
+        <div class="section-head">
+          <h2>🩺 Kesehatan AI</h2>
+          <span id="ai-health-status" class="health-pill"></span>
         </div>
-        <div class="card">
-          <h2>Instruksi pembayaran</h2>
-          <p class="muted small">Tampil di /langganan. Contoh: rekening/QRIS dan ke mana mengirim bukti transfer.</p>
-          <form id="settings-form" class="stack">
-            <textarea name="payment_instructions" rows="6" maxlength="1000" placeholder="Transfer ke BCA 1234567890 a.n. ... lalu kirim bukti ke @admin. Kode aktivasi akan dikirim setelah dicek."></textarea>
-            <div class="row"><button class="btn primary" type="submit">Simpan</button><span id="settings-status" class="muted small"></span></div>
-          </form>
-        </div>
+        <ul id="ai-health-alerts" class="health-alerts"></ul>
+        <p id="ai-health-summary" class="muted small"></p>
+        <div class="table-wrap"><table id="ai-health-table"></table></div>
+        <details class="add-plan">
+          <summary>Panggilan & kegagalan per hari (7 hari)</summary>
+          <div class="table-wrap"><table id="ai-health-daily"></table></div>
+        </details>
       </section>
 
       <section class="card">
-        <div class="section-head"><h2>Voucher / kode aktivasi</h2></div>
-        <form id="voucher-form" class="inline-form">
-          <label>Paket <select name="plan_id" id="voucher-plan"></select></label>
-          <label>Jumlah kode <input name="count" type="number" min="1" max="100" value="1"></label>
-          <label>Durasi (hari) <input name="days" type="number" min="1" placeholder="default paket"></label>
-          <label>Harga per kode (Rp) <input name="price" type="number" min="0" placeholder="default paket"></label>
-          <label>Maks. pemakaian <input name="max_uses" type="number" min="1" value="1"></label>
-          <label>Kode berlaku (hari) <input name="expires_in_days" type="number" min="1" placeholder="selamanya"></label>
-          <label class="grow">Catatan <input name="note" maxlength="100" placeholder="mis. transfer Budi 30 Sep"></label>
-          <button class="btn primary" type="submit">Buat kode</button>
-        </form>
-        <p id="voucher-error" class="error" role="alert" hidden></p>
-        <div id="voucher-result" class="voucher-result" hidden>
-          <p class="muted small">Kode baru, kirim ke pembeli. Mereka mengetik <code>/aktivasi KODE</code> di bot.</p>
-          <textarea id="voucher-codes" rows="3" readonly></textarea>
-          <button id="copy-codes" class="btn" type="button">Salin</button>
-        </div>
-        <div class="table-wrap"><table id="vouchers-table"></table></div>
+        <h2>📈 Funnel & retensi</h2>
+        <p class="muted small">Di tahap mana pengguna berhenti. "Mencatat" = ada transaksi; berdasarkan semua data, bukan hanya periode di atas.</p>
+        <div id="funnel" class="funnel"></div>
+        <h3 class="small muted">Retensi per minggu daftar</h3>
+        <p class="muted small">D1/D7/D30 = persen pengguna yang masih mencatat setelah hari ke-1/7/30 sejak daftar. Kosong bila belum ada pengguna seumur itu.</p>
+        <div class="table-wrap"><table id="retention-table"></table></div>
+        <h3 class="small muted">🧹 Reset data (/reset)</h3>
+        <p id="reset-stats" class="small"></p>
       </section>
 
-      <section class="card">
-        <h2>Pembayaran terbaru</h2>
-        <div class="table-wrap"><table id="payments-table"></table></div>
       </section>
 
+      <section class="tab-panel" id="tab-outreach" role="tabpanel" aria-labelledby="tabnav-outreach" hidden>
       <section class="card" id="announce">
         <div class="section-head">
           <h2>📢 Pengumuman pemeliharaan &amp; pembaruan</h2>
@@ -296,6 +262,65 @@
         </details>
       </section>
 
+      </section>
+
+      <section class="tab-panel" id="tab-billing" role="tabpanel" aria-labelledby="tabnav-billing" hidden>
+      <section class="billing-grid">
+        <div class="card">
+          <h2>Paket &amp; harga</h2>
+          <p class="muted small">Harga dalam rupiah. Kosongkan harga untuk "tanya admin". Paket nonaktif tidak tampil di /langganan.</p>
+          <div class="table-wrap"><table id="plans-table"></table></div>
+          <details class="add-plan">
+            <summary>Tambah paket</summary>
+            <form id="plan-create" class="inline-form">
+              <input name="id" placeholder="ID (mis. tahunan)" required pattern="[a-z0-9_-]{2,20}">
+              <input name="name" placeholder="Nama (mis. Pro Tahunan)" required>
+              <input name="price" type="number" min="0" placeholder="Harga (Rp)">
+              <input name="period_days" type="number" min="1" placeholder="Periode (hari)" required>
+              <button class="btn primary" type="submit">Tambah</button>
+            </form>
+          </details>
+          <p id="plans-error" class="error" role="alert" hidden></p>
+        </div>
+        <div class="card">
+          <h2>Instruksi pembayaran</h2>
+          <p class="muted small">Tampil di /langganan. Contoh: rekening/QRIS dan ke mana mengirim bukti transfer.</p>
+          <form id="settings-form" class="stack">
+            <textarea name="payment_instructions" rows="6" maxlength="1000" placeholder="Transfer ke BCA 1234567890 a.n. ... lalu kirim bukti ke @admin. Kode aktivasi akan dikirim setelah dicek."></textarea>
+            <div class="row"><button class="btn primary" type="submit">Simpan</button><span id="settings-status" class="muted small"></span></div>
+          </form>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><h2>Voucher / kode aktivasi</h2></div>
+        <form id="voucher-form" class="inline-form">
+          <label>Paket <select name="plan_id" id="voucher-plan"></select></label>
+          <label>Jumlah kode <input name="count" type="number" min="1" max="100" value="1"></label>
+          <label>Durasi (hari) <input name="days" type="number" min="1" placeholder="default paket"></label>
+          <label>Harga per kode (Rp) <input name="price" type="number" min="0" placeholder="default paket"></label>
+          <label>Maks. pemakaian <input name="max_uses" type="number" min="1" value="1"></label>
+          <label>Kode berlaku (hari) <input name="expires_in_days" type="number" min="1" placeholder="selamanya"></label>
+          <label class="grow">Catatan <input name="note" maxlength="100" placeholder="mis. transfer Budi 30 Sep"></label>
+          <button class="btn primary" type="submit">Buat kode</button>
+        </form>
+        <p id="voucher-error" class="error" role="alert" hidden></p>
+        <div id="voucher-result" class="voucher-result" hidden>
+          <p class="muted small">Kode baru, kirim ke pembeli. Mereka mengetik <code>/aktivasi KODE</code> di bot.</p>
+          <textarea id="voucher-codes" rows="3" readonly></textarea>
+          <button id="copy-codes" class="btn" type="button">Salin</button>
+        </div>
+        <div class="table-wrap"><table id="vouchers-table"></table></div>
+      </section>
+
+      <section class="card">
+        <h2>Pembayaran terbaru</h2>
+        <div class="table-wrap"><table id="payments-table"></table></div>
+      </section>
+
+      </section>
+
+      <section class="tab-panel" id="tab-system" role="tabpanel" aria-labelledby="tabnav-system" hidden>
       <section class="card">
         <div class="section-head">
           <h2>Backup database</h2>
@@ -316,6 +341,7 @@
           <h2>Log aktivitas admin</h2>
           <div class="table-wrap"><table id="audit-table"></table></div>
         </div>
+      </section>
       </section>
     </main>
   </div>
