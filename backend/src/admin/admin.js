@@ -580,6 +580,9 @@ function renderAnalytics(a) {
     u.state === 'free' ? 'Gratis' : u.tier === 'trial' ? 'Trial' : `Berbayar (${u.tier})`
   ]), 'Tidak ada pengguna berisiko saat ini. 🎉', [2, 3]);
   $('at-risk-message').disabled = a.at_risk.length === 0;
+
+  const r = a.resets || { last_7_days: 0, last_30_days: 0, undone_30_days: 0 };
+  $('reset-stats').textContent = `${fmt.format(r.last_7_days)} reset dalam 7 hari · ${fmt.format(r.last_30_days)} dalam 30 hari · ${fmt.format(r.undone_30_days)} dibatalkan (data dikembalikan). Banyak reset bisa berarti pengguna bingung dengan datanya atau ingin mulai lagi.`;
 }
 
 async function loadAnalytics() {

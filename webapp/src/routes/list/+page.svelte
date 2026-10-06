@@ -127,21 +127,6 @@
     }
   }
 
-  // ── Export CSV ────────────────────────────────────────────────
-  let exporting = false;
-
-  async function exportCsv() {
-    exporting = true;
-    try {
-      await transactionsApi.downloadCsv();
-      showToast('CSV berhasil diunduh', 'success');
-    } catch {
-      showToast('Gagal export CSV', 'error');
-    } finally {
-      exporting = false;
-    }
-  }
-
   // ── Group by date ─────────────────────────────────────────────
   function dateKey(dt: string): string {
     return localDateKey(parseApiDate(dt));
@@ -196,11 +181,10 @@
       </div>
       <button
         class="btn btn-secondary btn-sm"
-        on:click={exportCsv}
-        disabled={exporting || txList.length === 0}
-        title="Export CSV"
+        on:click={() => goto('/laporan')}
+        title="Laporan & unduh Excel"
       >
-        {exporting ? '⏳' : '📤'} CSV
+        📊 Laporan
       </button>
     </div>
   </header>

@@ -331,3 +331,24 @@ CREATE TABLE IF NOT EXISTS broadcasts (
   created_at DATETIME DEFAULT (datetime('now')),
   finished_at DATETIME
 );
+
+-- /reset: what was removed (counts) and a 7-day copy of the rows so the user can undo
+CREATE TABLE IF NOT EXISTS resets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  scope TEXT NOT NULL CHECK(scope IN ('month', 'transactions', 'everything')),
+  counts TEXT NOT NULL DEFAULT '{}',
+  created_at DATETIME DEFAULT (datetime('now')),
+  undo_until DATETIME NOT NULL,
+  undone_at DATETIME,
+  purged_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_resets_user ON resets(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS reset_backups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reset_id INTEGER NOT NULL,
+  table_name TEXT NOT NULL,
+  row_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reset_backups_reset ON reset_backups(reset_id);

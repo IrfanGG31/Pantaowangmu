@@ -270,6 +270,21 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
 - **⚠️ Pengguna berisiko berhenti**: dulu rajin (3+ hari mencatat dalam sebulan) tapi diam 3–14 hari. Tombol "Kirim pesan
   kangen" mengisi broadcast dengan segmen ini dan template `{nama}`.
 
+## Reset data & laporan Excel
+
+- **/reset** (atau "hapus semua data", "mulai dari nol"): menu tiga pilihan, yaitu transaksi bulan ini, semua transaksi, atau
+  semua data keuangan (dompet, transaksi, budget, tagihan, utang, tantangan, target). Bot mengirim salinan Excel dulu, lalu
+  pengguna harus mengetik `HAPUS` dalam 10 menit. Akun, paket, nama panggilan, gaya, kategori, kata kunci dan pengingat
+  tidak ikut terhapus. `/reset batal` mengembalikan data dalam 7 hari. Salinannya disimpan di tabel `reset_backups` dan
+  dihapus otomatis setiap hari pukul 09:00 setelah lewat 7 hari. Asisten AI tidak pernah menghapus data.
+  Admin melihat jumlah reset (7/30 hari, berapa yang dibatalkan) di kartu Funnel.
+- **Laporan (Mini App → Riwayat → 📊 Laporan, atau Statistik)**: ringkasan per periode, kategori, per bulan dan pratinjau
+  isi file. Dua cara menyimpan di HP:
+  (1) **Kirim ke chat**: bot mengirim file ke chat (paling andal);
+  (2) **Unduh langsung**: Telegram 8.0+ memakai popup unduh bawaan; versi lama membuka browser; link berlaku 5 menit.
+  File berupa Excel (.xlsx): lembar Ringkasan (arus kas, saldo awal → akhir, per kategori, per bulan) dan Buku Kas
+  (saldo berjalan, filter). Semua total memakai rumus. `/export` di bot juga mengirim file ini.
+
 ## Risiko diketahui
 
 1. **Satu zona waktu untuk semua pengguna.** `created_at` disimpan UTC; batas "hari ini/minggu/bulan"

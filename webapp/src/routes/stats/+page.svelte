@@ -278,5 +278,24 @@
         {/each}
       </div>
     {/if}
+
+    <button class="card report-link" on:click={() => goto('/laporan')}>
+      <span class="font-semibold">📥 Laporan lengkap & unduh Excel</span>
+      <span class="text-hint text-sm">Per bulan, per kategori, kirim file ke chat</span>
+    </button>
   {/if}
 </main>
+
+<style>
+  .report-link {
+    width: 100%;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    border: 0;
+    text-align: left;
+    color: var(--tg-text);
+  }
+</style>

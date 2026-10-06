@@ -4,7 +4,8 @@ import { registerHandlers } from '../src/bot/commands.js';
 import { getAllTransactions } from '../src/db/transactions.js';
 import { getBudget } from '../src/db/budgets.js';
 import { getMonthStr } from '../src/utils/formatter.js';
-import { markOnboarded } from './helpers.js';
+import { markOnboarded, readXlsx } from './helpers.js';
+import { XLSX_TYPE } from '../src/utils/xlsx.js';
 
 // Minimal stand-in for node-telegram-bot-api: records handlers and outgoing calls.
 class FakeBot {
@@ -151,13 +152,17 @@ describe('Bot free-text flow', () => {
     expect(bot.lastSent().text).toContain('makan\\_siang \\*enak\\*');
   });
 
-  it('/export sends a semicolon CSV with a totals caption', async () => {
+  it('/export sends the Excel report with a totals caption and a link to the Laporan page', async () => {
     await bot.message('gaji 5jt');
     await bot.message('makan 25rb');
     await bot.message('/export');
     const [doc] = bot.documents;
-    expect(doc.fileOptions.filename).toMatch(/^transaksi-\d{4}-\d{2}-\d{2}\.csv$/);
-    expect(doc.buffer.toString('utf-8')).toContain('id;date;time;');
+    expect(doc.fileOptions).toMatchObject({ filename: 'PantaUangmu-Semua-data.xlsx', contentType: XLSX_TYPE });
+    const ledger = readXlsx(doc.buffer)['xl/worksheets/sheet2.xml'];
+    expect(ledger).toContain('<t xml:space="preserve">Pengeluaran</t>');
+    expect(ledger).toContain('<f>L6+J7-K7</f><v>4975000</v>'); // running balance after "makan 25rb"
+    expect(doc.options.caption).toContain('Saldo akhir: Rp');
     expect(doc.options.caption).toContain('2 transaksi');
+    expect(doc.options.reply_markup.inline_keyboard[0][0].web_app.url).toMatch(/\/laporan$/);
   });
 });

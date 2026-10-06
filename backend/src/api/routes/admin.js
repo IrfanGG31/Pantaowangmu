@@ -28,6 +28,7 @@ import { clusterIdeas, getAiConfig } from '../../ai/interpreter.js';
 import { segmentCounts, listBroadcasts, startBroadcast, sendTestBroadcast, runningBroadcastId, MAX_BROADCAST_LENGTH } from '../../bot/broadcast.js';
 import { getActiveBot } from '../../bot/identity.js';
 import { getFunnel, getRetention, getAtRiskUsers, getAiHealth } from '../../db/analytics.js';
+import { resetStats } from '../../db/resets.js';
 import { getReminderDefaults, setReminderDefaults, reminderStats, resetReminderOverrides, BUILTIN_REMINDER_TIME } from '../../db/reminders.js';
 
 const router = Router();
@@ -213,7 +214,7 @@ router.put('/settings', (req, res) => {
 
 router.get('/analytics', (req, res, next) => {
   try {
-    res.json({ funnel: getFunnel(), retention: getRetention({ weeks: 8 }), at_risk: getAtRiskUsers({ limit: 50 }) });
+    res.json({ funnel: getFunnel(), retention: getRetention({ weeks: 8 }), at_risk: getAtRiskUsers({ limit: 50 }), resets: resetStats() });
   } catch (err) {
     next(err);
   }
