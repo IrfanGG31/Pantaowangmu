@@ -280,7 +280,7 @@
     {/if}
 
     <button class="card report-link" on:click={() => goto('/laporan')}>
-      <span class="font-semibold">📥 Laporan lengkap & unduh CSV</span>
+      <span class="font-semibold">📥 Laporan lengkap & unduh Excel</span>
       <span class="text-hint text-sm">Per bulan, per kategori, kirim file ke chat</span>
     </button>
   {/if}

@@ -182,7 +182,7 @@
       <button
         class="btn btn-secondary btn-sm"
         on:click={() => goto('/laporan')}
-        title="Laporan & unduh CSV"
+        title="Laporan & unduh Excel"
       >
         📊 Laporan
       </button>

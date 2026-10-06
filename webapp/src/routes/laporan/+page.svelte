@@ -1,7 +1,7 @@
 <script lang="ts">
   // webapp/src/routes/laporan/+page.svelte — Laporan
   //
-  // What the CSV holds, shown as a readable report first (summary, where the money went, month by month, the rows),
+  // What the Excel file holds, shown as a readable report first (summary, where the money went, month by month, the rows),
   // then two ways to get the file onto the phone. A blob download does nothing inside Telegram's WebView, so:
   // 1. the bot sends the file into the chat (works on every phone), 2. Telegram's native download / the browser.
 
@@ -116,6 +116,7 @@
     new Date(`${date}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
   const rangeLabel = (from: string | null, to: string | null) =>
     from && to ? (from === to ? dayLabel(from) : `${dayLabel(from)} – ${dayLabel(to)}`) : '';
+  const signed = (n: number) => `${n < 0 ? '−' : ''}${formatRupiahShort(Math.abs(n))}`;
   const color = (category: string) => CATEGORY_COLORS[category] ?? 'var(--tg-accent)';
 </script>
 
@@ -182,6 +183,11 @@
           </div>
         {/if}
       </div>
+      <div class="hero-balance tabular">
+        <span>Saldo awal <b>{signed(report.balance.opening)}</b></span>
+        <span aria-hidden="true">→</span>
+        <span>Saldo akhir <b>{signed(report.balance.closing)}</b></span>
+      </div>
       <div class="hero-range">{rangeLabel(s.first_date, s.last_date)}</div>
     </section>
 
@@ -191,7 +197,7 @@
         <div class="save-icon" aria-hidden="true">📄</div>
         <div class="save-file">
           <div class="font-semibold">{report.period.file_name}</div>
-          <div class="text-hint text-sm">CSV · {s.count} baris · buka di Google Sheets / Excel</div>
+          <div class="text-hint text-sm">Excel · lembar Ringkasan + Buku Kas · buka di Excel, Google Sheets, atau WPS</div>
         </div>
       </div>
 
@@ -226,7 +232,7 @@
           <li><b>Pakai "Kirim ke chat"</b>: file selalu tersimpan di chat Telegram, tidak bergantung pada browser.</li>
           <li><b>Android</b>: buka aplikasi <i>Files</i> / <i>File Manager</i> → folder <i>Download</i> atau <i>Telegram</i>.</li>
           <li><b>iPhone</b>: buka aplikasi <i>File</i> → <i>Unduhan</i>. Dari chat: ketuk file → Bagikan → Simpan ke File.</li>
-          <li><b>Membuka</b>: Google Sheets / Excel. Kolom dipisah titik koma (;), angka tanpa titik ribuan supaya bisa dijumlah.</li>
+          <li><b>Membuka</b>: Excel, Google Sheets, atau WPS Office. Total, persentase, dan saldo memakai rumus, jadi tetap benar kalau kamu mengubah angkanya.</li>
           <li>Link unduhan berlaku 5 menit; ketuk tombolnya lagi bila kedaluwarsa.</li>
         </ul>
       {/if}
@@ -298,7 +304,7 @@
     {/if}
 
     <!-- What's inside the file -->
-    <div class="section-title">Isi file (terbaru)</div>
+    <div class="section-title">Buku kas (terbaru)</div>
     <section class="card rows">
       {#each previewRows as t (t.id)}
         <div class="tx">
@@ -318,7 +324,7 @@
         <div class="more text-hint text-sm">…dan {s.count - previewRows.length} transaksi lainnya di file</div>
       {/if}
       <div class="columns text-hint text-sm">
-        Kolom: Tanggal · Jam · Hari · Jenis · Kategori · Catatan · Dompet · Tag · Pemasukan · Pengeluaran · Saldo berjalan
+        Di file: lembar <b>Ringkasan</b> (arus kas, per kategori, per bulan) dan <b>Buku Kas</b> (semua transaksi dengan saldo berjalan).
       </div>
     </section>
   {/if}
@@ -363,7 +369,8 @@
   }
   .pill-label { font-size: 12px; opacity: 0.9; }
   .pill-value { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .hero-range { margin-top: 10px; font-size: 12px; opacity: 0.8; }
+  .hero-balance { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; font-size: 13px; opacity: 0.95; }
+  .hero-range { margin-top: 6px; font-size: 12px; opacity: 0.8; }
 
   .save { margin-bottom: 18px; }
   .save .btn-secondary { background: var(--tg-bg); border: 1.5px solid color-mix(in srgb, var(--tg-btn) 35%, transparent); color: var(--tg-link); }

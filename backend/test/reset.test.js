@@ -12,7 +12,8 @@ import { parseFreeText } from '../src/bot/textParser.js';
 import { getMonthStr, toSqlDateTime } from '../src/utils/formatter.js';
 import { setActiveBot } from '../src/bot/identity.js';
 import { resetExportLinks } from '../src/api/routes/export.js';
-import { markOnboarded } from './helpers.js';
+import { markOnboarded, readXlsx } from './helpers.js';
+import { XLSX_TYPE } from '../src/utils/xlsx.js';
 import { upsertUser } from '../src/db/users.js';
 
 const DAY = 86400000;
@@ -129,7 +130,7 @@ describe('/reset in the bot', () => {
     registerHandlers(bot);
   });
 
-  it('menu → CSV copy → type HAPUS → deleted, then /reset batal restores it', async () => {
+  it('menu → Excel copy → type HAPUS → deleted, then /reset batal restores it', async () => {
     seed();
     await bot.message('/reset');
     const menu = bot.lastSent();
@@ -139,7 +140,8 @@ describe('/reset in the bot', () => {
     await bot.press('rs:transactions');
     expect(bot.lastEdit().text).toContain('Ketik *HAPUS*');
     expect(bot.documents).toHaveLength(1);
-    expect(bot.documents[0].buffer.toString('utf-8').trim().split('\r\n')).toHaveLength(4); // header + 3 rows
+    expect(bot.documents[0].fileOptions.filename).toBe('PantaUangmu-cadangan-Semua-data.xlsx');
+    expect(readXlsx(bot.documents[0].buffer)['xl/worksheets/sheet2.xml']).toContain('nasi padang');
     expect(getAllTransactions('42')).toHaveLength(3); // nothing deleted yet
 
     await bot.message('hapus');
@@ -187,8 +189,10 @@ describe('Laporan API (report, download link, send to chat)', () => {
     seed();
     const res = await user(request(app).get('/api/export/report?period=this_month')).expect(200);
     expect(res.body.period).toMatchObject({ key: 'this_month' });
-    expect(res.body.period.file_name).toMatch(/^PantaUangmu-.+\.csv$/);
+    expect(res.body.period.file_name).toMatch(/^PantaUangmu-.+\.xlsx$/);
     expect(res.body.summary).toMatchObject({ count: 2, income: 5000000, expense: 25000, net: 4975000 });
+    // opening = wallet balance 1jt minus last month's 50rb; closing = opening + this month's net
+    expect(res.body.balance).toEqual({ opening: 950000, closing: 5925000 });
     expect(res.body.summary.by_category[0]).toMatchObject({ type: 'income', category: 'gaji' });
     expect(res.body.data[0]).toMatchObject({ note: 'nasi padang', wallet_name: 'BCA', tags: ['kantor'] });
     expect(res.body.periods.map((p) => p.key)).toContain('last_3_months');
@@ -204,10 +208,13 @@ describe('Laporan API (report, download link, send to chat)', () => {
     const { body } = await user(request(app).post('/api/export/link')).send({ period: 'all' }).expect(200);
     expect(body.url).toMatch(/\/api\/export\/file\/[\w-]{20,}$/);
     const path = new URL(body.url).pathname;
-    const file = await request(app).get(path).expect(200);
-    expect(file.headers['content-disposition']).toContain('PantaUangmu-Semua-data.csv');
+    const file = await request(app).get(path).buffer(true)
+      .parse((res, done) => { const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => done(null, Buffer.concat(chunks))); })
+      .expect(200);
+    expect(file.headers['content-disposition']).toContain('PantaUangmu-Semua-data.xlsx');
+    expect(file.headers['content-type']).toBe(XLSX_TYPE);
     expect(file.headers['cache-control']).toBe('no-store');
-    expect(file.text.trim().split('\r\n')).toHaveLength(4);
+    expect(readXlsx(file.body)['xl/worksheets/sheet2.xml']).toContain('bulan lalu');
     await request(app).get('/api/export/file/not-a-token').expect(404);
   });
 
@@ -217,8 +224,8 @@ describe('Laporan API (report, download link, send to chat)', () => {
     const docs = [];
     setActiveBot({ sendDocument: async (chatId, buffer, options, fileOptions) => docs.push({ chatId, buffer, options, fileOptions }) });
     const res = await user(request(app).post('/api/export/send')).send({ period: 'all' }).expect(200);
-    expect(res.body).toEqual({ ok: true, file_name: 'PantaUangmu-Semua-data.csv' });
-    expect(docs[0]).toMatchObject({ chatId: '42', fileOptions: { filename: 'PantaUangmu-Semua-data.csv', contentType: 'text/csv' } });
+    expect(res.body).toEqual({ ok: true, file_name: 'PantaUangmu-Semua-data.xlsx' });
+    expect(docs[0]).toMatchObject({ chatId: '42', fileOptions: { filename: 'PantaUangmu-Semua-data.xlsx', contentType: XLSX_TYPE } });
     expect(docs[0].options.caption).toContain('3 transaksi');
     await user(request(app).post('/api/export/send')).send({ from: '2001-01-01', to: '2001-01-31' }).expect(404);
 

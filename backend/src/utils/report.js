@@ -1,7 +1,6 @@
-// Reader-friendly report for mobile users: period presets, a summary for the Mini App "Laporan" page, and a CSV with
-// Indonesian headers (Pemasukan / Pengeluaran / Saldo berjalan) that opens cleanly in Excel and Google Sheets.
-import { csvField } from './csv.js';
-import { getDateStr, getMonthStr, getTimeZone, toDate } from './formatter.js';
+// Reader-friendly report for mobile users: period presets, the summary for the Mini App "Laporan" page and the
+// Excel file (see reportXlsx.js), and the balance before a period.
+import { getDateStr, getMonthStr, toDate } from './formatter.js';
 
 export const REPORT_PERIODS = {
   this_month: 'Bulan ini',
@@ -54,36 +53,12 @@ export function inPeriod(transactions, period) {
     .sort((a, b) => toDate(a.created_at) - toDate(b.created_at) || (a.id ?? 0) - (b.id ?? 0));
 }
 
-const localTime = (date) => new Intl.DateTimeFormat('en-GB', { timeZone: getTimeZone(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
-const localWeekday = (date) => new Intl.DateTimeFormat('id-ID', { timeZone: getTimeZone(), weekday: 'long' }).format(date);
-
-export const REPORT_COLUMNS = ['Tanggal', 'Jam', 'Hari', 'Jenis', 'Kategori', 'Catatan', 'Dompet', 'Tag', 'Pemasukan', 'Pengeluaran', 'Saldo berjalan'];
-
-/**
- * CSV for people: Indonesian headers, one row per transaction (oldest first), income and expense in separate
- * columns as plain integers (rupiah), and a running balance for the period. UTF-8 BOM so Excel shows emoji/accents.
- */
-export function generateReportCSV(transactions, { delimiter = ';' } = {}) {
-  let balance = 0;
-  const rows = inPeriod(transactions, { from: null, to: null }).map((t) => {
-    const created = toDate(t.created_at);
-    const amount = Number(t.amount) || 0;
-    balance += t.type === 'income' ? amount : -amount;
-    return [
-      getDateStr(created),
-      localTime(created),
-      csvField(localWeekday(created), delimiter),
-      t.type === 'income' ? 'Pemasukan' : 'Pengeluaran',
-      csvField(t.category, delimiter),
-      csvField(t.note || '', delimiter),
-      csvField(t.wallet_name || '', delimiter),
-      csvField((t.tags || []).map((tag) => `#${tag}`).join(' '), delimiter),
-      t.type === 'income' ? amount : '',
-      t.type === 'expense' ? amount : '',
-      balance
-    ].join(delimiter);
-  });
-  return `﻿${[REPORT_COLUMNS.join(delimiter), ...rows].join('\r\n')}\r\n`;
+/** Balance before the period: the wallets' opening balances plus every income minus expense recorded earlier. */
+export function openingBalance(transactions, period, walletOpening = 0) {
+  if (!period.from) return walletOpening;
+  return transactions.reduce((sum, t) => (getDateStr(t.created_at) < period.from
+    ? sum + (t.type === 'income' ? 1 : -1) * (Number(t.amount) || 0)
+    : sum), walletOpening);
 }
 
 /**
@@ -116,7 +91,7 @@ export function summarizeReport(transactions) {
   return out;
 }
 
-/** "PantaUangmu-Okt-2026.csv", "PantaUangmu-Semua-data.csv" */
-export function reportFileName(period) {
-  return `PantaUangmu-${period.label.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '')}.csv`;
+/** "PantaUangmu-Okt-2026.xlsx", "PantaUangmu-Semua-data.xlsx" */
+export function reportFileName(period, prefix = 'PantaUangmu') {
+  return `${prefix}-${period.label.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '')}.xlsx`;
 }

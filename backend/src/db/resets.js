@@ -42,12 +42,6 @@ export function previewReset(userId, scope, now = new Date()) {
   return { scope, label: RESET_SCOPES[scope], counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
 }
 
-/** The transactions a reset would remove (for the CSV copy sent before deleting). */
-export function resetTransactionIds(userId, scope, now = new Date()) {
-  const s = selection(userId, scope, now).find((x) => x.table === 'transactions');
-  return s ? db.prepare(`SELECT id FROM transactions WHERE ${s.where}`).all(...s.params).map((r) => r.id) : [];
-}
-
 /**
  * Removes the data and keeps a copy of every row for UNDO_DAYS. Runs in one SQLite transaction.
  * @returns {{ id: number, counts: Record<string, number>, total: number, undo_until: string } | null}

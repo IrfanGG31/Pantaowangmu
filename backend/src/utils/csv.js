@@ -108,4 +108,3 @@ export function summarizeTransactions(transactions = []) {
   };
 }
 
-export { textField as csvField };

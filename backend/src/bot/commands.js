@@ -42,8 +42,9 @@ import {
   ALL_CATEGORIES
 } from '../utils/validator.js';
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
-import { resolvePeriod, inPeriod, generateReportCSV, summarizeReport, reportFileName } from '../utils/report.js';
-import { previewReset, performReset, undoLastReset, resetTransactionIds, formatResetCounts, RESET_SCOPES, UNDO_DAYS } from '../db/resets.js';
+import { resolvePeriod } from '../utils/report.js';
+import { buildUserReport, XLSX_TYPE } from '../db/reports.js';
+import { previewReset, performReset, undoLastReset, formatResetCounts, RESET_SCOPES, UNDO_DAYS } from '../db/resets.js';
 import { parseFreeText, splitItems } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
 import { transcribeVoice, voiceAvailable } from '../ai/transcribe.js';
@@ -413,17 +414,17 @@ export function registerHandlers(bot) {
     return safeSendMessage(bot, chatId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
   };
 
-  // A CSV copy of the transactions about to be removed, so the user keeps them even after the undo window.
+  // An Excel copy of what is about to be removed, so the user keeps it even after the undo window.
   const sendResetBackup = async (chatId, userId, scope) => {
-    const ids = new Set(resetTransactionIds(userId, scope));
-    if (!ids.size) return;
-    const rows = getAllTransactions(userId).filter((t) => ids.has(t.id));
+    const period = resolvePeriod({ period: scope === 'month' ? 'this_month' : 'all' });
+    const report = buildUserReport(userId, period, { prefix: 'PantaUangmu-cadangan' });
+    if (!report.buffer) return;
     try {
-      await bot.sendDocument(chatId, Buffer.from(generateReportCSV(rows), 'utf-8'), {
-        caption: '🗂️ Cadangan sebelum reset. Simpan file ini kalau mau menyimpan catatan lamamu.'
-      }, { filename: `PantaUangmu-cadangan-${getDateStr(new Date())}.csv`, contentType: 'text/csv' });
+      await bot.sendDocument(chatId, report.buffer, {
+        caption: '🗂️ Cadangan sebelum reset (file Excel). Simpan file ini kalau mau menyimpan catatan lamamu.'
+      }, { filename: report.file_name, contentType: XLSX_TYPE });
     } catch (err) {
-      logger.warn({ err: err.message }, '[Bot] Reset backup CSV not sent');
+      logger.warn({ err: err.message }, '[Bot] Reset backup file not sent');
     }
   };
 
@@ -500,7 +501,7 @@ _Contoh: /catat 25000 makan siang_
 _Contoh: /budget makan 1000000_
 
 /hapus - Hapus transaksi terakhir
-/export - Kirim laporan transaksi (file CSV) ke chat ini
+/export - Kirim laporan keuangan (file Excel) ke chat ini
 /kategori - Kategori & kata kunci pribadimu
 /dompet - Dompet/metode bayar & saldo per dompet (opsional)
 /gaya - Bahasa (Jawa, Sunda, English, ...) & persona Panta
@@ -665,37 +666,38 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
     await safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown', reply_markup: replyMarkup });
   });
 
-  // ── /export: the friendly report CSV, sent into the chat (the most reliable way to get a file onto a phone) ──
+  // ── /export: the Excel report, sent into the chat (the most reliable way to get a file onto a phone) ──
   onText(/^\/export(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
     const period = resolvePeriod({ period: 'all' });
-    const rows = inPeriod(getAllTransactions(userId), period);
-    if (rows.length === 0) {
+    const report = buildUserReport(userId, period);
+    if (!report.buffer) {
       return safeSendMessage(bot, chatId, 'ℹ️ Belum ada transaksi untuk diexport.');
     }
 
-    const s = summarizeReport(rows);
-    const buffer = Buffer.from(generateReportCSV(rows), 'utf-8');
-    const caption = `📊 Laporan PantaUangmu · ${formatDateShort(rows[0].created_at)} – ${formatDateShort(rows.at(-1).created_at)}
+    const s = report.summary;
+    const signed = (n) => `${n < 0 ? '-' : ''}${formatRupiah(n)}`;
+    const caption = `📊 Laporan Keuangan · ${formatDateShort(report.rows[0].created_at)} – ${formatDateShort(report.rows.at(-1).created_at)}
 📝 ${s.count} transaksi
 💰 Pemasukan: ${formatRupiah(s.income)}
 💸 Pengeluaran: ${formatRupiah(s.expense)}
-⚖️ Selisih: ${s.net < 0 ? '-' : ''}${formatRupiah(s.net)}
+⚖️ Arus kas bersih: ${signed(s.net)}
+🏦 Saldo akhir: ${signed(report.closing)}
 
-📥 Simpan ke HP: ketuk file → ⋮ → Simpan ke Unduhan.
-Buka dengan Google Sheets atau Excel. Mau per bulan + grafik? Buka Laporan di Mini App.`;
+📥 File Excel (Ringkasan + Buku Kas). Simpan ke HP: ketuk file → ⋮ → Simpan ke Unduhan.
+Mau per bulan saja? Buka Laporan di Mini App.`;
 
     try {
-      await bot.sendDocument(chatId, buffer, { caption, reply_markup: { inline_keyboard: [reportAppRow()] } }, { filename: reportFileName(period), contentType: 'text/csv' });
+      await bot.sendDocument(chatId, report.buffer, { caption, reply_markup: { inline_keyboard: [reportAppRow()] } }, { filename: report.file_name, contentType: XLSX_TYPE });
     } catch (err) {
       logger.warn({ err: err.message }, '[Bot] /export sendDocument failed');
       await safeSendMessage(bot, chatId, '❌ Gagal mengirim file. Coba lagi sebentar lagi, atau unduh dari menu Laporan di Mini App.', { reply_markup: { inline_keyboard: [reportAppRow()] } });
     }
   });
 
-  // ── /reset: clear financial data (menu → CSV copy → type HAPUS), undo within UNDO_DAYS ──
+  // ── /reset: clear financial data (menu → Excel copy → type HAPUS), undo within UNDO_DAYS ──
   onText(/^\/reset(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
@@ -1425,7 +1427,7 @@ Buka dengan Google Sheets atau Excel. Mau per bulan + grafik? Buka Laporan di Mi
       await safeAnswerCallback(bot, query.id, 'Ketik HAPUS untuk lanjut');
       await editMessage(chatId, messageId, `⚠️ *${preview.label}* akan dihapus: ${formatResetCounts(preview.counts)}.
 
-Salinan CSV-nya kukirim di bawah sebagai cadangan.
+Salinannya (file Excel) kukirim di bawah sebagai cadangan.
 
 Ketik *HAPUS* untuk melanjutkan (berlaku 10 menit), atau *BATAL*.`, {
         parse_mode: 'Markdown',

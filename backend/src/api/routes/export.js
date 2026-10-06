@@ -4,7 +4,8 @@ import requireTelegramAuth from '../middleware/auth.js';
 import { getAllTransactions } from '../../db/transactions.js';
 import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
 import { getMonthStr } from '../../utils/formatter.js';
-import { resolvePeriod, inPeriod, generateReportCSV, summarizeReport, reportFileName, REPORT_PERIODS } from '../../utils/report.js';
+import { resolvePeriod, reportFileName, REPORT_PERIODS } from '../../utils/report.js';
+import { buildUserReport, XLSX_TYPE } from '../../db/reports.js';
 import { getActiveBot } from '../../bot/identity.js';
 
 const router = Router();
@@ -21,21 +22,18 @@ function createLink(userId, period) {
   return { token, expires: now + LINK_TTL_MS };
 }
 
-const sendCsv = (res, csv, fileName) => {
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-  res.setHeader('Cache-Control', 'no-store');
-  res.send(csv);
-};
-
 // Public on purpose: the unguessable token is the credential, valid for 5 minutes.
 router.get('/file/:token', (req, res) => {
   const link = links.get(req.params.token);
   if (!link || link.expires <= Date.now()) return res.status(404).json({ error: 'Link unduhan sudah kedaluwarsa. Buat lagi dari Mini App.' });
-  const rows = inPeriod(getAllTransactions(link.userId), link.period);
+  const report = buildUserReport(link.userId, link.period);
+  if (!report.buffer) return res.status(404).json({ error: 'Tidak ada transaksi di periode ini.' });
+  res.setHeader('Content-Type', XLSX_TYPE);
+  res.setHeader('Content-Disposition', `attachment; filename="${report.file_name}"`);
+  res.setHeader('Cache-Control', 'no-store');
   // Telegram Web fetches downloadFile URLs from its own origin; no cookies are involved, the token is the credential.
   res.setHeader('Access-Control-Allow-Origin', '*');
-  sendCsv(res, generateReportCSV(rows), reportFileName(link.period));
+  res.send(report.buffer);
 });
 
 router.use(requireTelegramAuth);
@@ -73,12 +71,13 @@ function periodFrom(req, res) {
 router.get('/report', (req, res) => {
   const period = periodFrom(req, res);
   if (!period) return;
-  const rows = inPeriod(getAllTransactions(req.user.user_id), period);
+  const report = buildUserReport(req.user.user_id, period);
   res.json({
-    period: { ...period, file_name: reportFileName(period) },
+    period: { ...period, file_name: report.file_name },
     periods: Object.entries(REPORT_PERIODS).map(([key, label]) => ({ key, label })),
-    summary: summarizeReport(rows),
-    data: rows.slice(-100).reverse().map((t) => ({
+    summary: report.summary,
+    balance: { opening: report.opening, closing: report.closing },
+    data: report.rows.slice(-100).reverse().map((t) => ({
       id: t.id, date: t.local_date, created_at: t.created_at, type: t.type, category: t.category, note: t.note,
       wallet_name: t.wallet_name || null, tags: t.tags || [], amount: t.amount
     }))
@@ -101,21 +100,22 @@ router.post('/send', async (req, res, next) => {
     if (!period) return;
     const bot = getActiveBot();
     if (!bot) return res.status(503).json({ error: 'Bot sedang tidak aktif. Coba lagi nanti.' });
-    const rows = inPeriod(getAllTransactions(req.user.user_id), period);
-    if (!rows.length) return res.status(404).json({ error: 'Tidak ada transaksi di periode ini.' });
-    const s = summarizeReport(rows);
+    const report = buildUserReport(req.user.user_id, period);
+    if (!report.buffer) return res.status(404).json({ error: 'Tidak ada transaksi di periode ini.' });
+    const s = report.summary;
     const rupiah = (n) => `Rp ${Math.abs(n).toLocaleString('id-ID')}`;
     const caption = [
-      `📊 Laporan PantaUangmu · ${period.label}`,
+      `📊 Laporan Keuangan · ${period.label}`,
       `📝 ${s.count} transaksi`,
       `💰 Pemasukan: ${rupiah(s.income)}`,
       `💸 Pengeluaran: ${rupiah(s.expense)}`,
-      `⚖️ Selisih: ${s.net < 0 ? '−' : ''}${rupiah(s.net)}`,
+      `⚖️ Arus kas bersih: ${s.net < 0 ? '−' : ''}${rupiah(s.net)}`,
+      `🏦 Saldo akhir: ${report.closing < 0 ? '−' : ''}${rupiah(report.closing)}`,
       '',
-      'Simpan: ketuk file → ⋮ → Simpan ke Unduhan. Buka dengan Google Sheets atau Excel.'
+      'File Excel: lembar Ringkasan + Buku Kas. Simpan: ketuk file → ⋮ → Simpan ke Unduhan.'
     ].join('\n');
-    await bot.sendDocument(req.user.user_id, Buffer.from(generateReportCSV(rows), 'utf-8'), { caption }, { filename: reportFileName(period), contentType: 'text/csv' });
-    res.json({ ok: true, file_name: reportFileName(period) });
+    await bot.sendDocument(req.user.user_id, report.buffer, { caption }, { filename: report.file_name, contentType: XLSX_TYPE });
+    res.json({ ok: true, file_name: report.file_name });
   } catch (err) {
     if (err?.response?.statusCode === 403) return res.status(409).json({ error: 'Bot tidak bisa mengirim pesan. Buka chat bot dan ketik /start dulu.' });
     next(err);

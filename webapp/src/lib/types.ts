@@ -268,6 +268,7 @@ export interface ReportResponse {
     by_category: Array<{ type: TxType; category: string; total: number; count: number }>;
     by_month: Array<{ month: string; income: number; expense: number }>;
   };
+  balance: { opening: number; closing: number };
   data: Array<{
     id: number; date: string; created_at: string; type: TxType; category: string; note: string | null;
     wallet_name: string | null; tags: string[]; amount: number;
