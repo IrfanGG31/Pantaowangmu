@@ -352,3 +352,22 @@ CREATE TABLE IF NOT EXISTS reset_backups (
   row_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reset_backups_reset ON reset_backups(reset_id);
+
+-- Admin announcements: scheduled maintenance (banner + broadcast + reminders) and "what's new" updates
+CREATE TABLE IF NOT EXISTS announcements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK(kind IN ('maintenance', 'update')),
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  starts_at DATETIME,
+  ends_at DATETIME,
+  remind_before INTEGER NOT NULL DEFAULT 0,
+  notify_end INTEGER NOT NULL DEFAULT 0,
+  reminded_at DATETIME,
+  end_notified_at DATETIME,
+  cancelled_at DATETIME,
+  broadcast_id INTEGER,
+  admin_email TEXT NOT NULL,
+  created_at DATETIME DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_kind ON announcements(kind, created_at);

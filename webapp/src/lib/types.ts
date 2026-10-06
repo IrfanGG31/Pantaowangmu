@@ -286,3 +286,13 @@ export interface AsyncState<T> {
   data: T | null;
   error: string | null;
 }
+
+// ── Announcements (GET /api/announcements) ───────────────────────────────────
+
+export interface AnnouncementsResponse {
+  maintenance: {
+    id: number; title: string; body: string; starts_at: string; ends_at: string;
+    status: 'upcoming' | 'ongoing'; when: string;
+  } | null;
+  updates: Array<{ id: number; title: string; items: string[]; created_at: string }>;
+}

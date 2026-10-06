@@ -29,6 +29,7 @@ import { segmentCounts, listBroadcasts, startBroadcast, sendTestBroadcast, runni
 import { getActiveBot } from '../../bot/identity.js';
 import { getFunnel, getRetention, getAtRiskUsers, getAiHealth } from '../../db/analytics.js';
 import { resetStats } from '../../db/resets.js';
+import { listAnnouncements, createAnnouncement, endAnnouncement, cancelAnnouncement, previewAnnouncement, MAX_TITLE, MAX_BODY } from '../../bot/announcements.js';
 import { getReminderDefaults, setReminderDefaults, reminderStats, resetReminderOverrides, BUILTIN_REMINDER_TIME } from '../../db/reminders.js';
 
 const router = Router();
@@ -227,6 +228,47 @@ router.get('/ai-health', (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── Announcements (maintenance & what's new) ─────────────────────────────
+
+const announcementState = () => ({
+  bot_ready: Boolean(getActiveBot()),
+  running_id: runningBroadcastId(),
+  timezone: process.env.TIMEZONE || 'Asia/Jakarta',
+  max_title: MAX_TITLE,
+  max_body: MAX_BODY,
+  data: listAnnouncements({ limit: 30 })
+});
+
+router.get('/announcements', (req, res) => res.json(announcementState()));
+
+/** The exact Telegram text, for the preview box and "Kirim tes". Nothing is stored. */
+router.post('/announcements/preview', (req, res) => {
+  const preview = previewAnnouncement(req.body || {});
+  if (preview.error) return res.status(400).json({ error: preview.error });
+  res.json(preview);
+});
+
+router.post('/announcements', (req, res) => {
+  const result = createAnnouncement(req.body || {}, { adminEmail: req.admin.email });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  logAdminAction(req.admin.email, 'announcement', null, { id: result.announcement.id, kind: result.announcement.kind, broadcast: result.broadcast?.id ?? null });
+  res.status(201).json({ announcement: result.announcement, broadcast_error: result.broadcast_error || null, ...announcementState() });
+});
+
+router.post('/announcements/:id/end', (req, res) => {
+  const result = endAnnouncement(req.params.id);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  logAdminAction(req.admin.email, 'announcement_end', null, { id: result.announcement.id });
+  res.json(announcementState());
+});
+
+router.post('/announcements/:id/cancel', (req, res) => {
+  const result = cancelAnnouncement(req.params.id);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  logAdminAction(req.admin.email, 'announcement_cancel', null, { id: result.announcement.id });
+  res.json(announcementState());
 });
 
 // ── Broadcasts ───────────────────────────────────────────────────────────

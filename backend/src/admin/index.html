@@ -170,6 +170,55 @@
         <div class="table-wrap"><table id="payments-table"></table></div>
       </section>
 
+      <section class="card" id="announce">
+        <div class="section-head">
+          <h2>📢 Pengumuman pemeliharaan &amp; pembaruan</h2>
+          <span id="announce-bot" class="muted small"></span>
+        </div>
+        <p class="muted small">Beri tahu pengguna sebelum pemeliharaan/pengembangan, dan kabari fitur baru setelah update. Pemeliharaan tampil sebagai banner di Mini App sampai selesai. Pembaruan tersimpan sebagai riwayat di bot (/baru) dan kartu "Yang baru" di Mini App.</p>
+        <form id="announce-form" class="stack">
+          <div class="row row-wrap" role="radiogroup" aria-label="Jenis pengumuman">
+            <label class="check"><input type="radio" name="kind" value="maintenance" checked> 🛠️ Pemeliharaan terjadwal</label>
+            <label class="check"><input type="radio" name="kind" value="update"> ✨ Pembaruan / fitur baru</label>
+            <button class="btn" type="button" id="announce-template">Isi contoh</button>
+          </div>
+          <label class="grow">Judul <input name="title" maxlength="120" placeholder="mis. Peningkatan server &amp; database"></label>
+          <div class="row row-wrap" id="announce-window">
+            <label class="field">Tanggal mulai <input type="date" name="start_date"></label>
+            <label class="field">Jam mulai <input type="time" name="start_time" step="60"></label>
+            <label class="field">Tanggal selesai <input type="date" name="end_date"></label>
+            <label class="field">Jam selesai <input type="time" name="end_time" step="60"></label>
+            <span class="muted small" id="announce-tz"></span>
+          </div>
+          <label class="grow"><span id="announce-body-label">Keterangan tambahan (opsional)</span>
+            <textarea name="body" rows="5" maxlength="1500"></textarea>
+          </label>
+          <div class="row row-wrap" id="announce-maint-opts">
+            <label class="check"><input type="checkbox" name="remind_before" checked> Ingatkan pengguna 1 jam sebelum mulai</label>
+            <label class="check"><input type="checkbox" name="notify_end" checked> Kabari pengguna saat selesai ("sudah normal lagi")</label>
+          </div>
+          <label class="check"><input type="checkbox" name="broadcast" checked> Kirim ke semua pengguna lewat bot sekarang</label>
+          <div class="announce-preview">
+            <div class="muted small">Pratinjau pesan di Telegram</div>
+            <pre id="announce-preview"></pre>
+            <details id="announce-more" hidden>
+              <summary class="muted small">Pesan pengingat &amp; pesan selesai</summary>
+              <pre id="announce-preview-reminder"></pre>
+              <pre id="announce-preview-end"></pre>
+            </details>
+          </div>
+          <div class="row row-wrap">
+            <label class="field">Tes ke Telegram user ID <input name="test_user_id" inputmode="numeric" placeholder="mis. 123456789"></label>
+            <button class="btn" type="button" id="announce-test">Kirim tes</button>
+            <button class="btn primary" type="submit" id="announce-submit">Umumkan</button>
+            <span id="announce-status" class="muted small"></span>
+          </div>
+        </form>
+        <p id="announce-error" class="error" role="alert" hidden></p>
+        <h3 class="small muted">Riwayat pengumuman</h3>
+        <div class="table-wrap"><table id="announce-table"></table></div>
+      </section>
+
       <section class="card">
         <div class="section-head">
           <h2>📣 Broadcast ke pengguna</h2>

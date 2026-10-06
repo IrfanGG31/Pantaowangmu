@@ -381,3 +381,24 @@ Respons tidak pernah memuat isi transaksi, catatan, atau rahasia.
 | `PUT /api/admin/reminders` `{ time?, second?, text? }` | Jam default pengingat harian dan pengingat ke-2 (atau `"off"`; keduanya harus berbeda) dan teks opsional (`{nama}` = nama pengguna, maks. 600). Berlaku untuk pengguna tanpa jam sendiri. Dicatat di audit log. |
 | `POST /api/admin/reminders/reset-all` `{}` | Pengguna yang memilih jam sendiri kembali ke default (yang mematikan tetap mati) → `{ reset, ...GET }`. Dicatat di audit log. |
 | `GET /api/admin/audit?limit=` | `{ data: [{ admin_email, action, target_user_id, details, created_at }] }` |
+
+
+---
+
+### Announcements
+
+#### `GET /announcements` (Telegram auth)
+For the Mini App banner and "Yang baru" card.
+```ts
+{
+  maintenance: { id; title; body; starts_at; ends_at; status: 'upcoming' | 'ongoing'; when: string } | null; // ongoing or starting within 3 days
+  updates: Array<{ id; title; items: string[]; created_at }>; // latest 5, last 60 days
+}
+```
+
+#### Admin (`/api/admin`, admin session)
+- `GET /announcements` → `{ bot_ready, running_id, timezone, max_title, max_body, data: Announcement[] }`
+- `POST /announcements/preview` `{ kind, title, body, start_date, start_time, end_date, end_time }` → `{ text, reminder, end }` (exact Telegram texts; nothing stored)
+- `POST /announcements` `{ kind: 'maintenance'|'update', title, body, start_date?, start_time?, end_date?, end_time?, remind_before?, notify_end?, broadcast? }` → 201.
+  Maintenance times are local (bot timezone). `broadcast: true` sends it to all users via the broadcast queue; `broadcast_error` is set when it could not start (e.g. another broadcast running).
+- `POST /announcements/:id/end` (maintenance: ends now, sends "back to normal" if `notify_end`), `POST /announcements/:id/cancel`.

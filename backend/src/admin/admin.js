@@ -670,6 +670,117 @@ function broadcastForm() {
   return { text: f.text.value.trim(), segment: f.segment.value, with_button: f.with_button.checked, user_id: f.test_user_id.value.trim() };
 }
 
+// ── Announcements (maintenance & what's new) ─────────────────────────────
+
+const ANNOUNCE_STATUS = { upcoming: 'Akan datang', ongoing: 'Sedang berlangsung', ended: 'Selesai', cancelled: 'Dibatalkan', published: 'Terbit' };
+const ANNOUNCE_TEMPLATES = {
+  maintenance: {
+    title: 'Peningkatan server & database',
+    body: 'Kami sedang meningkatkan kecepatan dan keamanan PantaUangmu supaya mencatat makin lancar.'
+  },
+  update: {
+    title: 'Laporan Excel & reset data',
+    body: 'Laporan keuangan sekarang berupa file Excel rapi: Ringkasan + Buku Kas\nKirim laporan langsung ke chat dari Mini App → Riwayat → Laporan\n/reset untuk mulai dari nol, bisa dibatalkan dalam 7 hari'
+  }
+};
+let previewTimer = null;
+
+function localYmd(tz, plusDays = 0) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date()).filter((x) => x.type !== 'literal').map((x) => [x.type, Number(x.value)]));
+  return new Date(Date.UTC(p.year, p.month - 1, p.day + plusDays)).toISOString().slice(0, 10);
+}
+
+function announceData() {
+  const f = $('announce-form');
+  return {
+    kind: f.kind.value, title: f.title.value.trim(), body: f.body.value.trim(),
+    start_date: f.start_date.value, start_time: f.start_time.value, end_date: f.end_date.value, end_time: f.end_time.value,
+    remind_before: f.remind_before.checked, notify_end: f.notify_end.checked, broadcast: f.broadcast.checked
+  };
+}
+
+function syncAnnounceKind() {
+  const f = $('announce-form');
+  const maint = f.kind.value === 'maintenance';
+  $('announce-window').hidden = !maint;
+  $('announce-maint-opts').hidden = !maint;
+  $('announce-more').hidden = !maint;
+  $('announce-body-label').textContent = maint ? 'Keterangan tambahan (opsional)' : 'Daftar perubahan: satu baris = satu poin';
+  f.body.placeholder = maint ? 'mis. Kami meningkatkan kecepatan dan keamanan…' : 'mis.\nLaporan sekarang berupa file Excel\n/reset untuk mulai dari nol';
+  f.title.placeholder = maint ? 'mis. Peningkatan server & database' : 'mis. Laporan Excel & reset data';
+  $('announce-submit').textContent = maint ? 'Jadwalkan pemeliharaan' : 'Terbitkan pembaruan';
+  schedulePreview();
+}
+
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(loadPreview, 250);
+}
+
+async function loadPreview() {
+  try {
+    const p = await api('/announcements/preview', { method: 'POST', body: JSON.stringify(announceData()) });
+    $('announce-preview').textContent = p.text;
+    $('announce-preview-reminder').textContent = p.reminder || '';
+    $('announce-preview-end').textContent = p.end || '';
+    state.announcePreview = p.text;
+  } catch (err) {
+    $('announce-preview').textContent = `⚠️ ${err.message}`;
+    state.announcePreview = '';
+  }
+}
+
+function announceActions(a) {
+  const act = (label, path, question) => el('button', {
+    class: 'btn', type: 'button',
+    onclick: async () => {
+      if (!confirm(question)) return;
+      showError('announce-error', '');
+      try {
+        renderAnnouncements(await api(`/announcements/${a.id}/${path}`, { method: 'POST', body: '{}' }));
+        loadBroadcasts();
+        loadAudit();
+      } catch (err) {
+        showError('announce-error', err.message);
+      }
+    }
+  }, label);
+  if (a.kind !== 'maintenance' || !['upcoming', 'ongoing'].includes(a.status)) return '';
+  return el('div', { class: 'row' },
+    a.status === 'ongoing'
+      ? act('Selesai sekarang', 'end', `Tandai "${a.title}" selesai sekarang?${a.notify_end ? '\n\nPengguna akan menerima pesan "sudah normal lagi".' : ''}`)
+      : '',
+    act('Batalkan', 'cancel', `Batalkan "${a.title}"?\n\nBanner di Mini App hilang dan pengingat/kabar selesai tidak dikirim. Kalau pengguna sudah diberi tahu, kirim broadcast pembatalan sendiri.`));
+}
+
+function renderAnnouncements(a) {
+  const f = $('announce-form');
+  $('announce-bot').textContent = a.bot_ready ? 'Bot aktif' : 'Bot tidak aktif: pesan tidak bisa dikirim';
+  $('announce-tz').textContent = `Jam mengikuti zona waktu bot (${a.timezone}).`;
+  if (!f.start_date.value) {
+    f.start_date.value = localYmd(a.timezone, 1);
+    f.end_date.value = localYmd(a.timezone, 1);
+    f.start_time.value = '22:00';
+    f.end_time.value = '23:00';
+  }
+  const sent = (x) => (x.broadcast_id ? 'Ya' : 'Tidak');
+  renderTable($('announce-table'), ['Jenis', 'Judul', 'Jadwal', 'Dibuat', 'Dikirim', 'Status', ''], a.data.map((x) => [
+    x.kind === 'maintenance' ? '🛠️ Pemeliharaan' : '✨ Pembaruan',
+    { text: x.kind === 'update' && x.items.length ? `${x.title} · ${x.items.length} poin` : x.title, class: 'wrap' },
+    x.kind === 'maintenance' ? `${fmtDateTime(x.starts_at)} – ${fmtDateTime(x.ends_at)}` : '—',
+    `${fmtDateTime(x.created_at)} · ${x.admin_email}`,
+    sent(x),
+    { text: ANNOUNCE_STATUS[x.status] || x.status, class: `status-${x.status}` },
+    announceActions(x)
+  ]), 'Belum ada pengumuman.');
+}
+
+async function loadAnnouncements() {
+  renderAnnouncements(await api('/announcements'));
+  syncAnnounceKind();
+}
+
 // ── Daily reminder defaults ─────────────────────────────────────────────
 
 function renderReminders(r) {
@@ -760,7 +871,7 @@ async function loadBackups() {
 async function refreshAll() {
   try {
     loadPlansTable();
-    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadReminders(), loadAnalytics(), loadAiHealth()]);
+    await Promise.all([loadOverview(), loadUsers(), loadAudit(), loadVouchers(), loadPayments(), loadSettings(), loadBackups(), loadIdeas(), loadBroadcasts(), loadAnnouncements(), loadReminders(), loadAnalytics(), loadAiHealth()]);
   } catch (err) {
     if (!$('app-view').hidden) $('updated-at').textContent = `Gagal memuat: ${err.message}`;
   }
@@ -936,6 +1047,66 @@ $('at-risk-message').addEventListener('click', () => {
   }
   f.scrollIntoView({ behavior: 'smooth', block: 'start' });
   $('broadcast-status').textContent = 'Penerima: pengguna berisiko berhenti. {nama} diganti nama tiap pengguna. Kirim tes dulu.';
+});
+
+for (const input of $('announce-form').kind) input.addEventListener('change', syncAnnounceKind);
+$('announce-form').addEventListener('input', (event) => {
+  if (event.target.name !== 'test_user_id') schedulePreview();
+});
+$('announce-form').start_date.addEventListener('change', (event) => {
+  const f = $('announce-form');
+  if (!f.end_date.value || f.end_date.value < event.target.value) f.end_date.value = event.target.value;
+});
+
+$('announce-template').addEventListener('click', () => {
+  const f = $('announce-form');
+  if ((f.title.value.trim() || f.body.value.trim()) && !confirm('Ganti isi yang sudah ditulis dengan contoh?')) return;
+  const t = ANNOUNCE_TEMPLATES[f.kind.value];
+  f.title.value = t.title;
+  f.body.value = t.body;
+  schedulePreview();
+});
+
+$('announce-test').addEventListener('click', async (event) => {
+  const f = $('announce-form');
+  showError('announce-error', '');
+  await loadPreview();
+  if (!state.announcePreview) return showError('announce-error', 'Lengkapi pengumuman dulu (lihat pratinjau).');
+  event.target.disabled = true;
+  try {
+    await api('/broadcasts/test', { method: 'POST', body: JSON.stringify({ text: state.announcePreview, with_button: f.kind.value === 'update', user_id: f.test_user_id.value.trim() }) });
+    $('announce-status').textContent = `Tes terkirim ke ${f.test_user_id.value.trim()}. Cek Telegram.`;
+    loadBroadcasts();
+  } catch (err) {
+    showError('announce-error', err.message);
+  } finally {
+    event.target.disabled = false;
+  }
+});
+
+$('announce-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = announceData();
+  showError('announce-error', '');
+  const everyone = segmentInfo.all?.count;
+  const what = data.kind === 'maintenance' ? 'Jadwalkan pemeliharaan ini' : 'Terbitkan pembaruan ini';
+  const to = data.broadcast ? ` dan kirim ke ${everyone === undefined ? 'semua' : fmt.format(everyone)} pengguna sekarang` : ' tanpa mengirim pesan (hanya banner/riwayat)';
+  if (!confirm(`${what}${to}?${data.broadcast ? '\n\nPesan yang sudah terkirim tidak bisa ditarik kembali.' : ''}`)) return;
+  try {
+    const r = await api('/announcements', { method: 'POST', body: JSON.stringify(data) });
+    renderAnnouncements(r);
+    $('announce-status').textContent = r.broadcast_error
+      ? `Tersimpan, tapi pesan belum terkirim: ${r.broadcast_error}`
+      : data.broadcast ? 'Tersimpan dan sedang dikirim ke pengguna.' : 'Tersimpan.';
+    const f = $('announce-form');
+    f.title.value = '';
+    f.body.value = '';
+    schedulePreview();
+    loadBroadcasts();
+    loadAudit();
+  } catch (err) {
+    showError('announce-error', err.message);
+  }
 });
 
 $('broadcast-form').text.addEventListener('input', (event) => {

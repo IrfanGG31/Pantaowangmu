@@ -20,6 +20,7 @@
   import WalletIcon from '$lib/components/WalletIcon.svelte';
   import BillSheet from '$lib/components/BillSheet.svelte';
   import InstallCard from '$lib/components/InstallCard.svelte';
+  import WhatsNewCard from '$lib/components/WhatsNewCard.svelte';
   import { readLocal, writeLocal } from '$lib/platform.js';
   import type { Summary, Transaction, MeResponse, InsightsResponse, Bill, Challenge } from '$lib/types.js';
   import { showToast } from '$lib/stores.js';
@@ -258,6 +259,8 @@
       Ketik <code>/langganan</code> di chat bot supaya Panta tetap bisa menemanimu.
     </div>
   {/if}
+
+  <WhatsNewCard />
 
   {#if loading && !summary}
     <!-- Skeleton loading -->

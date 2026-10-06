@@ -252,3 +252,17 @@ fieldset + fieldset { margin-top: 0; }
 .rate-bad { color: var(--critical-text); font-weight: 600; }
 .rate-ok { color: var(--good-text); font-weight: 600; }
 .row.spaced { margin: 8px 0; }
+
+/* Announcements */
+#announce-form input[name="title"] { width: 100%; }
+#announce-form textarea { width: 100%; }
+.announce-preview { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.announce-preview pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; color: var(--text-primary);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 520px;
+}
+.announce-preview details pre + pre { margin-top: 6px; }
+.status-upcoming { color: var(--warning-text); font-weight: 600; }
+.status-ongoing { color: var(--critical-text); font-weight: 600; }
+.status-ended, .status-published { color: var(--good-text); font-weight: 600; }
+.status-cancelled { color: var(--text-secondary); text-decoration: line-through; }

@@ -19,6 +19,7 @@ export const BOT_COMMANDS = [
   { command: 'langganan', description: 'Status paket, kuota, dan cara berlangganan' },
   { command: 'aktivasi', description: 'Aktifkan paket dengan kode: /aktivasi KODE' },
   { command: 'reset', description: 'Hapus data keuangan (bisa dibatalkan 7 hari)' },
+  { command: 'baru', description: 'Fitur & pembaruan terbaru PantaUangmu' },
   { command: 'tips', description: 'Tutorial singkat & tips memakai Panta' },
   { command: 'help', description: 'Panduan dan daftar perintah' }
 ];

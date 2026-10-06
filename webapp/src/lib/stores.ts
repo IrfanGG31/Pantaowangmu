@@ -7,8 +7,8 @@
  */
 
 import { writable, derived } from 'svelte/store';
-import type { TxType, UserCategoriesResponse, Wallet } from './types.js';
-import { userCategoriesApi, walletsApi, CATEGORY_ICONS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './api.js';
+import type { TxType, UserCategoriesResponse, Wallet, AnnouncementsResponse } from './types.js';
+import { userCategoriesApi, walletsApi, announcementsApi, CATEGORY_ICONS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './api.js';
 
 // ── Color scheme (reactive to Telegram themeChanged) ─────────────────────────
 
@@ -92,5 +92,34 @@ export async function loadWallets(): Promise<void> {
     wallets.set((await walletsApi.list()).data);
   } catch {
     // Wallets are optional; the app works without them.
+  }
+}
+
+// ── Announcements: maintenance banner + "Yang baru" (loaded once per app open) ──
+
+export const announcements = writable<AnnouncementsResponse | null>(null);
+
+export async function loadAnnouncements(): Promise<void> {
+  try {
+    announcements.set(await announcementsApi.get());
+  } catch {
+    // Not important enough to bother the user: no banner, no card.
+  }
+}
+
+/** Dismissed announcement ids, per device (a convenience; reading/writing may fail in private mode). */
+export function seenAnnouncement(key: string): number {
+  try {
+    return Number(localStorage.getItem(`panta-seen-${key}`)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function markAnnouncementSeen(key: string, id: number): void {
+  try {
+    localStorage.setItem(`panta-seen-${key}`, String(id));
+  } catch {
+    // ignore
   }
 }
