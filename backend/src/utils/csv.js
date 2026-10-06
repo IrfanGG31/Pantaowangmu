@@ -107,3 +107,5 @@ export function summarizeTransactions(transactions = []) {
     last_date: sorted.length ? getDateStr(sorted[sorted.length - 1].created_at) : null
   };
 }
+
+export { textField as csvField };

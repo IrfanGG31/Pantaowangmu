@@ -42,7 +42,8 @@ import {
   ALL_CATEGORIES
 } from '../utils/validator.js';
 import { safeSendMessage, safeAnswerCallback } from '../utils/telegram.js';
-import { generateTransactionsCSV, summarizeTransactions } from '../utils/csv.js';
+import { resolvePeriod, inPeriod, generateReportCSV, summarizeReport, reportFileName } from '../utils/report.js';
+import { previewReset, performReset, undoLastReset, resetTransactionIds, formatResetCounts, RESET_SCOPES, UNDO_DAYS } from '../db/resets.js';
 import { parseFreeText, splitItems } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
 import { transcribeVoice, voiceAvailable } from '../ai/transcribe.js';
@@ -72,6 +73,8 @@ const escapeMd = (s) => String(s).replace(/([_*`\[])/g, '\\$1');
 const PENDING_TTL_MS = 10 * 60 * 1000;
 const PENDING_MAX = 1000;
 const pendingTransactions = new Map();
+// /reset waits for the user to type HAPUS: userId → { scope, expires }
+const pendingResets = new Map();
 
 function putPending(entry) {
   const now = Date.now();
@@ -382,6 +385,61 @@ export function registerHandlers(bot) {
 
   const miniAppRow = () => [{ text: '📱 Buka Mini App', web_app: { url: process.env.WEBAPP_URL || 'http://localhost:5173' } }];
 
+  const reportAppRow = () => [{
+    text: '📊 Buka Laporan di Mini App',
+    web_app: { url: `${String(process.env.WEBAPP_URL || 'http://localhost:5173').replace(/\/+$/, '')}/laporan` }
+  }];
+
+  // ── /reset helpers ──
+  const RESET_ICONS = { month: '🗓️', transactions: '🧾', everything: '🧹' };
+  const sendResetMenu = async (chatId, userId) => {
+    pendingResets.delete(userId);
+    const previews = Object.keys(RESET_SCOPES).map((scope) => previewReset(userId, scope));
+    if (!previews.some((p) => p.total)) {
+      return safeSendMessage(bot, chatId, '✨ Data keuanganmu sudah kosong, tidak ada yang perlu dihapus. Langsung catat saja, misalnya "kopi 20rb".');
+    }
+    const lines = ['🧹 *Mulai dari nol?*', '', 'Pilih data yang mau dihapus:'];
+    const rows = [];
+    for (const p of previews) {
+      lines.push(`${RESET_ICONS[p.scope]} *${p.label}*: ${p.total ? formatResetCounts(p.counts) : 'kosong'}`);
+      if (p.total) rows.push([{ text: `${RESET_ICONS[p.scope]} ${p.label}`, callback_data: `rs:${p.scope}` }]);
+    }
+    rows.push([{ text: '❌ Batal', callback_data: 'rs:cancel' }]);
+    lines.push(
+      '',
+      '🔒 Yang *tidak* ikut terhapus: akun & paket, nama panggilan, gaya bahasa, kategori & kata kunci, pengingat.',
+      `↩️ Salah pilih? Bisa dikembalikan dalam ${UNDO_DAYS} hari dengan /reset batal.`
+    );
+    return safeSendMessage(bot, chatId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
+  };
+
+  // A CSV copy of the transactions about to be removed, so the user keeps them even after the undo window.
+  const sendResetBackup = async (chatId, userId, scope) => {
+    const ids = new Set(resetTransactionIds(userId, scope));
+    if (!ids.size) return;
+    const rows = getAllTransactions(userId).filter((t) => ids.has(t.id));
+    try {
+      await bot.sendDocument(chatId, Buffer.from(generateReportCSV(rows), 'utf-8'), {
+        caption: '🗂️ Cadangan sebelum reset. Simpan file ini kalau mau menyimpan catatan lamamu.'
+      }, { filename: `PantaUangmu-cadangan-${getDateStr(new Date())}.csv`, contentType: 'text/csv' });
+    } catch (err) {
+      logger.warn({ err: err.message }, '[Bot] Reset backup CSV not sent');
+    }
+  };
+
+  const confirmReset = async (chatId, userId, scope) => {
+    const result = performReset(userId, scope);
+    forgetConversation(userId);
+    if (!result?.total) return safeSendMessage(bot, chatId, 'ℹ️ Tidak ada data yang dihapus, datanya sudah kosong.');
+    logger.info({ scope, total: result.total }, '[Bot] /reset done');
+    return safeSendMessage(bot, chatId, `✅ Selesai, ${formatResetCounts(result.counts)} sudah dihapus.
+
+↩️ Berubah pikiran? Ketik /reset batal sebelum ${formatDateShort(result.undo_until)} untuk mengembalikan semuanya.
+
+✨ Lembaran baru dimulai! Coba catat sekarang, misalnya "kopi 20rb".`);
+  };
+
+
   // Panta introduces itself; asks for a nickname when none is set, else shows the quickstart.
   const sendIntro = async (chatId, userId, firstName) => {
     const intro = startOnboarding(userId, firstName);
@@ -442,7 +500,7 @@ _Contoh: /catat 25000 makan siang_
 _Contoh: /budget makan 1000000_
 
 /hapus - Hapus transaksi terakhir
-/export - Unduh riwayat transaksi dalam format CSV
+/export - Kirim laporan transaksi (file CSV) ke chat ini
 /kategori - Kategori & kata kunci pribadimu
 /dompet - Dompet/metode bayar & saldo per dompet (opsional)
 /gaya - Bahasa (Jawa, Sunda, English, ...) & persona Panta
@@ -453,6 +511,7 @@ _Contoh: /budget makan 1000000_
 /tantangan - Tantangan hemat & streak
 /budget saran - Saran budget dari kebiasaanmu
 /memori - Lihat atau hapus hal yang aku ingat tentang kamu
+/reset - Hapus data keuangan & mulai dari nol (bisa dibatalkan 7 hari)
 /langganan - Status paket, kuota, dan cara berlangganan
 /aktivasi KODE - Aktifkan paket dengan kode
 /tips - Tutorial singkat & tips memakai Panta
@@ -606,32 +665,49 @@ Pemasukan: _${INCOME_CATEGORIES.join(', ')}_`;
     await safeSendMessage(bot, chatId, text, { parse_mode: 'Markdown', reply_markup: replyMarkup });
   });
 
-  // ── /export ───────────────────────────────────────────────────────────
+  // ── /export: the friendly report CSV, sent into the chat (the most reliable way to get a file onto a phone) ──
   onText(/^\/export(?:@\w+)?$/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
 
-    const rows = getAllTransactions(userId);
+    const period = resolvePeriod({ period: 'all' });
+    const rows = inPeriod(getAllTransactions(userId), period);
     if (rows.length === 0) {
       return safeSendMessage(bot, chatId, 'ℹ️ Belum ada transaksi untuk diexport.');
     }
 
-    const buffer = Buffer.from(generateTransactionsCSV(rows), 'utf-8');
-    const s = summarizeTransactions(rows);
-    const filename = `transaksi-${s.last_date}.csv`;
-    const caption = `📊 Export transaksi ${s.first_date} s/d ${s.last_date}
+    const s = summarizeReport(rows);
+    const buffer = Buffer.from(generateReportCSV(rows), 'utf-8');
+    const caption = `📊 Laporan PantaUangmu · ${formatDateShort(rows[0].created_at)} – ${formatDateShort(rows.at(-1).created_at)}
 📝 ${s.count} transaksi
 💰 Pemasukan: ${formatRupiah(s.income)}
 💸 Pengeluaran: ${formatRupiah(s.expense)}
-⚖️ Saldo: ${s.income - s.expense < 0 ? '-' : ''}${formatRupiah(s.income - s.expense)}
+⚖️ Selisih: ${s.net < 0 ? '-' : ''}${formatRupiah(s.net)}
 
-Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kategori.`;
+📥 Simpan ke HP: ketuk file → ⋮ → Simpan ke Unduhan.
+Buka dengan Google Sheets atau Excel. Mau per bulan + grafik? Buka Laporan di Mini App.`;
 
     try {
-      await bot.sendDocument(chatId, buffer, { caption }, { filename, contentType: 'text/csv' });
+      await bot.sendDocument(chatId, buffer, { caption, reply_markup: { inline_keyboard: [reportAppRow()] } }, { filename: reportFileName(period), contentType: 'text/csv' });
     } catch (err) {
-      await safeSendMessage(bot, chatId, `❌ Gagal mengirim dokumen: ${err.message}`);
+      logger.warn({ err: err.message }, '[Bot] /export sendDocument failed');
+      await safeSendMessage(bot, chatId, '❌ Gagal mengirim file. Coba lagi sebentar lagi, atau unduh dari menu Laporan di Mini App.', { reply_markup: { inline_keyboard: [reportAppRow()] } });
     }
+  });
+
+  // ── /reset: clear financial data (menu → CSV copy → type HAPUS), undo within UNDO_DAYS ──
+  onText(/^\/reset(?:@\w+)?(?:\s+(.*))?$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = ensureUser(msg);
+    const arg = (match[1] || '').trim().toLowerCase();
+    if (/^(?:batal|batalkan|undo|kembalikan)$/.test(arg)) {
+      pendingResets.delete(userId);
+      const undone = undoLastReset(userId);
+      if (!undone) return safeSendMessage(bot, chatId, `ℹ️ Tidak ada reset yang bisa dibatalkan. Data hanya bisa dikembalikan dalam ${UNDO_DAYS} hari setelah reset.`);
+      forgetConversation(userId);
+      return safeSendMessage(bot, chatId, `↩️ Beres, data dikembalikan: ${formatResetCounts(undone.restored) || 'tidak ada yang perlu dikembalikan'}.\n\nCek di /bulan atau Mini App.`);
+    }
+    await sendResetMenu(chatId, userId);
   });
 
   // ── /langganan, /aktivasi ─────────────────────────────────────────────
@@ -953,7 +1029,22 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
   const handleFreeText = async (msg) => {
     const chatId = msg.chat.id;
     const userId = ensureUser(msg);
+
+    // /reset is waiting for "HAPUS": that confirms it; anything else cancels it (and is then handled as usual).
+    const pendingReset = pendingResets.get(userId);
+    if (pendingReset) {
+      pendingResets.delete(userId);
+      const word = msg.text.trim().replace(/[.!]+$/, '').toUpperCase();
+      if (pendingReset.expires > Date.now()) {
+        if (word === 'HAPUS') return confirmReset(chatId, userId, pendingReset.scope);
+        await safeSendMessage(bot, chatId, '👌 Reset dibatalkan, datamu aman.');
+        if (/^(?:BATAL|BATALKAN|GAK JADI|GA JADI|NGGAK JADI|ENGGAK JADI|TIDAK|NGGAK|ENGGAK|CANCEL)$/.test(word)) return;
+      }
+    }
+
     const parsed = parseFreeText(msg.text, parseOptionsFor(userId));
+    // Deleting data never goes through the assistant: always the menu with buttons and a typed confirmation.
+    if (parsed.intent === 'reset') return sendResetMenu(chatId, userId);
 
     // Onboarding: a reply to "mau kupanggil apa?", or the first contact (introduce Panta before or after handling it).
     const step = getOnboarding(userId).step;
@@ -1318,6 +1409,29 @@ Buka di Excel/Google Sheets, lalu pakai PivotTable untuk analisis per bulan/kate
       await safeAnswerCallback(bot, query.id, name ? 'Disimpan' : 'Oke');
       const text = name ? greetName(setNickname(userId, name)) : SKIPPED_NAME;
       await editMessage(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [miniAppRow()] } });
+    } else if (data === 'rs:cancel') {
+      pendingResets.delete(userId);
+      await safeAnswerCallback(bot, query.id, 'Dibatalkan');
+      await editMessage(chatId, messageId, '👌 Reset dibatalkan, datamu aman.');
+    } else if (data.startsWith('rs:')) {
+      const scope = data.slice(3);
+      const preview = previewReset(userId, scope);
+      if (!preview?.total) {
+        await safeAnswerCallback(bot, query.id, 'Tidak ada data');
+        await editMessage(chatId, messageId, 'ℹ️ Tidak ada data untuk dihapus.');
+        return;
+      }
+      pendingResets.set(userId, { scope, expires: Date.now() + PENDING_TTL_MS });
+      await safeAnswerCallback(bot, query.id, 'Ketik HAPUS untuk lanjut');
+      await editMessage(chatId, messageId, `⚠️ *${preview.label}* akan dihapus: ${formatResetCounts(preview.counts)}.
+
+Salinan CSV-nya kukirim di bawah sebagai cadangan.
+
+Ketik *HAPUS* untuk melanjutkan (berlaku 10 menit), atau *BATAL*.`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '❌ Batal', callback_data: 'rs:cancel' }]] }
+      });
+      await sendResetBackup(chatId, userId, scope);
     } else if (data === 'mem_clear') {
       clearMemory(userId);
       forgetConversation(userId);

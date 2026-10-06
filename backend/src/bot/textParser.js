@@ -183,6 +183,8 @@ const REMINDER_RE = /^(?:tolong\s+)?(?:ingatkan|ingetin|ingatin|pengingat|remind
 const REMINDER_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)(?:\s+harian)?\b/i;
 // The second (midday) reminder: "pengingat siang jam 12", "matikan pengingat siang", "pengingat kedua jam 13.30".
 const REMINDER2_RE = /^(?:atur\s+)?(?:pengingat|reminder)\s+(?:siang|kedua|ke-?2)\s+(?:jam|pukul|pkl)?\s*(\d{1,2})(?:[.:](\d{2}))?\s*(pagi|siang|sore|malam)?\b/i;
+// "hapus semua data", "reset data keuangan", "mulai dari nol" → the /reset menu (never deletes on its own).
+const RESET_RE = /^(?:tolong\s+|aku\s+mau\s+|mau\s+)?(?:reset|hapus|bersihkan|kosongkan|hapusin)\s+(?:semua\s+|seluruh\s+)?(?:data|catatan|transaksi)(?:\s+(?:aku|saya|ku|gue|keuangan|keuanganku|transaksi|semua))*\s*[.!]?$|^(?:mau\s+)?mulai\s+(?:lagi\s+)?(?:dari\s+)?(?:nol|awal)\b/i;
 const REMINDER2_OFF_RE = /^(?:tolong\s+)?(?:matikan|matiin|stop|hentikan|nonaktifkan)\s+(?:pengingat|reminder)\s+(?:siang|kedua|ke-?2)\b/i;
 
 // ── v3: tags, split bills, debts, challenges ───────────────────────────────
@@ -327,6 +329,7 @@ function parseWalletBalance(original, text, found, wallets) {
  *   { intent: 'add_bill', name: string, amount: number, day_of_month: number|null, type: 'income'|'expense', category: string|null } |
  *   { intent: 'profile_income', monthly_income: number, payday: number|null } |
  *   { intent: 'reminder', time?: string, time2?: string } |
+ *   { intent: 'reset' } |
  *   { intent: 'unknown' }
  * )}
  */
@@ -379,6 +382,7 @@ export function parseFreeText(input, options = {}) {
     if (name) return { intent: 'add_category', name, type: kind === 'pemasukan' ? 'income' : 'expense', emoji };
   }
 
+  if (RESET_RE.test(original)) return { intent: 'reset' };
   if (REMINDER2_OFF_RE.test(original)) return { intent: 'reminder', time2: 'off' };
   const rem2 = REMINDER2_RE.exec(original);
   if (rem2) {

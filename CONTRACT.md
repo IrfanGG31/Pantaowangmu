@@ -77,6 +77,34 @@ Returns: CSV file download (Content-Disposition: attachment), UTF-8 with BOM, CR
   `date`/`time`/`month`/`weekday` are local to `TIMEZONE` (default Asia/Jakarta); `signed_amount` is negative for expenses;
   `created_at_utc` is the stored UTC value; `wallet` is the wallet name (empty when none). Text cells starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas.
 
+### Laporan (report for people, reliable download on phones)
+
+`period` is one of `this_month` (default), `last_month`, `last_3_months`, `this_year`, `all`; or `from`/`to`
+(`YYYY-MM-DD`, inclusive, local dates). Invalid → 400. The report CSV has Indonesian headers
+`Tanggal;Jam;Hari;Jenis;Kategori;Catatan;Dompet;Tag;Pemasukan;Pengeluaran;Saldo berjalan` (semicolon, UTF-8 BOM, CRLF,
+oldest first, integer rupiah, running balance for the period). File name e.g. `PantaUangmu-Okt-2026.csv`.
+
+#### `GET /export/report?period=...`
+```ts
+{
+  period: { key; from: string|null; to: string|null; label: string; file_name: string };
+  periods: Array<{ key; label }>;
+  summary: { count; income; expense; net; first_date; last_date;
+             by_category: Array<{ type; category; total; count }>;   // largest first
+             by_month: Array<{ month: 'YYYY-MM'; income; expense }> };
+  data: Array<{ id; date; created_at; type; category; note; wallet_name; tags: string[]; amount }>; // newest 100
+}
+```
+
+#### `POST /export/link` `{ period | from, to }`
+`{ url, file_name, expires_at }` — a download URL valid for 5 minutes (for Telegram `WebApp.downloadFile` or the
+browser, which cannot send the auth header). `GET /export/file/:token` needs no auth (the token is the credential);
+unknown/expired → 404.
+
+#### `POST /export/send` `{ period | from, to }`
+The bot sends the CSV into the user's Telegram chat. `{ ok: true, file_name }`; 404 no transactions in the period;
+409 the bot cannot message the user (they blocked it); 503 bot not running.
+
 ---
 
 ### Budgets

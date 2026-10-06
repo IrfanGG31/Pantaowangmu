@@ -151,13 +151,16 @@ describe('Bot free-text flow', () => {
     expect(bot.lastSent().text).toContain('makan\\_siang \\*enak\\*');
   });
 
-  it('/export sends a semicolon CSV with a totals caption', async () => {
+  it('/export sends a friendly report CSV with a totals caption and a link to the Laporan page', async () => {
     await bot.message('gaji 5jt');
     await bot.message('makan 25rb');
     await bot.message('/export');
     const [doc] = bot.documents;
-    expect(doc.fileOptions.filename).toMatch(/^transaksi-\d{4}-\d{2}-\d{2}\.csv$/);
-    expect(doc.buffer.toString('utf-8')).toContain('id;date;time;');
+    expect(doc.fileOptions.filename).toBe('PantaUangmu-Semua-data.csv');
+    const csv = doc.buffer.toString('utf-8');
+    expect(csv).toContain('Tanggal;Jam;Hari;Jenis;Kategori;Catatan;Dompet;Tag;Pemasukan;Pengeluaran;Saldo berjalan');
+    expect(csv.trim().split('\r\n').at(-1)).toMatch(/;Pengeluaran;makan;.*;;25000;4975000$/);
     expect(doc.options.caption).toContain('2 transaksi');
+    expect(doc.options.reply_markup.inline_keyboard[0][0].web_app.url).toMatch(/\/laporan$/);
   });
 });

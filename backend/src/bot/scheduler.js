@@ -6,6 +6,7 @@ import { getMemory } from '../db/memory.js';
 import { getAiConfig, writeWeeklyReport } from '../ai/interpreter.js';
 import { buildUserContext } from '../ai/context.js';
 import { runReminderTick, runBillTick, runDailyTick, TICK_MINUTES } from './nudges.js';
+import { purgeExpiredResets } from '../db/resets.js';
 import { getBudgetsByUser } from '../db/budgets.js';
 import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr, formatDateShort } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
@@ -42,6 +43,8 @@ export function startScheduler(bot) {
       try {
         const result = await runDailyTick(bot);
         logger.info(result, '[Scheduler] Daily personal nudges');
+        const purged = purgeExpiredResets();
+        if (purged) logger.info({ purged }, '[Scheduler] Expired /reset copies deleted');
       } catch (err) {
         logger.error({ err: err.message }, 'Daily nudge job error');
       }

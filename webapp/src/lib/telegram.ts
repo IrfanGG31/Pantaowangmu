@@ -111,6 +111,10 @@ interface TelegramWebApp {
   isVersionAtLeast?(version: string): boolean;
   addToHomeScreen?(): void;
   checkHomeScreenStatus?(callback: (status: 'unsupported' | 'unknown' | 'added' | 'missed') => void): void;
+
+  // Files and links
+  downloadFile?(params: { url: string; file_name: string }, callback?: (accepted: boolean) => void): void;
+  openLink?(url: string, options?: { try_instant_view?: boolean }): void;
 }
 
 declare global {
@@ -323,4 +327,42 @@ export function enableClosingConfirmation(): void {
 
 export function disableClosingConfirmation(): void {
   getWebApp()?.disableClosingConfirmation();
+}
+
+// ── File download ─────────────────────────────────────────────────────────────
+
+/**
+ * Saves a file on the phone. A plain <a download> does nothing in Telegram's in-app WebView, so:
+ * Telegram 8.0+ → native download popup; older Telegram → open the link in the phone's browser;
+ * a normal browser → regular download.
+ * @returns 'saved' (download started), 'declined' (user closed the popup), 'opened' (handed to the browser)
+ */
+export function downloadFile(url: string, fileName: string): Promise<'saved' | 'declined' | 'opened'> {
+  const tg = getWebApp();
+  if (tg?.downloadFile && tg.isVersionAtLeast?.('8.0')) {
+    return new Promise((resolve) => {
+      try {
+        tg.downloadFile!({ url, file_name: fileName }, (accepted) => resolve(accepted ? 'saved' : 'declined'));
+      } catch {
+        tg.openLink?.(url);
+        resolve('opened');
+      }
+    });
+  }
+  if (tg?.openLink) {
+    tg.openLink(url);
+    return Promise.resolve('opened');
+  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return Promise.resolve('saved');
+}
+
+/** Closes the Mini App so the user lands back in the bot chat (no-op outside Telegram). */
+export function closeMiniApp(): void {
+  getWebApp()?.close();
 }

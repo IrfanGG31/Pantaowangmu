@@ -251,6 +251,31 @@ export interface ApiError {
   error: string;
 }
 
+// ── Laporan (GET /api/export/report) ─────────────────────────────────────────
+
+export type ReportPeriodKey = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'all';
+
+export interface ReportResponse {
+  period: { key: ReportPeriodKey | 'custom'; from: string | null; to: string | null; label: string; file_name: string };
+  periods: Array<{ key: ReportPeriodKey; label: string }>;
+  summary: {
+    count: number;
+    income: number;
+    expense: number;
+    net: number;
+    first_date: string | null;
+    last_date: string | null;
+    by_category: Array<{ type: TxType; category: string; total: number; count: number }>;
+    by_month: Array<{ month: string; income: number; expense: number }>;
+  };
+  data: Array<{
+    id: number; date: string; created_at: string; type: TxType; category: string; note: string | null;
+    wallet_name: string | null; tags: string[]; amount: number;
+  }>;
+}
+
+export interface ReportLink { url: string; file_name: string; expires_at: string }
+
 // ── UI State helpers ─────────────────────────────────────────────────────────
 
 export type LoadingState = 'idle' | 'loading' | 'success' | 'error';

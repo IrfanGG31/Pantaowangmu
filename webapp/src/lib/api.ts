@@ -31,6 +31,9 @@ import type {
   DebtSummary,
   Challenge,
   BudgetSuggestion,
+  ReportPeriodKey,
+  ReportResponse,
+  ReportLink,
 } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -174,6 +177,22 @@ export const transactionsApi = {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  },
+};
+
+// ── Laporan (report + reliable download on phones) ───────────────────────────
+
+export const reportApi = {
+  get(period: ReportPeriodKey, signal?: AbortSignal): Promise<ReportResponse> {
+    return request('GET', `/export/report?period=${encodeURIComponent(period)}`, undefined, signal);
+  },
+  /** A 5-minute URL for Telegram's downloadFile / the browser (they can't send our auth header). */
+  link(period: ReportPeriodKey): Promise<ReportLink> {
+    return request('POST', '/export/link', { period });
+  },
+  /** The bot sends the CSV into the user's chat — works on every phone. */
+  send(period: ReportPeriodKey): Promise<{ ok: true; file_name: string }> {
+    return request('POST', '/export/send', { period });
   },
 };
 
