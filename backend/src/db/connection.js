@@ -120,7 +120,20 @@ const POST_MIGRATION_SQL = `
   CREATE INDEX IF NOT EXISTS idx_transactions_user_wallet ON transactions(user_id, wallet_id);
 `;
 
-function migrate(database) {
+export function migrate(database) {
+  // ai_overrides first shipped with CHECK(role IN (4 roles)); extra fallback roles need it gone. SQLite can't drop a
+  // constraint, so the table is rebuilt once, keeping its rows.
+  const overrides = database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ai_overrides'").get();
+  if (overrides?.sql?.includes('CHECK')) {
+    database.exec(`
+      BEGIN;
+      ALTER TABLE ai_overrides RENAME TO ai_overrides_old;
+      CREATE TABLE ai_overrides (role TEXT PRIMARY KEY, preset_id TEXT NOT NULL, updated_at DATETIME DEFAULT (datetime('now')), updated_by TEXT NOT NULL);
+      INSERT INTO ai_overrides (role, preset_id, updated_at, updated_by) SELECT role, preset_id, updated_at, updated_by FROM ai_overrides_old;
+      DROP TABLE ai_overrides_old;
+      COMMIT;
+    `);
+  }
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
     const existing = new Set(database.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
     for (const [name, definition] of columns) {

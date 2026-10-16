@@ -687,8 +687,10 @@ async function loadAiHealth() {
 // ── AI config: pick primary / fallback / vision / audio from presets ──────────
 
 const AI_ROLE_LABEL = {
-  primary: { title: 'Model utama (chat)', hint: 'Dipakai untuk menjawab pesan pengguna.' },
-  fallback: { title: 'Model cadangan', hint: 'Dicoba kalau utama timeout atau error.' },
+  primary: { title: 'Model utama (chat)', hint: 'Menjawab pesan pengguna.' },
+  fallback: { title: 'Cadangan 1', hint: 'Dicoba kalau model utama error atau timeout.' },
+  fallback_2: { title: 'Cadangan 2', hint: 'Dicoba kalau cadangan 1 juga gagal. Boleh beda provider & API key.', optional: true },
+  fallback_3: { title: 'Cadangan 3', hint: 'Lapis terakhir sebelum bot memakai parser biasa.', optional: true },
   vision: { title: 'Model foto struk', hint: 'Membaca foto nota pengguna.' },
   audio: { title: 'Model voice note', hint: 'Mendengar voice note (opsional).' }
 };
@@ -716,11 +718,11 @@ function renderAiRoles(c) {
     const active = c.active[role] || {};
     const presetId = active.preset_id || '';
     const select = el('select', { 'aria-label': info.title },
-      el('option', { value: '' }, 'Pakai dari Variables (env)'),
+      el('option', { value: '' }, info.optional ? '— tidak dipakai —' : 'Pakai dari Variables (env)'),
       ...c.presets.map((p) => el('option', { value: p.id, selected: p.id === presetId }, presetLabel(p))));
     const source = active.env
       ? el('div', { class: 'source' }, `Sekarang: ${active.env.source === 'override' ? '🔧 dipilih di admin' : '📦 dari Variables'} · ${active.env.model}`)
-      : el('div', { class: 'source' }, 'Belum dikonfigurasi');
+      : el('div', { class: 'source' }, info.optional ? 'Tidak dipakai' : 'Belum dikonfigurasi');
     const result = el('span', { class: 'test-result' });
     const saveBtn = el('button', { class: 'btn primary', type: 'button' }, 'Simpan');
     const testBtn = el('button', { class: 'btn', type: 'button' }, 'Tes');

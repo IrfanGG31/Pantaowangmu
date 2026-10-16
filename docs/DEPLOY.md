@@ -306,7 +306,9 @@ Buka **Analitik → ⚙️ Konfigurasi AI**:
   OpenRouter, Groq, z.ai, MiniMax, dll), nama model, dan API key. Tekan **Tes koneksi**, lalu **Simpan model**.
   - Provider dan kuncinya sama dengan model lain? Pilih **"atau pakai kunci dari"** supaya tidak perlu mengetik ulang.
   - **Edit**: kosongkan API key untuk tetap memakai kunci lama. **Hapus** ditolak selama model masih dipakai suatu peran.
-- **Peran** (model utama, cadangan, foto struk, voice note): pilih model → **Tes** → **Simpan**. Langsung aktif tanpa redeploy.
+- **Peran**: model utama, **cadangan 1, 2, 3**, foto struk, voice note. Pilih model → **Tes** → **Simpan**. Langsung aktif
+  tanpa redeploy. Chat dicoba berurutan utama → cadangan 1 → 2 → 3 → parser biasa; tiap model boleh beda provider & API key.
+  Total waktu per pesan dibatasi 25 detik (`AI_CHAT_BUDGET_MS`); model yang baru gagal dilewati 5 menit (cooldown).
   "Pakai dari Variables (env)" kembali ke `AI_MODEL`/`AI_FALLBACK_*`/`AI_VISION_*`/`AI_AUDIO_*`.
 
 Keamanan:

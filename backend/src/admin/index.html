@@ -113,7 +113,7 @@
           <h2>⚙️ Konfigurasi AI</h2>
           <span id="ai-config-status" class="muted small"></span>
         </div>
-        <p class="muted small">Pilih model untuk tiap peran. Kalau satu model error, ganti di sini, tekan <b>Tes</b>, lalu <b>Simpan</b>: langsung aktif tanpa redeploy.</p>
+        <p class="muted small">Pilih model untuk tiap peran. Chat dicoba berurutan: <b>utama → cadangan 1 → 2 → 3</b>, lalu parser biasa (maks. 25 detik per pesan). Tiap model boleh beda provider dan API key. Kalau satu model error, tambah model baru di bawah, tekan <b>Tes</b>, lalu <b>Simpan</b> di perannya: langsung aktif tanpa redeploy.</p>
         <div id="ai-config-roles" class="ai-config-grid"></div>
         <p id="ai-config-error" class="error" role="alert" hidden></p>
 

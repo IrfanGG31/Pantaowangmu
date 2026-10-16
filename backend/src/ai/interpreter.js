@@ -3,7 +3,7 @@
 // validates and executes. Never logs the API key.
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
 import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH, MAX_GOAL_NAME_LENGTH, STYLES, LANGUAGES, PERSONAS } from '../db/memory.js';
-import { getOverride, resolvePreset } from '../db/aiConfig.js';
+import { getOverride, resolvePreset, CHAT_ROLES } from '../db/aiConfig.js';
 
 const MAX_AMOUNT = 999999999;
 const MAX_NOTE_LENGTH = 200;
@@ -77,10 +77,35 @@ export function getFallbackAiConfig() {
   return overrideConfig('fallback') || envConfig('AI_FALLBACK');
 }
 
-/** Chat models in the order they are tried: primary, then fallback. */
-export function getAiChain() {
-  return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
+/** The model set for one role; extra fallbacks (fallback_2, fallback_3) exist only as admin picks. */
+export function getRoleConfig(role) {
+  switch (role) {
+    case 'primary': return getAiConfig();
+    case 'fallback': return getFallbackAiConfig();
+    case 'vision': return getVisionConfig();
+    case 'audio': return getAudioConfig();
+    default: return CHAT_ROLES.includes(role) ? overrideConfig(role) : null;
+  }
 }
+
+/** Chat models in the order they are tried: primary, fallback, fallback_2, fallback_3 (the same model only once). */
+export function getAiChain() {
+  const seen = new Set();
+  return CHAT_ROLES.map(getRoleConfig).filter((c) => {
+    if (!c) return false;
+    const key = `${c.baseUrl}|${c.model}|${c.apiKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// One user message never waits longer than this across the whole chain; the rule parser answers after that.
+const chatBudgetMs = () => {
+  const n = Number(process.env.AI_CHAT_BUDGET_MS);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, SAFETY_TIMEOUT_MS) : 25000;
+};
+const MIN_ATTEMPT_MS = 3000;
 
 /** Receipt photos: override, then AI_VISION_*, else AI_MODEL on AI_*. */
 export const getVisionConfig = () => overrideConfig('vision') || envConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
@@ -596,10 +621,16 @@ export async function runAssistant({ userId, text, context, hint = null, categor
 
   let result = null;
   let output = null;
+  const started = Date.now();
   for (const [i, config] of chain.entries()) {
     if (coolingDown(config)) continue;
+    const left = chatBudgetMs() - (Date.now() - started);
+    if (left < MIN_ATTEMPT_MS) {
+      logger?.warn({ model: config.model, left_ms: left }, '[AI] Time budget used up; skipping remaining models');
+      break;
+    }
     const kind = i === 0 ? 'chat' : 'fallback';
-    result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor(kind), maxTokens: maxTokensFor('chat') });
+    result = await callChat(config, messages, { fetchImpl, timeoutMs: Math.min(timeoutFor(kind), left), maxTokens: maxTokensFor('chat') });
     output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
 
     try {

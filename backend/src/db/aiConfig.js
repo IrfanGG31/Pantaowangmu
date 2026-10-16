@@ -1,4 +1,4 @@
-// AI models the admin can pick per role (primary / fallback / vision / audio) without a redeploy.
+// AI models the admin can pick per role (primary / fallbacks / vision / audio) without a redeploy.
 // Two sources, merged into one list:
 //   - env:   AI_PRESETS (label/base_url/model/key_ref) + AI_KEYS (key_ref → API key), managed in Railway;
 //   - admin: rows in `ai_providers`, added and edited from the admin page. Their API key is stored encrypted
@@ -6,7 +6,9 @@
 import crypto from 'node:crypto';
 import db from './connection.js';
 
-export const ROLES = ['primary', 'fallback', 'vision', 'audio'];
+// Chat is tried in this order: primary, then each fallback that is set (models may use different providers/keys).
+export const CHAT_ROLES = ['primary', 'fallback', 'fallback_2', 'fallback_3'];
+export const ROLES = [...CHAT_ROLES, 'vision', 'audio'];
 
 const MAX_LABEL = 60;
 const MAX_MODEL = 120;

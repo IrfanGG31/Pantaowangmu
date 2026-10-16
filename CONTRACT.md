@@ -405,7 +405,7 @@ For the Mini App banner and "Yang baru" card.
 
 ### AI config (admin picks model from presets)
 
-Models can be switched per role (primary / fallback / vision / audio) without redeploy. Presets are declared in
+Models can be switched per role (primary / fallback / fallback_2 / fallback_3 / vision / audio) without redeploy. Chat tries primary, then each fallback that is set, within `AI_CHAT_BUDGET_MS` (default 25000). Presets are declared in
 `AI_PRESETS` (JSON) on the server and keys in `AI_KEYS`; neither is ever returned to the browser.
 
 - `GET /api/admin/ai/config` → `{ presets: Array<{id, label, base_url, model, key_ref}>, active: Record<role, { preset_id, updated_at, updated_by, env: { model, base_url, source: 'env'|'override' } | null }>, roles: string[] }`

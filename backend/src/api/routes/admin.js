@@ -30,15 +30,11 @@ import { getActiveBot } from '../../bot/identity.js';
 import { getFunnel, getRetention, getAtRiskUsers, getAiHealth } from '../../db/analytics.js';
 import { resetStats } from '../../db/resets.js';
 import { listAnnouncements, createAnnouncement, endAnnouncement, cancelAnnouncement, previewAnnouncement, MAX_TITLE, MAX_BODY } from '../../bot/announcements.js';
-import { getAiConfig, getFallbackAiConfig, getVisionConfig, getAudioConfig, callChat, clearCooldowns, getAiShortCircuitStats } from '../../ai/interpreter.js';
+import { getAiConfig, getRoleConfig, callChat, clearCooldowns, getAiShortCircuitStats } from '../../ai/interpreter.js';
 import { getPresets, getOverrides, setOverride, resolvePreset, resolveDraft, savePreset, deletePreset, canStoreKeys, ROLES as AI_ROLES } from '../../db/aiConfig.js';
 
 const envActive = (role) => {
-  const cfg = role === 'primary' ? getAiConfig()
-    : role === 'fallback' ? getFallbackAiConfig()
-    : role === 'vision' ? getVisionConfig()
-    : role === 'audio' ? getAudioConfig()
-    : null;
+  const cfg = getRoleConfig(role);
   return cfg ? { model: cfg.model, base_url: cfg.baseUrl, source: cfg.source || 'env' } : null;
 };
 import { getReminderDefaults, setReminderDefaults, reminderStats, resetReminderOverrides, BUILTIN_REMINDER_TIME } from '../../db/reminders.js';
