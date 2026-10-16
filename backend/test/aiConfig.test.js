@@ -4,7 +4,7 @@ import request from 'supertest';
 import app from '../src/api/server.js';
 import { initDatabase, db } from '../src/db/connection.js';
 import { hashPassword } from '../src/api/middleware/adminAuth.js';
-import { getPresets, getOverrides, setOverride, resolvePreset } from '../src/db/aiConfig.js';
+import { getPresets, getOverrides, setOverride, resolvePreset, savePreset, deletePreset } from '../src/db/aiConfig.js';
 import { getAiConfig, getFallbackAiConfig, getVisionConfig, runAssistant, resetAiState, recordShortCircuit, getAiShortCircuitStats, timeoutFor } from '../src/ai/interpreter.js';
 
 const PRESETS = JSON.stringify([
@@ -24,7 +24,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  db.exec('DELETE FROM ai_overrides; DELETE FROM admin_audit;');
+  db.exec('DELETE FROM ai_overrides; DELETE FROM admin_audit; DELETE FROM ai_providers;');
   resetAiState();
 });
 
@@ -63,7 +63,7 @@ describe('AI presets & overrides', () => {
     process.env.AI_PRESETS = PRESETS;
     process.env.AI_KEYS = KEYS;
     expect(setOverride('nope', 'glm-4-flash', 'owner@example.com').error).toBe('Role tidak valid');
-    expect(setOverride('primary', 'does-not-exist', 'owner@example.com').error).toMatch(/Preset tidak tersedia/);
+    expect(setOverride('primary', 'does-not-exist', 'owner@example.com').error).toMatch(/tidak tersedia/);
     expect(setOverride('primary', 'glm-4-flash', 'owner@example.com')).toMatchObject({ role: 'primary', preset_id: 'glm-4-flash' });
     expect(getOverrides().primary).toMatchObject({ preset_id: 'glm-4-flash', updated_by: 'owner@example.com' });
     expect(setOverride('primary', null, 'owner@example.com').preset_id).toBeNull();
@@ -128,5 +128,97 @@ describe('AI presets & overrides', () => {
     const agent = await admin();
     const res = await agent.get('/api/admin/ai/skipped').expect(200);
     expect(res.body).toMatchObject({ today: 2 });
+  });
+});
+
+describe('Models added from the admin page (base URL + model + API key)', () => {
+  const ADMIN = 'owner@example.com';
+  const SECRET_KEY = 'sk-test-abcdef123456';
+  const form = (extra = {}) => ({ label: 'MiniMax 3.1', base_url: 'https://ai.sumopod.example/v1/', model: 'MiniMax-M3.1-Flash-Preview', api_key: SECRET_KEY, ...extra });
+
+  it('stores the key encrypted and only shows its last 4 characters', () => {
+    const { preset } = savePreset(form(), ADMIN);
+    expect(preset).toMatchObject({ label: 'MiniMax 3.1', base_url: 'https://ai.sumopod.example/v1', model: 'MiniMax-M3.1-Flash-Preview', key_hint: '••••3456', key_ok: true, source: 'admin' });
+    expect(preset.id).toMatch(/^adm-minimax-m3-1-flash-preview-[0-9a-f]{6}$/);
+    expect(JSON.stringify(preset)).not.toContain(SECRET_KEY);
+    const raw = db.prepare('SELECT api_key_enc FROM ai_providers WHERE id = ?').get(preset.id).api_key_enc;
+    expect(raw).not.toContain(SECRET_KEY);
+    expect(raw).toMatch(/^v1:/);
+    expect(resolvePreset(preset.id)).toMatchObject({ apiKey: SECRET_KEY, model: 'MiniMax-M3.1-Flash-Preview', baseUrl: 'https://ai.sumopod.example/v1' });
+  });
+
+  it('validates the form', () => {
+    expect(savePreset(form({ base_url: 'ftp://x' }), ADMIN).error).toMatch(/https/);
+    expect(savePreset(form({ base_url: 'http://evil.example/v1' }), ADMIN).error).toMatch(/https/);
+    expect(savePreset(form({ model: '' }), ADMIN).error).toMatch(/model wajib/);
+    expect(savePreset(form({ api_key: '' }), ADMIN).error).toMatch(/API key/);
+    expect(savePreset(form({ api_key: 'has space' }), ADMIN).error).toMatch(/spasi/);
+  });
+
+  it('edits keep the old key when left empty; "pakai kunci dari" copies another model\'s key', () => {
+    const { preset } = savePreset(form(), ADMIN);
+    savePreset({ id: preset.id, label: 'MiniMax baru', base_url: preset.base_url, model: 'MiniMax-M2.7-highspeed', api_key: '' }, ADMIN);
+    expect(resolvePreset(preset.id)).toMatchObject({ apiKey: SECRET_KEY, model: 'MiniMax-M2.7-highspeed' });
+
+    const { preset: glm } = savePreset({ label: 'GLM', base_url: 'https://ai.sumopod.example/v1', model: 'glm-5.3-flash', key_from: preset.id }, ADMIN);
+    expect(resolvePreset(glm.id).apiKey).toBe(SECRET_KEY);
+  });
+
+  it('a changed server secret makes stored keys unreadable (flagged, never used)', () => {
+    const { preset } = savePreset(form(), ADMIN);
+    const old = process.env.ADMIN_SESSION_SECRET;
+    process.env.ADMIN_SESSION_SECRET = 'x'.repeat(40);
+    try {
+      expect(getPresets().find((p) => p.id === preset.id).key_ok).toBe(false);
+      expect(resolvePreset(preset.id)).toBeNull();
+    } finally {
+      process.env.ADMIN_SESSION_SECRET = old;
+    }
+    expect(resolvePreset(preset.id)).not.toBeNull();
+  });
+
+  it('refuses to delete a model still assigned to a role', () => {
+    const { preset } = savePreset(form(), ADMIN);
+    setOverride('primary', preset.id, ADMIN);
+    expect(deletePreset(preset.id)).toMatchObject({ status: 409 });
+    setOverride('primary', null, ADMIN);
+    expect(deletePreset(preset.id)).toMatchObject({ deleted: preset.id });
+    expect(getPresets()).toHaveLength(0);
+  });
+
+  it('admin API: add, assign to primary, test, edit, delete — the key never comes back', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const agent = await admin();
+    await request(app).post('/api/admin/ai/presets').send(form()).expect(401);
+
+    // Test before saving: an unsaved form.
+    const draftTest = await agent.post('/api/admin/ai/test').send(form()).expect(200);
+    expect(draftTest.body).toMatchObject({ ok: true, model: 'MiniMax-M3.1-Flash-Preview' });
+    expect(fetchMock.mock.calls[0][0]).toBe('https://ai.sumopod.example/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Bearer ${SECRET_KEY}`);
+
+    const created = await agent.post('/api/admin/ai/presets').send(form()).expect(201);
+    const id = created.body.preset.id;
+    expect(JSON.stringify(created.body)).not.toContain(SECRET_KEY);
+
+    const config = await agent.get('/api/admin/ai/config').expect(200);
+    expect(config.body.can_store_keys).toBe(true);
+    expect(config.body.presets.find((p) => p.id === id)).toMatchObject({ source: 'admin', key_hint: '••••3456' });
+    expect(JSON.stringify(config.body)).not.toContain(SECRET_KEY);
+
+    await agent.put('/api/admin/ai/override').send({ role: 'primary', preset_id: id }).expect(200);
+    expect(getAiConfig()).toMatchObject({ model: 'MiniMax-M3.1-Flash-Preview', apiKey: SECRET_KEY, source: 'override' });
+
+    await agent.put(`/api/admin/ai/presets/${id}`).send({ ...form(), model: 'glm-5.3-flash', api_key: '' }).expect(200);
+    expect(getAiConfig()).toMatchObject({ model: 'glm-5.3-flash', apiKey: SECRET_KEY });
+
+    await agent.delete(`/api/admin/ai/presets/${id}`).send({}).expect(409); // still the primary
+    await agent.put('/api/admin/ai/override').send({ role: 'primary', preset_id: null }).expect(200);
+    await agent.delete(`/api/admin/ai/presets/${id}`).send({}).expect(200);
+
+    const audit = db.prepare("SELECT action, details FROM admin_audit WHERE action LIKE 'ai_%' ORDER BY id").all();
+    expect(audit.map((a) => a.action)).toEqual(['ai_preset_create', 'ai_override', 'ai_preset_update', 'ai_override', 'ai_preset_delete']);
+    expect(JSON.stringify(audit)).not.toContain(SECRET_KEY);
   });
 });

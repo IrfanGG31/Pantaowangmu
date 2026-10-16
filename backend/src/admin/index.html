@@ -113,10 +113,49 @@
           <h2>⚙️ Konfigurasi AI</h2>
           <span id="ai-config-status" class="muted small"></span>
         </div>
-        <p class="muted small">Pilih model utama dan cadangan dari preset yang disetel di Railway (<code>AI_PRESETS</code>). Kunci API tersimpan di <code>AI_KEYS</code> dan tidak pernah dikirim ke browser. Ganti preset tidak butuh redeploy.</p>
+        <p class="muted small">Pilih model untuk tiap peran. Kalau satu model error, ganti di sini, tekan <b>Tes</b>, lalu <b>Simpan</b>: langsung aktif tanpa redeploy.</p>
         <div id="ai-config-roles" class="ai-config-grid"></div>
         <p id="ai-config-error" class="error" role="alert" hidden></p>
-        <p class="muted small">Pengaturan tersimpan permanen di database dan tetap aktif setelah redeploy. Pilih "Pakai dari Variables" untuk kembali ke env.</p>
+
+        <div class="section-head ai-models-head">
+          <h3>🧩 Daftar model &amp; API key</h3>
+          <button id="ai-model-add" class="btn primary" type="button">+ Tambah model</button>
+        </div>
+        <p class="muted small">Tambah model dari provider mana pun yang kompatibel OpenAI (Sumopod, OpenRouter, Groq, z.ai, dll). API key disimpan terenkripsi di server dan tidak pernah ditampilkan lagi, hanya 4 karakter terakhirnya.</p>
+        <form id="ai-model-form" class="ai-model-form" hidden autocomplete="off">
+          <h4 id="ai-model-form-title">Tambah model</h4>
+          <div class="field-grid">
+            <label>Nama tampilan <input name="label" maxlength="60" placeholder="mis. MiniMax 3.1 Flash"></label>
+            <label>Base URL <input name="base_url" list="ai-base-urls" maxlength="300" placeholder="https://ai.sumopod.com/v1" required></label>
+            <label>Nama model <input name="model" maxlength="120" placeholder="mis. MiniMax-M3.1-Flash-Preview" required></label>
+          </div>
+          <datalist id="ai-base-urls">
+            <option value="https://ai.sumopod.com/v1">Sumopod</option>
+            <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+            <option value="https://api.groq.com/openai/v1">Groq</option>
+            <option value="https://api.z.ai/api/paas/v4">z.ai (GLM)</option>
+            <option value="https://api.minimax.io/v1">MiniMax</option>
+            <option value="https://api.openai.com/v1">OpenAI</option>
+          </datalist>
+          <div class="field-grid">
+            <label>API key
+              <span class="key-input"><input name="api_key" type="password" maxlength="500" placeholder="sk-..." autocomplete="new-password" spellcheck="false"><button type="button" class="btn" id="ai-key-toggle" aria-label="Tampilkan API key">👁</button></span>
+              <span class="hint" id="ai-key-hint">Wajib untuk model baru.</span>
+            </label>
+            <label>atau pakai kunci dari
+              <select name="key_from"><option value="">— tidak —</option></select>
+              <span class="hint">Pilih bila provider &amp; kuncinya sama dengan model lain.</span>
+            </label>
+          </div>
+          <div class="row row-wrap">
+            <button class="btn" type="button" id="ai-model-test">Tes koneksi</button>
+            <button class="btn primary" type="submit" id="ai-model-save">Simpan model</button>
+            <button class="btn" type="button" id="ai-model-cancel">Batal</button>
+            <span id="ai-model-result" class="test-result"></span>
+          </div>
+          <p id="ai-model-error" class="error" role="alert" hidden></p>
+        </form>
+        <div class="table-wrap"><table id="ai-models-table"></table></div>
       </section>
 
       <section class="card" id="ai-health">

@@ -298,24 +298,26 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
 - Pratinjau menunjukkan pesan Telegram yang persis; "Kirim tes" mengirimnya ke satu akun dulu.
   Semua pengiriman memakai antrean broadcast (satu per satu) dan tercatat di Riwayat broadcast & log admin.
 
-## Konfigurasi AI (ganti model tanpa redeploy)
+## Konfigurasi AI (ganti model & API key dari web admin)
 
-Dua env di Railway menyediakan preset yang bisa dipilih admin:
+Buka **Analitik → ⚙️ Konfigurasi AI**:
 
-```
-AI_PRESETS=[
-  {"id":"minimax-3.1-flash","label":"MiniMax 3.1 Flash","base_url":"https://ai.sumopod.com/v1","model":"MiniMax-M3.1-Flash-Preview","key_ref":"sumopod"},
-  {"id":"minimax-2.7-high","label":"MiniMax 2.7 Highspeed","base_url":"https://ai.sumopod.com/v1","model":"MiniMax-M2.7-highspeed","key_ref":"sumopod"},
-  {"id":"glm-4-flash","label":"GLM-4 Flash","base_url":"https://open.bigmodel.cn/api/paas/v4","model":"glm-4-flash","key_ref":"zhipu"}
-]
-AI_KEYS={"sumopod":"<KEY>","zhipu":"<KEY>"}
-```
+- **Daftar model & API key** → **+ Tambah model**: isi nama tampilan, base URL (provider yang kompatibel OpenAI: Sumopod,
+  OpenRouter, Groq, z.ai, MiniMax, dll), nama model, dan API key. Tekan **Tes koneksi**, lalu **Simpan model**.
+  - Provider dan kuncinya sama dengan model lain? Pilih **"atau pakai kunci dari"** supaya tidak perlu mengetik ulang.
+  - **Edit**: kosongkan API key untuk tetap memakai kunci lama. **Hapus** ditolak selama model masih dipakai suatu peran.
+- **Peran** (model utama, cadangan, foto struk, voice note): pilih model → **Tes** → **Simpan**. Langsung aktif tanpa redeploy.
+  "Pakai dari Variables (env)" kembali ke `AI_MODEL`/`AI_FALLBACK_*`/`AI_VISION_*`/`AI_AUDIO_*`.
 
-- Admin membuka **Analitik → Konfigurasi AI**, memilih preset per peran (utama, cadangan, foto struk, voice), menekan **Tes**
-  (menampilkan latency), lalu **Simpan**. Perubahan tersimpan di tabel `ai_overrides` dan **tidak butuh redeploy**.
-- `AI_KEYS` tidak pernah dikirim ke browser; preset hanya memuat `key_ref` sebagai referensi.
-- Bila belum ada override, bot memakai `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` lama (back-compat).
-- MiMo bisa ditambahkan dengan menambah entry baru di `AI_PRESETS` ketika providernya tersedia; tidak perlu commit.
+Keamanan:
+- API key dienkripsi AES-256-GCM di tabel `ai_providers` dan tidak pernah dikirim ke browser; admin hanya melihat 4 karakter
+  terakhir. Log audit mencatat perubahan tanpa kunci.
+- Kunci enkripsi diambil dari `AI_SECRET_KEY` bila ada, kalau tidak dari `ADMIN_SESSION_SECRET`. **Bila secret itu diganti,
+  kunci yang tersimpan tidak bisa dibaca lagi** (tampil "⚠️ tidak terbaca, isi ulang") dan bot memakai model dari Variables.
+  Supaya bebas mengganti `ADMIN_SESSION_SECRET`, set `AI_SECRET_KEY` (string acak ≥ 32 karakter) sebelum menyimpan kunci.
+
+Model dari Railway Variables tetap didukung: `AI_PRESETS` (JSON `[{id,label,base_url,model,key_ref}]`) dan `AI_KEYS`
+(JSON `{key_ref: apiKey}`). Model ini tampil berlabel "Variables"; bisa dites dan **Salin** jadi model admin yang bisa diedit.
 
 ## Timeout AI & short-circuit (akar penyebab "timeout 15000ms")
 

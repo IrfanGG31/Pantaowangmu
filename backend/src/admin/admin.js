@@ -693,20 +693,33 @@ const AI_ROLE_LABEL = {
   audio: { title: 'Model voice note', hint: 'Mendengar voice note (opsional).' }
 };
 
-function renderAiConfig(c) {
-  state.aiPresets = c.presets;
-  const container = $('ai-config-roles');
-  container.replaceChildren(...c.roles.map((role) => {
+const presetLabel = (p) => `${p.label} · ${p.model}${p.key_ok ? '' : ' ⚠️ kunci tidak terbaca'}`;
+
+async function runTest(resultEl, body) {
+  resultEl.textContent = '⏳ menguji…';
+  resultEl.className = 'test-result';
+  try {
+    const r = await api('/ai/test', { method: 'POST', body: JSON.stringify(body) });
+    resultEl.textContent = r.ok ? `✓ ${r.model} menjawab dalam ${ms(r.latency_ms)}` : `✗ ${r.model}: ${r.error || `HTTP ${r.status}`}`;
+    resultEl.className = `test-result ${r.ok ? 'ok' : 'err'}`;
+    return r.ok;
+  } catch (err) {
+    resultEl.textContent = `✗ ${err.message}`;
+    resultEl.className = 'test-result err';
+    return false;
+  }
+}
+
+function renderAiRoles(c) {
+  $('ai-config-roles').replaceChildren(...c.roles.map((role) => {
     const info = AI_ROLE_LABEL[role] || { title: role, hint: '' };
     const active = c.active[role] || {};
     const presetId = active.preset_id || '';
-    const options = [
+    const select = el('select', { 'aria-label': info.title },
       el('option', { value: '' }, 'Pakai dari Variables (env)'),
-      ...c.presets.map((p) => el('option', { value: p.id, selected: p.id === presetId }, `${p.label} · ${p.model}`))
-    ];
-    const select = el('select', { 'aria-label': info.title }, options);
+      ...c.presets.map((p) => el('option', { value: p.id, selected: p.id === presetId }, presetLabel(p))));
     const source = active.env
-      ? el('div', { class: 'source' }, `Aktif: ${active.env.source === 'override' ? '🔧 override' : '📦 env'} · ${active.env.model}`)
+      ? el('div', { class: 'source' }, `Sekarang: ${active.env.source === 'override' ? '🔧 dipilih di admin' : '📦 dari Variables'} · ${active.env.model}`)
       : el('div', { class: 'source' }, 'Belum dikonfigurasi');
     const result = el('span', { class: 'test-result' });
     const saveBtn = el('button', { class: 'btn primary', type: 'button' }, 'Simpan');
@@ -716,7 +729,7 @@ function renderAiConfig(c) {
       saveBtn.disabled = true;
       try {
         await api('/ai/override', { method: 'PUT', body: JSON.stringify({ role, preset_id: select.value || null }) });
-        $('ai-config-status').textContent = 'Tersimpan.';
+        $('ai-config-status').textContent = `${info.title} tersimpan.`;
         loadAiConfig();
         loadAudit();
       } catch (err) {
@@ -726,24 +739,9 @@ function renderAiConfig(c) {
       }
     });
     testBtn.addEventListener('click', async () => {
-      if (!select.value) {
-        result.textContent = 'Pilih preset dulu.';
-        result.className = 'test-result';
-        return;
-      }
       testBtn.disabled = true;
-      result.textContent = '⏳ menguji…';
-      result.className = 'test-result';
-      try {
-        const r = await api('/ai/test', { method: 'POST', body: JSON.stringify({ preset_id: select.value, prompt: 'ok?' }) });
-        result.textContent = r.ok ? `✓ ${r.model} · ${ms(r.latency_ms)}` : `✗ ${r.error || r.status}`;
-        result.className = `test-result ${r.ok ? 'ok' : 'err'}`;
-      } catch (err) {
-        result.textContent = `✗ ${err.message}`;
-        result.className = 'test-result err';
-      } finally {
-        testBtn.disabled = false;
-      }
+      await runTest(result, select.value ? { preset_id: select.value } : {});
+      testBtn.disabled = false;
     });
     return el('div', { class: 'ai-role' },
       el('div', { class: 'ai-role-head' }, el('strong', {}, info.title), el('span', {}, active.updated_by ? `oleh ${active.updated_by}` : '')),
@@ -753,9 +751,103 @@ function renderAiConfig(c) {
       source
     );
   }));
-  $('ai-config-status').textContent = c.presets.length
-    ? `${c.presets.length} preset tersedia dari Variables.`
-    : '⚠️ AI_PRESETS kosong — set di Railway Variables agar bisa memilih model.';
+}
+
+function renderAiModels(c) {
+  const usedBy = {};
+  for (const [role, a] of Object.entries(c.active)) if (a.preset_id) (usedBy[a.preset_id] ||= []).push(AI_ROLE_LABEL[role]?.title || role);
+  renderTable($('ai-models-table'), ['Nama', 'Base URL', 'Model', 'API key', 'Dipakai untuk', 'Sumber', ''], c.presets.map((p) => {
+    const result = el('span', { class: 'test-result' });
+    const testBtn = el('button', { class: 'btn', type: 'button' }, 'Tes');
+    testBtn.addEventListener('click', async () => {
+      testBtn.disabled = true;
+      await runTest(result, { preset_id: p.id });
+      testBtn.disabled = false;
+    });
+    const actions = [testBtn];
+    if (p.source === 'admin') {
+      const editBtn = el('button', { class: 'btn', type: 'button' }, 'Edit');
+      editBtn.addEventListener('click', () => openModelForm(p));
+      const delBtn = el('button', { class: 'btn', type: 'button' }, 'Hapus');
+      delBtn.addEventListener('click', async () => {
+        if (!confirm(`Hapus model "${p.label}"? API key-nya ikut terhapus.`)) return;
+        showError('ai-config-error', '');
+        try {
+          await api(`/ai/presets/${encodeURIComponent(p.id)}`, { method: 'DELETE', body: '{}' });
+          loadAiConfig();
+          loadAudit();
+        } catch (err) {
+          showError('ai-config-error', err.message);
+        }
+      });
+      actions.push(editBtn, delBtn);
+    } else {
+      const copyBtn = el('button', { class: 'btn', type: 'button', title: 'Buat salinan yang bisa diedit di sini' }, 'Salin');
+      copyBtn.addEventListener('click', () => openModelForm({ label: `${p.label} (salinan)`, base_url: p.base_url, model: p.model, key_from: p.id }));
+      actions.push(copyBtn);
+    }
+    return [
+      { text: p.label, class: 'wrap' },
+      { text: p.base_url, class: 'wrap' },
+      { text: p.model, class: 'wrap' },
+      p.key_ok ? el('code', {}, p.key_hint || '••••') : el('span', { class: 'key-bad' }, '⚠️ tidak terbaca, isi ulang'),
+      (usedBy[p.id] || []).join(', ') || '—',
+      el('span', { class: `src-badge ${p.source}` }, p.source === 'admin' ? 'Admin' : 'Variables'),
+      el('div', {}, el('div', { class: 'row-actions' }, ...actions), result)
+    ];
+  }), 'Belum ada model. Tekan "+ Tambah model".');
+}
+
+function fillKeyFrom(selectedId = '') {
+  const select = $('ai-model-form').key_from;
+  const editingId = $('ai-model-form').dataset.id || '';
+  select.replaceChildren(
+    el('option', { value: '' }, '— tidak —'),
+    ...(state.aiPresets || []).filter((p) => p.key_ok && p.id !== editingId)
+      .map((p) => el('option', { value: p.id, selected: p.id === selectedId }, `${p.label} (${p.key_hint})`))
+  );
+}
+
+function openModelForm(preset = null) {
+  const f = $('ai-model-form');
+  const editing = Boolean(preset?.id && preset.source === 'admin');
+  f.dataset.id = editing ? preset.id : '';
+  f.label.value = preset?.label || '';
+  f.base_url.value = preset?.base_url || 'https://ai.sumopod.com/v1';
+  f.model.value = preset?.model || '';
+  f.api_key.value = '';
+  f.api_key.type = 'password';
+  fillKeyFrom(preset?.key_from || '');
+  $('ai-model-form-title').textContent = editing ? `Edit model: ${preset.label}` : 'Tambah model';
+  $('ai-key-hint').textContent = editing ? `Kosongkan untuk tetap memakai kunci lama (${preset.key_hint}).` : 'Wajib, kecuali memilih "pakai kunci dari".';
+  $('ai-model-result').textContent = '';
+  showError('ai-model-error', '');
+  f.hidden = false;
+  f.model.focus();
+}
+
+function modelFormData() {
+  const f = $('ai-model-form');
+  return {
+    id: f.dataset.id || undefined,
+    label: f.label.value.trim(),
+    base_url: f.base_url.value.trim(),
+    model: f.model.value.trim(),
+    api_key: f.api_key.value.trim(),
+    key_from: f.key_from.value || undefined
+  };
+}
+
+function renderAiConfig(c) {
+  state.aiPresets = c.presets;
+  renderAiRoles(c);
+  renderAiModels(c);
+  if (!$('ai-model-form').hidden) fillKeyFrom($('ai-model-form').key_from.value);
+  const admin = c.presets.filter((p) => p.source === 'admin').length;
+  $('ai-config-status').textContent = c.can_store_keys
+    ? `${c.presets.length} model tersedia (${admin} dari admin, ${c.presets.length - admin} dari Variables).`
+    : '⚠️ Server belum punya ADMIN_SESSION_SECRET / AI_SECRET_KEY: API key tidak bisa disimpan dari sini.';
+  $('ai-model-add').disabled = !c.can_store_keys;
 }
 
 async function loadAiConfig() {
@@ -765,6 +857,38 @@ async function loadAiConfig() {
     showError('ai-config-error', err.message);
   }
 }
+
+$('ai-model-add').addEventListener('click', () => openModelForm());
+$('ai-model-cancel').addEventListener('click', () => { $('ai-model-form').hidden = true; });
+$('ai-key-toggle').addEventListener('click', () => {
+  const input = $('ai-model-form').api_key;
+  input.type = input.type === 'password' ? 'text' : 'password';
+});
+$('ai-model-test').addEventListener('click', async (event) => {
+  showError('ai-model-error', '');
+  event.target.disabled = true;
+  await runTest($('ai-model-result'), modelFormData());
+  event.target.disabled = false;
+});
+$('ai-model-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = modelFormData();
+  showError('ai-model-error', '');
+  $('ai-model-save').disabled = true;
+  try {
+    const { id, ...body } = data;
+    await api(id ? `/ai/presets/${encodeURIComponent(id)}` : '/ai/presets', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+    $('ai-model-form').hidden = true;
+    $('ai-model-form').api_key.value = '';
+    $('ai-config-status').textContent = id ? 'Model diperbarui.' : 'Model ditambahkan. Pilih di peran di atas lalu Simpan.';
+    loadAiConfig();
+    loadAudit();
+  } catch (err) {
+    showError('ai-model-error', err.message);
+  } finally {
+    $('ai-model-save').disabled = false;
+  }
+});
 
 // ── Broadcasts ──────────────────────────────────────────────────────────
 

@@ -411,4 +411,9 @@ Models can be switched per role (primary / fallback / vision / audio) without re
 - `GET /api/admin/ai/config` → `{ presets: Array<{id, label, base_url, model, key_ref}>, active: Record<role, { preset_id, updated_at, updated_by, env: { model, base_url, source: 'env'|'override' } | null }>, roles: string[] }`
 - `PUT /api/admin/ai/override` `{ role, preset_id | null }` → `{ role, preset_id }`. Clears model cooldowns so the new pick is tried immediately. Audited as `ai_override`.
 - `POST /api/admin/ai/test` `{ preset_id, prompt? }` → `{ ok, model, base_url, status, latency_ms, content, error }`. Does not write to `ai_usage`; prompt capped at 200 chars.
+- `POST /api/admin/ai/presets` `{ label, base_url, model, api_key? , key_from? }` → 201 `{ preset }`. Adds a model from the admin page. The key is encrypted at rest (AES-256-GCM) and never returned; `key_from` copies the key of another preset. Audited as `ai_preset_create` (without the key).
+- `PUT /api/admin/ai/presets/:id` same body; an empty `api_key` keeps the stored key. Only admin-added presets (`source: 'admin'`). Audited as `ai_preset_update`.
+- `DELETE /api/admin/ai/presets/:id` (JSON body `{}`) → `{ deleted }`; 409 while a role still uses it.
+- Presets in `/ai/config` have `{ id, label, base_url, model, key_hint: '••••abcd', key_ok, source: 'admin'|'env' }`; `can_store_keys` tells whether the server can encrypt keys.
+- `/ai/test` also accepts an unsaved form `{ base_url, model, api_key | key_from | id }`.
 - `GET /api/admin/ai/skipped` → `{ today, yesterday }` (count of user messages answered by the rule parser without calling AI).
