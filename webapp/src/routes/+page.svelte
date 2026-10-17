@@ -58,13 +58,35 @@
     return hideBalance ? 'Rp ••••••' : formatted;
   }
 
+  // ── MainButton: "Catat" normally, hidden while the sheet is open ──
+  let cleanupMainBtn: (() => void) | null = null;
+  let mounted = false;
+
+  function showMainButton() {
+    cleanupMainBtn?.();
+    cleanupMainBtn = setupMainButton({ text: '➕ Catat Transaksi', onClick: () => goto('/add') });
+  }
+
   onMount(() => {
+    mounted = true;
     hideBalance = !!readLocal<boolean>(HIDE_BALANCE_KEY);
+    showMainButton();
   });
 
   onDestroy(() => {
     controller?.abort();
+    cleanupMainBtn?.();
   });
+
+  $: anySheetOpen = sheetOpen || walletSheetOpen || billSheetOpen;
+  $: if (mounted) {
+    if (anySheetOpen) {
+      cleanupMainBtn?.();
+      cleanupMainBtn = null;
+    } else if (!cleanupMainBtn) {
+      showMainButton();
+    }
+  }
 
   // ── Data ───────────────────────────────────────────────────────
   async function loadData() {

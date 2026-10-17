@@ -171,7 +171,7 @@
 </script>
 
 <svelte:head>
-  <title>Rencana & Budget</title>
+  <title>Budget</title>
 </svelte:head>
 
 <main class="page">
@@ -179,7 +179,7 @@
   <header class="page-header">
     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
       <div>
-        <div class="page-title">Rencana & Budget</div>
+        <div class="page-title">Budget</div>
         <div class="page-subtitle">{month}</div>
       </div>
       <button
