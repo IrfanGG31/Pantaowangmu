@@ -103,12 +103,13 @@
   }
 
   function handleAmountInput(e: Event) {
-    formAmountRaw = (e.target as HTMLInputElement).value.replace(/\D/g, '');
-    (e.target as HTMLInputElement).value = formAmountRaw;
+    const input = e.target as HTMLInputElement;
+    formAmountRaw = input.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 9);
+    input.value = formAmountRaw ? Number(formAmountRaw).toLocaleString('id-ID') : '';
   }
 
   $: parsedAmount = formAmountRaw ? parseInt(formAmountRaw, 10) : 0;
-  $: amountHint = parsedAmount > 0 ? formatRupiah(parsedAmount) : '';
+  $: formattedBudgetInput = parsedAmount > 0 ? parsedAmount.toLocaleString('id-ID') : '';
 
   async function saveBudget() {
     if (!formCategory) { await showAlert('Pilih kategori terlebih dahulu'); return; }
@@ -170,7 +171,7 @@
 </script>
 
 <svelte:head>
-  <title>Budget</title>
+  <title>Rencana & Budget</title>
 </svelte:head>
 
 <main class="page">
@@ -178,7 +179,7 @@
   <header class="page-header">
     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
       <div>
-        <div class="page-title">Budget</div>
+        <div class="page-title">Rencana & Budget</div>
         <div class="page-subtitle">{month}</div>
       </div>
       <button
@@ -249,17 +250,14 @@
         <label class="form-label" for="budget-amount">Jumlah Budget (Rp)</label>
         <input
           id="budget-amount"
-          class="form-input"
+          class="form-input tabular"
           type="text"
           inputmode="numeric"
-          placeholder="1000000"
-          value={formAmountRaw}
+          placeholder="1.000.000"
+          value={formattedBudgetInput}
           on:input={handleAmountInput}
           autocomplete="off"
         />
-        {#if amountHint}
-          <div class="form-hint tabular">{amountHint}</div>
-        {/if}
       </div>
 
       <button

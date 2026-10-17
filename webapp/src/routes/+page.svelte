@@ -42,38 +42,29 @@
   // Last good home data per user, shown when the network is down (PWA W6). Kept on this device only.
   interface HomeSnapshot { at: string; summary: Summary; recent: Transaction[]; me: MeResponse | null; insights: InsightsResponse | null }
   const SNAPSHOT_KEY = `panta.home.v1.${tgUser?.id ?? 'dev'}`;
+  const HIDE_BALANCE_KEY = `panta.hide_balance.v1.${tgUser?.id ?? 'dev'}`;
   let offlineSince: string | null = null;
+  let hideBalance = false;
 
   $: if ($txRevision >= 0) loadData();
 
-  // ── MainButton: "Catat" normally, hidden while the sheet is open ──
-  let cleanupMainBtn: (() => void) | null = null;
-  let mounted = false;
+  function toggleHideBalance() {
+    hideBalance = !hideBalance;
+    haptic('selection');
+    writeLocal(HIDE_BALANCE_KEY, hideBalance);
+  }
 
-  function showMainButton() {
-    cleanupMainBtn?.();
-    cleanupMainBtn = setupMainButton({ text: '➕ Catat Transaksi', onClick: () => goto('/add') });
+  function maskMoney(formatted: string): string {
+    return hideBalance ? 'Rp ••••••' : formatted;
   }
 
   onMount(() => {
-    mounted = true;
-    showMainButton();
+    hideBalance = !!readLocal<boolean>(HIDE_BALANCE_KEY);
   });
 
   onDestroy(() => {
     controller?.abort();
-    cleanupMainBtn?.();
   });
-
-  $: anySheetOpen = sheetOpen || walletSheetOpen || billSheetOpen;
-  $: if (mounted) {
-    if (anySheetOpen) {
-      cleanupMainBtn?.();
-      cleanupMainBtn = null;
-    } else if (!cleanupMainBtn) {
-      showMainButton();
-    }
-  }
 
   // ── Data ───────────────────────────────────────────────────────
   async function loadData() {
@@ -287,21 +278,32 @@
         <button class="btn btn-ghost offline-retry" on:click={loadData}>Muat ulang</button>
       </div>
     {/if}
-    <!-- Hero: remaining balance first, then today's money flow and today's safe-to-spend -->
+    <!-- Hero: remaining balance, privacy toggle, today's money flow, and today's safe-to-spend -->
     <section class="summary-card hero" aria-labelledby="hero-label">
       <div class="hero-top">
-        <div id="hero-label" class="hero-label">{balanceNet === null ? 'Saldo hari ini' : 'Sisa saldo'}</div>
+        <div class="hero-label-row">
+          <div id="hero-label" class="hero-label">{balanceNet === null ? 'Saldo hari ini' : 'Sisa saldo'}</div>
+          <button
+            type="button"
+            class="hero-eye"
+            on:click={toggleHideBalance}
+            aria-label={hideBalance ? 'Tampilkan nominal saldo' : 'Sembunyikan nominal saldo'}
+            title={hideBalance ? 'Tampilkan saldo' : 'Sembunyikan saldo'}
+          >
+            {hideBalance ? '🙈' : '👁️'}
+          </button>
+        </div>
         {#if insights}
           <button class="hero-pill" on:click={() => { haptic('selection'); walletSheetOpen = true; }}>👛 Dompet</button>
         {/if}
       </div>
       <div class="hero-amount tabular">
-        {shownBalance < 0 ? '−' : ''}{formatRupiah(Math.abs(shownBalance))}
+        {hideBalance ? 'Rp ••••••' : `${shownBalance < 0 ? '−' : ''}${formatRupiah(Math.abs(shownBalance))}`}
       </div>
       {#if $wallets.length}
         <div class="wallet-strip" aria-label="Saldo per dompet">
           {#each $wallets as w (w.id)}
-            <span class="wallet-chip tabular"><WalletIcon name={w.name} kind={w.kind} /> {w.name} <strong>{formatRupiahShort(w.balance)}</strong></span>
+            <span class="wallet-chip tabular"><WalletIcon name={w.name} kind={w.kind} /> {w.name} <strong>{maskMoney(formatRupiahShort(w.balance))}</strong></span>
           {/each}
         </div>
       {:else if insights && insights.balance.income === 0 && insights.balance.expense > 0}
@@ -311,19 +313,24 @@
       <div class="hero-today tabular">
         <div>
           <div class="hero-mini-label">Pengeluaran hari ini</div>
-          <div class="hero-today-value">−{formatRupiah(summary?.expense ?? 0)}</div>
+          <div class="hero-today-value">{hideBalance ? 'Rp ••••••' : `−${formatRupiah(summary?.expense ?? 0)}`}</div>
         </div>
         <div style="text-align: right;">
           <div class="hero-mini-label">Pemasukan hari ini</div>
-          <div class="hero-today-value">+{formatRupiah(summary?.income ?? 0)}</div>
+          <div class="hero-today-value">{hideBalance ? 'Rp ••••••' : `+${formatRupiah(summary?.income ?? 0)}`}</div>
         </div>
       </div>
 
       {#if allowance}
         <div class="hero-allow">
           <div class="hero-allow-top">
-            <span>{over ? 'Lewat jatah hari ini' : 'Aman dibelanjakan hari ini'}</span>
-            <strong class="tabular">{over ? '−' : ''}{formatRupiah(Math.abs(allowance.left))}</strong>
+            <div class="hero-allow-heading">
+              <span>{over ? 'Lewat jatah hari ini' : 'Jatah aman hari ini'}</span>
+              <span class="hero-status-pill" class:over class:warn={!over && spentPct >= 80}>
+                {over ? '🚨 Lewat' : spentPct >= 80 ? '⚠️ Hati-hati' : '✅ Aman'}
+              </span>
+            </div>
+            <strong class="tabular">{hideBalance ? 'Rp ••••••' : `${over ? '−' : ''}${formatRupiah(Math.abs(allowance.left))}`}</strong>
           </div>
           <div
             class="hero-track"
@@ -333,12 +340,12 @@
             aria-valuemax={100}
             aria-valuenow={Math.min(100, Math.round(spentPct))}
           >
-            <div class="hero-fill" class:over style="width: {Math.min(100, spentPct)}%;"></div>
+            <div class="hero-fill" class:over class:warn={!over && spentPct >= 80} style="width: {Math.min(100, spentPct)}%;"></div>
           </div>
           <div class="hero-allow-sub tabular">
             <span>
-              {#if allowance.reserved_bills > 0}Tagihan {formatRupiahShort(allowance.reserved_bills)} sudah disisihkan ·{/if}
-              Jatah {formatRupiahShort(allowance.allowance)}/hari ·
+              {#if allowance.reserved_bills > 0}Tagihan {maskMoney(formatRupiahShort(allowance.reserved_bills))} disisihkan ·{/if}
+              Jatah {maskMoney(formatRupiahShort(allowance.allowance))}/hari ·
               {allowance.next_payday ? 'gajian' : 'akhir bulan'} {daysLabel(allowance.days_left)}
             </span>
             <button class="hero-link" on:click={openSheet}>Ubah gaji</button>
@@ -612,7 +619,22 @@
 
   /* Hero */
   .hero { margin-bottom: 12px; }
+  .hero-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
   .hero-label { font-size: 13px; opacity: 0.9; }
+  .hero-eye {
+    color: inherit;
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.14);
+    transition: opacity var(--transition);
+  }
+  .hero-eye:active { opacity: 0.7; }
   .hero-top {
     display: flex;
     align-items: center;
@@ -677,13 +699,29 @@
   }
   .hero-allow-top {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 8px;
     font-size: 13px;
     margin-bottom: 8px;
   }
-  .hero-allow-top strong { font-size: 17px; }
+  .hero-allow-heading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .hero-status-pill {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: var(--radius-pill);
+    background: rgba(52, 199, 89, 0.28);
+    color: #fff;
+  }
+  .hero-status-pill.warn { background: rgba(255, 159, 10, 0.38); }
+  .hero-status-pill.over { background: rgba(255, 59, 48, 0.45); }
+  .hero-allow-top strong { font-size: 18px; }
   .hero-track {
     height: 6px;
     border-radius: 3px;
@@ -696,6 +734,7 @@
     background: #fff;
     transition: width 0.5s ease;
   }
+  .hero-fill.warn { background: #ffe082; }
   .hero-fill.over { background: #ffc9c9; }
   .hero-allow-sub {
     display: flex;

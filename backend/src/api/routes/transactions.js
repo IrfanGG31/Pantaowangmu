@@ -3,6 +3,7 @@ import requireTelegramAuth from '../middleware/auth.js';
 import apiLimiter from '../middleware/rateLimit.js';
 import {
   createTransaction,
+  updateTransaction,
   getTransactionsByUser,
   getTransactionById,
   getLastTransaction,
@@ -15,7 +16,7 @@ import {
 import { getBudget } from '../../db/budgets.js';
 import { isValidCategory } from '../../db/categories.js';
 import { getWallet, defaultWallet, assignTransactionWallet } from '../../db/wallets.js';
-import { validateTransactionInput, validatePeriod } from '../../utils/validator.js';
+import { validateTransactionInput, validateTransactionPatch, validatePeriod } from '../../utils/validator.js';
 import { getMonthStr, getMonthRange, getStartOfWeek, getStartOfMonth, formatRupiah } from '../../utils/formatter.js';
 import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
 
@@ -165,6 +166,9 @@ router.get('/', (req, res, next) => {
 
     const filters = {
       type: req.query.type,
+      category: req.query.category,
+      wallet_id: req.query.wallet_id,
+      q: req.query.q,
       month: req.query.month,
       date: req.query.date,
       tag: req.query.tag
@@ -224,7 +228,7 @@ router.post('/', (req, res, next) => {
       return res.status(400).json({ error });
     }
 
-    const { type, amount, category, note } = value;
+    const { type, amount, category, note, date } = value;
     const userId = req.user.user_id;
 
     // Any of the user's categories (built-in or their own) is accepted, as before for the built-in list.
@@ -240,7 +244,7 @@ router.post('/', (req, res, next) => {
       walletId = defaultWallet(userId)?.id ?? null;
     }
 
-    const tx = createTransaction(userId, type, amount, category, note, walletId, value.tags || []);
+    const tx = createTransaction(userId, type, amount, category, note, walletId, value.tags || [], date || null);
 
     // Check budget alert for expenses
     let budgetAlert = null;
@@ -272,6 +276,43 @@ router.post('/', (req, res, next) => {
       budgetAlert,
       budget_warning: budgetWarning
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /:id — Edit transaction fields (type, amount, category, note, wallet_id, tags, date)
+ */
+router.patch('/:id', (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+    const existing = getTransactionById(userId, req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Transaksi tidak ditemukan' });
+    }
+
+    const { error, value } = validateTransactionPatch(req.body);
+    if (error) {
+      return res.status(400).json({ error });
+    }
+
+    const targetType = value.type || existing.type;
+    const targetCategory = value.category || existing.category;
+    if (value.category !== undefined || value.type !== undefined) {
+      if (!isValidCategory(userId, targetType, targetCategory) && !isValidCategory(userId, targetType === 'income' ? 'expense' : 'income', targetCategory)) {
+        return res.status(400).json({ error: `Kategori "${targetCategory}" belum ada. Tambahkan dulu kategorinya.` });
+      }
+    }
+
+    if (value.wallet_id !== undefined && value.wallet_id !== null) {
+      if (!getWallet(userId, value.wallet_id)) {
+        return res.status(400).json({ error: 'Dompet tidak ditemukan' });
+      }
+    }
+
+    const updated = updateTransaction(userId, existing.id, value);
+    res.json({ data: updated });
   } catch (err) {
     next(err);
   }

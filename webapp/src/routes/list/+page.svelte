@@ -3,10 +3,11 @@
   //
   // UX decisions:
   // - Infinite scroll via "Load More" button (simpler than IntersectionObserver for Telegram viewport)
+  // - Search bar (note, category, #tag) with debounce (PRD I2)
+  // - Edit via TransactionEditSheet bottom sheet (PRD C5)
   // - Delete via showDestructivePopup (Telegram native confirm dialog)
-  // - Haptic on delete success
+  // - Haptic on edit/delete success
   // - AbortController per fetch to prevent race conditions
-  // - Filter chips reset offset on change
 
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
@@ -17,7 +18,8 @@
   import {
     setupBackButton, haptic, showDestructivePopup,
   } from '$lib/telegram.js';
-  import { txRevision, invalidateTransactions, showToast, categoryIcons, visibleCategories } from '$lib/stores.js';
+  import { txRevision, invalidateTransactions, showToast, categoryIcons } from '$lib/stores.js';
+  import TransactionEditSheet from '$lib/components/TransactionEditSheet.svelte';
   import type { Transaction, TxType } from '$lib/types.js';
 
   // ── State ──────────────────────────────────────────────────────
@@ -29,12 +31,11 @@
   let loadingMore = false;
   let error = '';
   let filter: TxType | 'all' = 'all';
+  let searchQuery = '';
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  let editingTx: Transaction | null = null;
   let controller: AbortController | null = null;
   const filterOptions = ['all' as const, 'expense' as const, 'income' as const];
-
-
-
-
 
   $: hasMore = txList.length < total;
 
@@ -48,6 +49,7 @@
 
   onDestroy(() => {
     controller?.abort();
+    if (searchTimer) clearTimeout(searchTimer);
     cleanupBack?.();
   });
 
@@ -73,10 +75,12 @@
     error = '';
 
     try {
+      const qTrim = searchQuery.trim();
       const params = {
         limit: LIMIT,
         offset,
         ...(filter !== 'all' && { type: filter }),
+        ...(qTrim && { q: qTrim }),
       };
       const res = await transactionsApi.list(params, controller.signal);
       txList = reset ? res.data : [...txList, ...res.data];
@@ -91,12 +95,36 @@
     }
   }
 
-  // ── Filter ─────────────────────────────────────────────────────
+  // ── Filter & Search ────────────────────────────────────────────
   async function setFilter(f: TxType | 'all') {
     if (filter === f) return;
     filter = f;
     haptic('selection');
     await loadData(true);
+  }
+
+  function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      loadData(true);
+    }, 250);
+  }
+
+  function clearSearch() {
+    searchQuery = '';
+    if (searchTimer) clearTimeout(searchTimer);
+    haptic('selection');
+    loadData(true);
+  }
+
+  function openEdit(tx: Transaction) {
+    haptic('selection');
+    editingTx = tx;
+  }
+
+  function onEdited() {
+    editingTx = null;
+    invalidateTransactions();
   }
 
   // ── Delete ─────────────────────────────────────────────────────
@@ -189,6 +217,22 @@
     </div>
   </header>
 
+  <!-- Search bar (PRD I2) -->
+  <div class="search-box mb-3">
+    <span class="search-icon" aria-hidden="true">🔍</span>
+    <input
+      type="search"
+      class="form-input search-input"
+      placeholder="Cari catatan, kategori, atau #tag..."
+      bind:value={searchQuery}
+      on:input={onSearchInput}
+      aria-label="Cari transaksi"
+    />
+    {#if searchQuery}
+      <button type="button" class="search-clear" on:click={clearSearch} aria-label="Hapus pencarian">✕</button>
+    {/if}
+  </div>
+
   <!-- Filter chips -->
   <div class="chip-group mb-4" role="group" aria-label="Filter tipe transaksi">
     {#each filterOptions as f}
@@ -220,13 +264,21 @@
   {:else if grouped.length === 0}
     <div class="empty-state">
       <div class="empty-icon">📭</div>
-      <div class="empty-title">Belum ada transaksi</div>
+      <div class="empty-title">{searchQuery.trim() ? 'Tidak ditemukan' : 'Belum ada transaksi'}</div>
       <div class="empty-desc">
-        {filter === 'all' ? 'Mulai catat transaksi pertamamu!' : `Tidak ada transaksi ${filter === 'expense' ? 'pengeluaran' : 'pemasukan'}`}
+        {#if searchQuery.trim()}
+          Tidak ada transaksi yang cocok dengan “{searchQuery.trim()}”.
+        {:else}
+          {filter === 'all' ? 'Mulai catat transaksi pertamamu!' : `Tidak ada transaksi ${filter === 'expense' ? 'pengeluaran' : 'pemasukan'}`}
+        {/if}
       </div>
-      <button class="btn btn-primary mt-3" on:click={() => goto('/add')}>
-        ➕ Catat Sekarang
-      </button>
+      {#if searchQuery.trim()}
+        <button class="btn btn-secondary mt-3" on:click={clearSearch}>Reset Pencarian</button>
+      {:else}
+        <button class="btn btn-primary mt-3" on:click={() => goto('/add')}>
+          ➕ Catat Sekarang
+        </button>
+      {/if}
     </div>
   {:else}
     {#each grouped as group (group.key)}
@@ -245,14 +297,16 @@
       <div class="card card-list mb-4">
         {#each group.items as tx (tx.id)}
           <div class="tx-item" class:deleting={deletingId === tx.id}>
-            <div class="tx-icon">{$categoryIcons[tx.category] ?? '📦'}</div>
-            <div class="tx-body">
-              <div class="tx-category">{tx.category}</div>
-              {#if tx.note}
-                <div class="tx-meta truncate">{tx.note}</div>
-              {/if}
-              <div class="tx-meta">{formatDate(tx.created_at)}{tx.wallet_name ? ` · 👛 ${tx.wallet_name}` : ''}{tx.tags?.length ? ` · ${tx.tags.map((t) => `#${t}`).join(' ')}` : ''}</div>
-            </div>
+            <button type="button" class="tx-main-btn" on:click={() => openEdit(tx)} aria-label="Edit transaksi {tx.category}">
+              <div class="tx-icon">{$categoryIcons[tx.category] ?? '📦'}</div>
+              <div class="tx-body">
+                <div class="tx-category">{tx.category}</div>
+                {#if tx.note}
+                  <div class="tx-meta truncate">{tx.note}</div>
+                {/if}
+                <div class="tx-meta">{formatDate(tx.created_at)}{tx.wallet_name ? ` · 👛 ${tx.wallet_name}` : ''}{tx.tags?.length ? ` · ${tx.tags.map((t) => `#${t}`).join(' ')}` : ''}</div>
+              </div>
+            </button>
             <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
               <div
                 class="tx-amount tabular"
@@ -261,15 +315,26 @@
               >
                 {tx.type === 'expense' ? '−' : '+'}{formatRupiah(tx.amount)}
               </div>
-              <button
-                class="btn btn-ghost btn-sm"
-                style="padding: 4px 6px; color: var(--tg-hint); font-size: 16px;"
-                on:click={() => deleteTransaction(tx)}
-                disabled={deletingId !== null}
-                aria-label="Hapus transaksi {tx.category}"
-              >
-                {deletingId === tx.id ? '⏳' : '🗑'}
-              </button>
+              <div class="tx-actions">
+                <button
+                  class="btn btn-ghost btn-sm tx-action-btn"
+                  on:click={() => openEdit(tx)}
+                  disabled={deletingId !== null}
+                  aria-label="Edit transaksi {tx.category}"
+                  title="Edit"
+                >
+                  ✏️
+                </button>
+                <button
+                  class="btn btn-ghost btn-sm tx-action-btn"
+                  on:click={() => deleteTransaction(tx)}
+                  disabled={deletingId !== null}
+                  aria-label="Hapus transaksi {tx.category}"
+                  title="Hapus"
+                >
+                  {deletingId === tx.id ? '⏳' : '🗑'}
+                </button>
+              </div>
             </div>
           </div>
         {/each}
@@ -298,7 +363,67 @@
   {/if}
 </main>
 
+<TransactionEditSheet
+  open={!!editingTx}
+  transaction={editingTx}
+  on:close={() => (editingTx = null)}
+  on:saved={onEdited}
+/>
+
 <style>
+  .search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .search-icon {
+    position: absolute;
+    left: 14px;
+    font-size: 15px;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  .search-input {
+    padding-left: 40px;
+    padding-right: 36px;
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .search-clear {
+    position: absolute;
+    right: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--tg-hint) 18%, transparent);
+    color: var(--tg-hint);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tx-main-btn {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    color: inherit;
+    background: transparent;
+    padding: 0;
+  }
+  .tx-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .tx-action-btn {
+    padding: 4px 6px;
+    color: var(--tg-hint);
+    font-size: 14px;
+    min-height: 30px;
+  }
   .deleting {
     opacity: 0.5;
     pointer-events: none;

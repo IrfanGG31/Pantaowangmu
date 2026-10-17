@@ -51,7 +51,41 @@ const transactionSchema = Joi.object({
   tags: Joi.array().items(Joi.string().trim().lowercase().pattern(/^#?[\p{L}\p{N}][\p{L}\p{N}_-]{0,29}$/u)).max(5).optional().messages({
     'array.max': 'Maksimal 5 tag',
     'string.pattern.base': 'Tag hanya huruf, angka, "-" atau "_" (maks 30)'
+  }),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).allow('', null).optional().messages({
+    'string.pattern.base': 'Format tanggal harus YYYY-MM-DD'
   })
+});
+
+const transactionPatchSchema = Joi.object({
+  type: Joi.string().valid('income', 'expense').optional().messages({
+    'any.only': 'Type harus income atau expense'
+  }),
+  amount: Joi.number().integer().min(1).max(999999999).optional().messages({
+    'number.base': 'Amount harus berupa angka',
+    'number.integer': 'Amount harus berupa bilangan bulat',
+    'number.min': 'Amount minimum Rp 1',
+    'number.max': 'Amount maksimum Rp 999.999.999'
+  }),
+  category: Joi.string().trim().lowercase().min(1).max(30).pattern(CATEGORY_NAME_RE).optional().messages({
+    'string.pattern.base': 'Nama kategori hanya huruf, angka, spasi, atau tanda minus',
+    'string.max': 'Nama kategori maksimal 30 karakter'
+  }),
+  note: Joi.string().trim().max(200).allow('', null).optional().messages({
+    'string.max': 'Catatan maksimal 200 karakter'
+  }),
+  wallet_id: Joi.number().integer().min(1).allow(null).optional().messages({
+    'number.base': 'wallet_id harus berupa angka'
+  }),
+  tags: Joi.array().items(Joi.string().trim().lowercase().pattern(/^#?[\p{L}\p{N}][\p{L}\p{N}_-]{0,29}$/u)).max(5).optional().messages({
+    'array.max': 'Maksimal 5 tag',
+    'string.pattern.base': 'Tag hanya huruf, angka, "-" atau "_" (maks 30)'
+  }),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).allow('', null).optional().messages({
+    'string.pattern.base': 'Format tanggal harus YYYY-MM-DD'
+  })
+}).min(1).messages({
+  'object.min': 'Minimal satu field harus diubah'
 });
 
 const budgetSchema = Joi.object({
@@ -81,6 +115,19 @@ const periodSchema = Joi.string().valid('today', 'week', 'month').required().mes
  */
 export function validateTransactionInput(input) {
   const { error, value } = transactionSchema.validate(input, { abortEarly: true, stripUnknown: true });
+  return {
+    error: error ? error.details[0].message : null,
+    value
+  };
+}
+
+/**
+ * Validates partial transaction update payload.
+ * @param {Object} input
+ * @returns {{ error: string|null, value: Object }}
+ */
+export function validateTransactionPatch(input) {
+  const { error, value } = transactionPatchSchema.validate(input, { abortEarly: true, stripUnknown: true });
   return {
     error: error ? error.details[0].message : null,
     value
