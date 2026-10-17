@@ -1,0 +1,115 @@
+<template>
+  <script src="assets/vendor/gsap.min.js"></script>
+  <style>
+@font-face{font-family:"Fredoka";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-500.woff2") format("woff2");}
+@font-face{font-family:"Fredoka";font-weight:600;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-600.woff2") format("woff2");}
+@font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-700.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-500.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:600;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-600.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:700;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-700.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:800;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-800.woff2") format("woff2");}
+
+#root { position:absolute; inset:0; overflow:hidden; font-family:"Plus Jakarta Sans", sans-serif; color:#0E1A3A; }
+.ground { position:absolute; inset:0; background:
+  radial-gradient(900px 700px at 15% 8%, rgba(30,139,240,.20), transparent 60%),
+  radial-gradient(800px 700px at 95% 92%, rgba(3,163,114,.16), transparent 60%), #F4F8FF; }
+.head { position:absolute; left:80px; right:80px; top:150px; text-align:center; }
+.eyebrow { display:block; font-weight:800; font-size:30px; letter-spacing:.12em; text-transform:uppercase; color:#1E8BF0; }
+.h2 { display:block; margin-top:22px; font-family:"Fredoka", sans-serif; font-weight:600; font-size:84px; line-height:1.08; letter-spacing:-.02em; color:#0E1A3A; }
+.h2 .b { color:#1E8BF0; } .h2 .g { color:#03A372; }
+.h2 .nl { display:block; }
+.phone { position:absolute; left:180px; width:720px; top:560px; height:1000px; border-radius:64px; background:#fff;
+  border:10px solid #fff; box-shadow:0 40px 90px rgba(11,77,183,.22), 0 0 0 2px rgba(30,139,240,.18); overflow:hidden; }
+.tg-top { position:absolute; left:0; right:0; top:0; height:128px; background:#fff; border-bottom:2px solid #E6EDF7;
+  display:flex; align-items:center; gap:22px; padding:24px 34px 0; }
+.ava { width:72px; height:72px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+  font-family:"Fredoka", sans-serif; font-weight:600; font-size:32px; color:#fff; background:#1E8BF0; overflow:hidden; }
+.ava img { width:100%; height:100%; object-fit:cover; object-position:30% 30%; }
+.tg-name { display:block; font-weight:800; font-size:30px; }
+.tg-sub { display:block; font-weight:700; font-size:22px; color:#1468BE; }
+.chat { position:absolute; left:0; right:0; top:128px; bottom:110px; padding:30px 28px; display:flex; flex-direction:column; gap:20px;
+  background:linear-gradient(180deg,#E9F1FB,#E3F2EC); }
+.msg { max-width:84%; padding:20px 26px; border-radius:30px; font-size:31px; line-height:1.35; font-weight:600; }
+.me { align-self:flex-end; background:#1E8BF0; color:#fff; border-bottom-right-radius:8px; }
+.bot { align-self:flex-start; background:#fff; color:#0E1A3A; border-bottom-left-radius:8px; box-shadow:0 4px 14px rgba(14,26,58,.06); }
+.who { display:block; font-size:22px; font-weight:800; margin-bottom:4px; }
+.inbar { position:absolute; left:0; right:0; bottom:0; height:110px; background:#fff; border-top:2px solid #E6EDF7;
+  display:flex; align-items:center; padding:0 26px; gap:18px; }
+.field { flex:1; height:68px; border-radius:34px; background:#F1F5FB; display:flex; align-items:center; padding:0 28px;
+  font-size:30px; font-weight:600; color:#0E1A3A; }
+.ph { color:#6B7894; }
+.caret { display:inline-block; width:3px; height:34px; background:#1E8BF0; margin-left:3px; }
+.send { width:68px; height:68px; border-radius:50%; background:#1E8BF0; display:flex; align-items:center; justify-content:center; flex:none; }
+.chip { display:inline-block; padding:16px 30px; border-radius:100px; font-weight:700; font-size:32px;
+  background:#fff; border:2px solid rgba(30,139,240,.25); color:#0E1A3A; box-shadow:0 8px 22px rgba(11,77,183,.08); }
+.pill-g { display:inline-block; padding:14px 30px; border-radius:100px; font-weight:800; font-size:28px; letter-spacing:.08em;
+  background:rgba(3,163,114,.12); color:#027A55; }
+
+#f5-phone { position:absolute; left:180px; width:720px; top:520px; height:900px; border-radius:64px; background:#fff; border:10px solid #fff;
+  box-shadow:0 40px 90px rgba(11,77,183,.22), 0 0 0 2px rgba(30,139,240,.18); overflow:hidden; }
+.f5-app { position:absolute; left:0; right:0; top:128px; bottom:0; padding:40px 44px; background:#fff; }
+.f5-label { display:block; font-size:30px; font-weight:700; color:#4A5878; }
+.f5-num { display:block; font-family:"Fredoka", sans-serif; font-weight:700; font-size:132px; letter-spacing:-.03em; color:#03A372; line-height:1.1; margin:6px 0 14px; }
+.f5-track { height:28px; border-radius:6px; background:rgba(30,139,240,.10); margin-top:40px; overflow:hidden; }
+.f5-fill { display:block; height:100%; width:62%; border-radius:6px; background:linear-gradient(90deg,#03A372,#23CE95); }
+.f5-cap { display:flex; justify-content:space-between; font-size:24px; font-weight:700; color:#5E6B88; margin-top:12px; }
+.f5-row { display:flex; justify-content:space-between; padding:22px 0; border-bottom:2px solid #EEF2F8; font-size:30px; font-weight:600; }
+.f5-row b { font-weight:800; }
+.f5-trio { position:absolute; left:40px; right:40px; top:1460px; display:flex; justify-content:center; gap:16px; }
+.f5-trio .chip { font-size:30px; }
+.f5-trio .on { background:#03A372; color:#fff; border-color:#03A372; }
+.f5-trio .amb { color:#B77B00; } .f5-trio .red { color:#dc2626; }
+
+  </style>
+  <div id="root" data-composition-id="05-jatah" data-width="1080" data-height="1920" data-duration="10.8">
+    <div class="ground clip" id="f5-ground" data-start="0" data-duration="10.8" data-track-index="0"></div>
+
+    <div class="head"><span class="eyebrow" id="f5-eb">USP 03 · Satu angka</span><span class="h2" id="f5-h">Aman nggak <span class="g">hari ini?</span></span></div>
+    <div id="f5-phone">
+      <div class="tg-top"><div class="ava"><img src="assets/pantauangmu-mascot.png" alt=""></div><div><span class="tg-name">PantaUangmu</span><span class="tg-sub">mini app</span></div></div>
+      <div class="f5-app">
+        <span class="f5-label">Jatah Aman Harian</span>
+        <span class="f5-num" id="f5-num">Rp 0</span>
+        <span class="pill-g" id="f5-pill">● AMAN</span>
+        <div class="f5-track"><i class="f5-fill" id="f5-fill"></i></div>
+        <div class="f5-cap"><span>Gajian 25 Okt</span><span>8 hari lagi</span></div>
+        <div style="margin-top:24px">
+          <div class="f5-row" id="f5-r1"><span>🍜 Makan siang</span><b>−Rp 25.000</b></div>
+          <div class="f5-row" id="f5-r2"><span>🛵 Gojek</span><b>−Rp 18.000</b></div>
+          <div class="f5-row" id="f5-r3"><span>☕ Kopi</span><b>−Rp 22.000</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="f5-trio"><span class="chip on" id="f5-t1">● Aman</span><span class="chip amb" id="f5-t2">● Hati-hati</span><span class="chip red" id="f5-t3">● Melampaui</span></div>
+
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    // Reveal times were authored for 7s; stretch positions (not tween lengths) to the voice-synced 10.3s.
+    const S = 1.4714;
+    for (const m of ["fromTo", "to", "set"]) {
+      const f = tl[m].bind(tl);
+      tl[m] = (...a) => { if (typeof a[a.length - 1] === "number") a[a.length - 1] *= S; return f(...a); };
+    }
+    const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
+    const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
+    const typeInto = (sel, text, at, cps = 14) => {
+      const el = document.querySelector(sel); const s = { n: 0 };
+      tl.fromTo(s, { n: 0 }, { n: text.length, duration: text.length / cps, ease: "none",
+        onUpdate: () => { el.textContent = text.slice(0, Math.round(s.n)); } }, at);
+    };
+
+    rise("#f5-eb", 0.0, 0.5, 30); rise("#f5-h", 0.1, 0.6, 40);
+    tl.fromTo("#f5-phone", { opacity: 0, y: 220 }, { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, 0.3);
+    const numEl = document.querySelector("#f5-num"); const c = { v: 0 };
+    tl.fromTo(c, { v: 0 }, { v: 87500, duration: 2.0, ease: "power3.out",
+      onUpdate: () => { numEl.textContent = "Rp " + (Math.round(c.v / 500) * 500).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "."); } }, 1.4);
+    pop("#f5-pill", 3.1, 0.45);
+    tl.fromTo("#f5-fill", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: 1.2, ease: "power2.out" }, 3.6);
+    ["#f5-r1","#f5-r2","#f5-r3"].forEach((s, i) => rise(s, 4.2 + i * 0.25, 0.4, 24));
+    ["#f5-t1","#f5-t2","#f5-t3"].forEach((s, i) => pop(s, 5.4 + i * 0.18, 0.4));
+    tl.fromTo("#f5-phone", { scale: 1 }, { scale: 1.03, duration: 2.4, ease: "sine.inOut" }, 4.4);
+
+    window.__timelines["05-jatah"] = tl;
+  </script>
+</template>
