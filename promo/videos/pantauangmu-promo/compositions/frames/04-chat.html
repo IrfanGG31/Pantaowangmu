@@ -1,0 +1,106 @@
+<template>
+  <script src="assets/vendor/gsap.min.js"></script>
+  <style>
+@font-face{font-family:"Fredoka";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-500.woff2") format("woff2");}
+@font-face{font-family:"Fredoka";font-weight:600;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-600.woff2") format("woff2");}
+@font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-700.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-500.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:600;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-600.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:700;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-700.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:800;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-800.woff2") format("woff2");}
+
+#root { position:absolute; inset:0; overflow:hidden; font-family:"Plus Jakarta Sans", sans-serif; color:#0E1A3A; }
+.ground { position:absolute; inset:0; background:
+  radial-gradient(900px 700px at 15% 8%, rgba(30,139,240,.20), transparent 60%),
+  radial-gradient(800px 700px at 95% 92%, rgba(3,163,114,.16), transparent 60%), #F4F8FF; }
+.head { position:absolute; left:80px; right:80px; top:150px; text-align:center; }
+.eyebrow { display:block; font-weight:800; font-size:30px; letter-spacing:.12em; text-transform:uppercase; color:#1E8BF0; }
+.h2 { display:block; margin-top:22px; font-family:"Fredoka", sans-serif; font-weight:600; font-size:84px; line-height:1.08; letter-spacing:-.02em; color:#0E1A3A; }
+.h2 .b { color:#1E8BF0; } .h2 .g { color:#03A372; }
+.h2 .nl { display:block; }
+.phone { position:absolute; left:180px; width:720px; top:560px; height:1000px; border-radius:64px; background:#fff;
+  border:10px solid #fff; box-shadow:0 40px 90px rgba(11,77,183,.22), 0 0 0 2px rgba(30,139,240,.18); overflow:hidden; }
+.tg-top { position:absolute; left:0; right:0; top:0; height:128px; background:#fff; border-bottom:2px solid #E6EDF7;
+  display:flex; align-items:center; gap:22px; padding:24px 34px 0; }
+.ava { width:72px; height:72px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+  font-family:"Fredoka", sans-serif; font-weight:600; font-size:32px; color:#fff; background:#1E8BF0; overflow:hidden; }
+.ava img { width:100%; height:100%; object-fit:cover; object-position:30% 30%; }
+.tg-name { display:block; font-weight:800; font-size:30px; }
+.tg-sub { display:block; font-weight:700; font-size:22px; color:#1468BE; }
+.chat { position:absolute; left:0; right:0; top:128px; bottom:110px; padding:30px 28px; display:flex; flex-direction:column; gap:20px;
+  background:linear-gradient(180deg,#E9F1FB,#E3F2EC); }
+.msg { max-width:84%; padding:20px 26px; border-radius:30px; font-size:31px; line-height:1.35; font-weight:600; }
+.me { align-self:flex-end; background:#1E8BF0; color:#fff; border-bottom-right-radius:8px; }
+.bot { align-self:flex-start; background:#fff; color:#0E1A3A; border-bottom-left-radius:8px; box-shadow:0 4px 14px rgba(14,26,58,.06); }
+.who { display:block; font-size:22px; font-weight:800; margin-bottom:4px; }
+.inbar { position:absolute; left:0; right:0; bottom:0; height:110px; background:#fff; border-top:2px solid #E6EDF7;
+  display:flex; align-items:center; padding:0 26px; gap:18px; }
+.field { flex:1; height:68px; border-radius:34px; background:#F1F5FB; display:flex; align-items:center; padding:0 28px;
+  font-size:30px; font-weight:600; color:#0E1A3A; }
+.ph { color:#6B7894; }
+.caret { display:inline-block; width:3px; height:34px; background:#1E8BF0; margin-left:3px; }
+.send { width:68px; height:68px; border-radius:50%; background:#1E8BF0; display:flex; align-items:center; justify-content:center; flex:none; }
+.chip { display:inline-block; padding:16px 30px; border-radius:100px; font-weight:700; font-size:32px;
+  background:#fff; border:2px solid rgba(30,139,240,.25); color:#0E1A3A; box-shadow:0 8px 22px rgba(11,77,183,.08); }
+.pill-g { display:inline-block; padding:14px 30px; border-radius:100px; font-weight:800; font-size:28px; letter-spacing:.08em;
+  background:rgba(3,163,114,.12); color:#027A55; }
+
+#f4-phone { top:540px; height:860px; left:200px; width:680px; }
+.f4-card { max-width:92%; }
+.f4-ok { display:block; font-family:"Fredoka", sans-serif; font-weight:600; font-size:36px; color:#03A372; }
+.f4-amt { display:block; margin-top:6px; font-size:34px; } .f4-amt b { font-weight:800; }
+.f4-meta { display:block; font-size:24px; color:#8A96B0; font-weight:600; }
+.f4-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+.f4-btn { background:#EEF5FE; color:#0B4DB7; border-radius:16px; padding:13px 8px; text-align:center; font-size:23px; font-weight:800; }
+.f4-btn.w { grid-column:span 2; }
+.f4-timer { position:absolute; left:0; right:0; top:450px; text-align:center; }
+.f4-timer span { display:inline-block; padding:12px 30px; border-radius:100px; background:#0E1A3A; color:#fff; font-weight:800; font-size:30px; }
+.f4-chips { position:absolute; inset:0; }
+.f4-chips .chip { position:absolute; font-size:30px; padding:14px 26px; }
+
+  </style>
+  <div id="root" data-composition-id="04-chat" data-width="1080" data-height="1920">
+    <div class="ground clip" id="f4-ground" data-start="0" data-duration="6.5" data-track-index="0"></div>
+
+    <div class="head"><span class="eyebrow" id="f4-eb">USP 02 · Bahasa sehari-hari</span><span class="h2" id="f4-h">Chat biasa. <span class="g nl">Langsung tercatat.</span></span></div>
+    <div class="f4-timer"><span id="f4-timer">⏱ 3 detik</span></div>
+
+  <div class="phone" id="f4-phone">
+    <div class="tg-top"><div class="ava"><img src="assets/pantauangmu-mascot.png" alt=""></div><div><span class="tg-name">PantaUangmu</span><span class="tg-sub">bot</span></div></div>
+    <div class="chat"><div class="msg me" id="f4-me">25rb makan siang</div><div class="msg bot f4-card" id="f4-card"><span class="f4-ok">✓ Tercatat</span><span class="f4-amt">🍜 Makan · <b>Rp 25.000</b></span><span class="f4-meta">Dompet: Tunai · Hari ini</span><div class="f4-btns"><span class="f4-btn">Ubah Kategori</span><span class="f4-btn">Ubah Dompet</span><span class="f4-btn w">↩ Urungkan</span></div></div></div>
+    <div class="inbar"><div class="field"><span id="f4-type"></span><i class="caret" id="f4-caret"></i></div><div class="send"><svg width="34" height="34" viewBox="0 0 24 24" fill="#fff"><path d="M21.9 4.3 18.6 19.8c-.2 1.1-.9 1.4-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.2-8.3c.4-.4-.1-.6-.6-.2L6 13.4l-4.9-1.5c-1.1-.3-1.1-1.1.2-1.6L20.5 2.9c.9-.3 1.7.2 1.4 1.4Z"/></svg></div></div>
+  </div>
+    <div class="f4-chips">
+      <span class="chip" id="f4-p1" style="left:40px; top:640px">1,5jt</span>
+      <span class="chip" id="f4-p2" style="left:860px; top:600px">150k</span>
+      <span class="chip" id="f4-p3" style="left:30px; top:900px">35.000</span>
+      <span class="chip" id="f4-p4" style="left:830px; top:930px">kemarin</span>
+      <span class="chip" id="f4-p5" style="left:50px; top:1180px">gojek</span>
+      <span class="chip" id="f4-p6" style="left:800px; top:1230px">gopay</span>
+      <span class="chip" id="f4-p7" style="left:330px; top:1440px">indomaret</span>
+    </div>
+
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
+    const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
+    const typeInto = (sel, text, at, cps = 14) => {
+      const el = document.querySelector(sel); const s = { n: 0 };
+      tl.fromTo(s, { n: 0 }, { n: text.length, duration: text.length / cps, ease: "none",
+        onUpdate: () => { el.textContent = text.slice(0, Math.round(s.n)); } }, at);
+    };
+
+    rise("#f4-eb", 0.0, 0.5, 30); rise("#f4-h", 0.1, 0.6, 40);
+    tl.fromTo("#f4-phone", { opacity: 0, y: 200 }, { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, 0.2);
+    typeInto("#f4-type", "25rb makan siang", 1.0, 11);
+    tl.set("#f4-type", { opacity: 0 }, 2.55);
+    tl.fromTo("#f4-me", { opacity: 0, y: 30, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: "back.out(1.6)" }, 2.55);
+    pop("#f4-timer", 3.0, 0.4);
+    tl.fromTo("#f4-card", { opacity: 0, y: 40, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "back.out(1.5)", transformOrigin: "left top" }, 3.2);
+    ["#f4-p1","#f4-p2","#f4-p3","#f4-p4","#f4-p5","#f4-p6","#f4-p7"].forEach((s, i) => pop(s, 4.6 + i * 0.16, 0.4));
+    tl.fromTo("#f4-phone", { scale: 1 }, { scale: 1.03, duration: 2.2, ease: "sine.inOut" }, 4.2);
+
+    window.__timelines["04-chat"] = tl;
+  </script>
+</template>

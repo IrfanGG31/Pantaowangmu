@@ -1,0 +1,91 @@
+<template>
+  <script src="assets/vendor/gsap.min.js"></script>
+  <style>
+@font-face{font-family:"Fredoka";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-500.woff2") format("woff2");}
+@font-face{font-family:"Fredoka";font-weight:600;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-600.woff2") format("woff2");}
+@font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:block;src:url("assets/fonts/Fredoka-700.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-500.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:600;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-600.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:700;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-700.woff2") format("woff2");}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:800;font-style:normal;font-display:block;src:url("assets/fonts/PlusJakartaSans-800.woff2") format("woff2");}
+
+#root { position:absolute; inset:0; overflow:hidden; font-family:"Plus Jakarta Sans", sans-serif; color:#0E1A3A; }
+.ground { position:absolute; inset:0; background:
+  radial-gradient(900px 700px at 15% 8%, rgba(30,139,240,.20), transparent 60%),
+  radial-gradient(800px 700px at 95% 92%, rgba(3,163,114,.16), transparent 60%), #F4F8FF; }
+.head { position:absolute; left:80px; right:80px; top:150px; text-align:center; }
+.eyebrow { display:block; font-weight:800; font-size:30px; letter-spacing:.12em; text-transform:uppercase; color:#1E8BF0; }
+.h2 { display:block; margin-top:22px; font-family:"Fredoka", sans-serif; font-weight:600; font-size:84px; line-height:1.08; letter-spacing:-.02em; color:#0E1A3A; }
+.h2 .b { color:#1E8BF0; } .h2 .g { color:#03A372; }
+.h2 .nl { display:block; }
+.phone { position:absolute; left:180px; width:720px; top:560px; height:1000px; border-radius:64px; background:#fff;
+  border:10px solid #fff; box-shadow:0 40px 90px rgba(11,77,183,.22), 0 0 0 2px rgba(30,139,240,.18); overflow:hidden; }
+.tg-top { position:absolute; left:0; right:0; top:0; height:128px; background:#fff; border-bottom:2px solid #E6EDF7;
+  display:flex; align-items:center; gap:22px; padding:24px 34px 0; }
+.ava { width:72px; height:72px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+  font-family:"Fredoka", sans-serif; font-weight:600; font-size:32px; color:#fff; background:#1E8BF0; overflow:hidden; }
+.ava img { width:100%; height:100%; object-fit:cover; object-position:30% 30%; }
+.tg-name { display:block; font-weight:800; font-size:30px; }
+.tg-sub { display:block; font-weight:700; font-size:22px; color:#1468BE; }
+.chat { position:absolute; left:0; right:0; top:128px; bottom:110px; padding:30px 28px; display:flex; flex-direction:column; gap:20px;
+  background:linear-gradient(180deg,#E9F1FB,#E3F2EC); }
+.msg { max-width:84%; padding:20px 26px; border-radius:30px; font-size:31px; line-height:1.35; font-weight:600; }
+.me { align-self:flex-end; background:#1E8BF0; color:#fff; border-bottom-right-radius:8px; }
+.bot { align-self:flex-start; background:#fff; color:#0E1A3A; border-bottom-left-radius:8px; box-shadow:0 4px 14px rgba(14,26,58,.06); }
+.who { display:block; font-size:22px; font-weight:800; margin-bottom:4px; }
+.inbar { position:absolute; left:0; right:0; bottom:0; height:110px; background:#fff; border-top:2px solid #E6EDF7;
+  display:flex; align-items:center; padding:0 26px; gap:18px; }
+.field { flex:1; height:68px; border-radius:34px; background:#F1F5FB; display:flex; align-items:center; padding:0 28px;
+  font-size:30px; font-weight:600; color:#0E1A3A; }
+.ph { color:#6B7894; }
+.caret { display:inline-block; width:3px; height:34px; background:#1E8BF0; margin-left:3px; }
+.send { width:68px; height:68px; border-radius:50%; background:#1E8BF0; display:flex; align-items:center; justify-content:center; flex:none; }
+.chip { display:inline-block; padding:16px 30px; border-radius:100px; font-weight:700; font-size:32px;
+  background:#fff; border:2px solid rgba(30,139,240,.25); color:#0E1A3A; box-shadow:0 8px 22px rgba(11,77,183,.08); }
+.pill-g { display:inline-block; padding:14px 30px; border-radius:100px; font-weight:800; font-size:28px; letter-spacing:.08em;
+  background:rgba(3,163,114,.12); color:#027A55; }
+
+.f7-grid { position:absolute; left:70px; right:70px; top:470px; display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+.f7-card { background:#fff; border:2px solid rgba(30,139,240,.16); border-radius:34px; padding:36px 34px; min-height:280px;
+  box-shadow:0 14px 34px rgba(11,77,183,.08); }
+.f7-ic { display:flex; width:84px; height:84px; border-radius:24px; align-items:center; justify-content:center; font-size:46px; background:rgba(30,139,240,.10); margin-bottom:20px; }
+.f7-card:nth-child(even) .f7-ic { background:rgba(3,163,114,.12); }
+.f7-t { display:block; font-family:"Fredoka", sans-serif; font-weight:600; font-size:40px; line-height:1.12; }
+.f7-d { display:block; margin-top:8px; font-size:26px; font-weight:600; color:#4A5878; line-height:1.3; }
+.f7-free { position:absolute; left:0; right:0; top:1500px; text-align:center; }
+.f7-free span { font-size:34px; padding:18px 40px; }
+
+  </style>
+  <div id="root" data-composition-id="07-mvp" data-width="1080" data-height="1920">
+    <div class="ground clip" id="f7-ground" data-start="0" data-duration="5.5" data-track-index="0"></div>
+
+    <div class="head"><span class="eyebrow" id="f7-eb">MVP · Siap dipakai</span><span class="h2" id="f7-h">Semua yang <span class="b">kamu butuh.</span></span></div>
+    <div class="f7-grid">
+      <div class="f7-card" id="f7-c1"><span class="f7-ic">💬</span><span class="f7-t">Chat & Mini App</span><span class="f7-d">Catat, edit, urungkan</span></div>
+      <div class="f7-card" id="f7-c2"><span class="f7-ic">📊</span><span class="f7-t">Ringkasan & grafik</span><span class="f7-d">Hari, minggu, bulan</span></div>
+      <div class="f7-card" id="f7-c3"><span class="f7-ic">👛</span><span class="f7-t">Banyak dompet</span><span class="f7-d">Tunai, bank, e-wallet</span></div>
+      <div class="f7-card" id="f7-c4"><span class="f7-ic">🎯</span><span class="f7-t">Anggaran</span><span class="f7-d">Peringatan 80% & 100%</span></div>
+      <div class="f7-card" id="f7-c5"><span class="f7-ic">⏰</span><span class="f7-t">Pengingat harian</span><span class="f7-d">Jam bisa diatur</span></div>
+      <div class="f7-card" id="f7-c6"><span class="f7-ic">🔒</span><span class="f7-t">Ekspor CSV</span><span class="f7-d">Hapus akun kapan saja</span></div>
+    </div>
+    <div class="f7-free"><span class="pill-g" id="f7-free">PENCATATAN INTI SELALU GRATIS</span></div>
+
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
+    const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
+    const typeInto = (sel, text, at, cps = 14) => {
+      const el = document.querySelector(sel); const s = { n: 0 };
+      tl.fromTo(s, { n: 0 }, { n: text.length, duration: text.length / cps, ease: "none",
+        onUpdate: () => { el.textContent = text.slice(0, Math.round(s.n)); } }, at);
+    };
+
+    rise("#f7-eb", 0.0, 0.5, 30); rise("#f7-h", 0.1, 0.6, 40);
+    ["#f7-c1","#f7-c2","#f7-c3","#f7-c4","#f7-c5","#f7-c6"].forEach((s, i) =>
+      tl.fromTo(s, { opacity: 0, y: 70, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 0.8 + i * 0.5));
+    pop("#f7-free", 4.1, 0.5);
+
+    window.__timelines["07-mvp"] = tl;
+  </script>
+</template>
