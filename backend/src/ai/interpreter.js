@@ -31,8 +31,8 @@ export const timeoutFor = (kind) => envTimeout(`AI_TIMEOUT_${kind.toUpperCase()}
   || DEFAULT_TIMEOUT_MS[kind]
   || DEFAULT_TIMEOUT_MS.chat;
 
-// Short answers are the goal — these caps keep both latency and cost down.
-const DEFAULT_MAX_TOKENS = { chat: 400, receipt: 500, report: 2000 };
+// Short answers are the goal — these caps keep both latency and cost down while leaving room for reasoning_tokens.
+const DEFAULT_MAX_TOKENS = { chat: 1500, receipt: 1500, report: 2500 };
 const maxTokensFor = (kind) => Number(process.env[`AI_MAX_TOKENS_${kind.toUpperCase()}`]) || Number(process.env.AI_MAX_TOKENS) || DEFAULT_MAX_TOKENS[kind] || DEFAULT_MAX_TOKENS.chat;
 
 // Tolerates values pasted with surrounding quotes or angle brackets, e.g. "<https://...>".
@@ -107,11 +107,16 @@ const chatBudgetMs = () => {
 };
 const MIN_ATTEMPT_MS = 3000;
 
-/** Receipt photos: override, then AI_VISION_*, else AI_MODEL on AI_*. */
-export const getVisionConfig = () => overrideConfig('vision') || envConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
+/** Receipt photos: override, then AI_VISION_*, else primary (getAiConfig). */
+export const getVisionConfig = () => overrideConfig('vision') || envConfig('AI_VISION') || getAiConfig();
 
-/** Voice notes through a chat model that accepts audio: override, then AI_AUDIO_*. Off unless configured. */
-export const getAudioConfig = () => overrideConfig('audio') || envConfig('AI_AUDIO');
+/** Voice notes through a chat model that accepts audio: override, then AI_AUDIO_*, else primary when it is a MiMo multimodal model. */
+export const getAudioConfig = () => {
+  const explicit = overrideConfig('audio') || envConfig('AI_AUDIO');
+  if (explicit) return explicit;
+  const primary = getAiConfig();
+  return primary && /^mimo-/i.test(primary.model) ? primary : null;
+};
 
 export const aiAvailable = () => getAiChain().length > 0;
 

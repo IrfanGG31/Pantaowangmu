@@ -250,9 +250,15 @@ Atau ketik /help untuk daftar perintah.`;
 
 const UNSUPPORTED_MEDIA = 'ℹ️ File ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`, atau kirim voice note.';
 
-// Receipt photos are off until a vision model is set up again (RECEIPTS_ENABLED=true turns them back on).
+// Receipt photos are on when RECEIPTS_ENABLED=true, AI_VISION_MODEL is set, or the active vision model is a MiMo multimodal model / admin override.
 const RECEIPTS_SOON = '🧾 Terima kasih! Fitur baca foto struk sedang kami siapkan dan akan segera hadir.\n\nSementara ini ketik saja, misalnya `belanja 87rb indomaret`, atau kirim voice note.';
-const receiptsEnabled = () => process.env.RECEIPTS_ENABLED === 'true';
+const receiptsEnabled = () => {
+  if (process.env.RECEIPTS_ENABLED === 'false') return false;
+  if (process.env.RECEIPTS_ENABLED === 'true') return true;
+  if (process.env.AI_VISION_MODEL && process.env.AI_VISION_MODEL.trim()) return true;
+  const v = getVisionConfig();
+  return Boolean(v && (v.source === 'override' || /^mimo-/i.test(v.model)));
+};
 
 const MAX_VOICE_BYTES = 10 * 1024 * 1024;
 const MAX_VOICE_SECONDS = 300;

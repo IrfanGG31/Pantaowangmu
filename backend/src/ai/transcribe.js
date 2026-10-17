@@ -76,9 +76,10 @@ export async function transcribeWithChat({ audio, mimeType = 'audio/ogg' }, { fe
     { role: 'system', content: 'Kamu mentranskripsi voice note berbahasa Indonesia untuk aplikasi pencatat keuangan. Tulis persis apa yang diucapkan, angka boleh ditulis seperti diucapkan (mis. "95 ribu"). Balas HANYA teks transkripnya tanpa tambahan apa pun. Jika tidak ada ucapan yang jelas, balas kosong.' },
     { role: 'user', content: [{ type: 'input_audio', input_audio: { data: Buffer.from(audio).toString('base64'), format } }] }
   ];
-  const result = await callChat(config, messages, { fetchImpl });
+  const result = await callChat(config, messages, { fetchImpl, timeoutMs: sttTimeoutMs(), maxTokens: 800, temperature: 0 });
   if (!result.ok) return { ok: false, status: result.status, latencyMs: result.latencyMs, model: config.model, error: result.error };
-  const text = stripThinking(result.content).replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim();
+  const raw = stripThinking(result.content).replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim();
+  const text = /^(?:<empty>|<br\s*\/?>|<none>|kosong)$/i.test(raw) ? '' : raw;
   return { ok: true, text, status: result.status, latencyMs: result.latencyMs, model: config.model };
 }
 
