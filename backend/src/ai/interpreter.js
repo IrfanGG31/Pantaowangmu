@@ -123,7 +123,7 @@ export const aiAvailable = () => getAiChain().length > 0;
 // A model that just failed (timeout, network, 5xx, rate limit) is skipped for a while, so users get the next model
 // or the rule-based reply right away instead of waiting for another timeout.
 const cooldowns = new Map();
-const cooldownMs = () => Number(process.env.AI_COOLDOWN_MS) || 5 * 60 * 1000;
+const cooldownMs = () => Number(process.env.AI_COOLDOWN_MS) || 30 * 1000;
 const modelKey = (config) => `${config.baseUrl}|${config.model}`;
 const coolingDown = (config) => (cooldowns.get(modelKey(config)) || 0) > Date.now();
 const isOutage = (result) => result.status === 0 || result.status === 429 || result.status >= 500;
@@ -162,7 +162,7 @@ function getHistory(userId) {
   return entry.messages;
 }
 
-function remember(userId, userText, assistantText) {
+export function rememberTurn(userId, userText, assistantText) {
   const now = Date.now();
   const messages = [...getHistory(userId), { role: 'user', content: userText }, { role: 'assistant', content: assistantText }];
   if (!histories.has(userId) && histories.size >= MAX_HISTORIES) {
@@ -177,6 +177,7 @@ function remember(userId, userText, assistantText) {
   histories.delete(userId);
   histories.set(userId, { at: now, messages: messages.slice(-HISTORY_TURNS * 2) });
 }
+const remember = rememberTurn;
 
 export function forgetConversation(userId) {
   histories.delete(userId);
@@ -254,6 +255,8 @@ Balas HANYA dengan satu objek JSON, tanpa teks lain:
 
 Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"add_transaction","tx_type":"expense"|"income","amount":<bilangan bulat rupiah>,"category":"<kategori>","note":"<catatan singkat>","wallet":"<nama dompet>"}  (wallet opsional)
+{"type":"edit_last_transaction","amount":<bilangan bulat rupiah opsional>,"category":"<kategori opsional>","note":"<catatan opsional>","tx_type":"expense"|"income","wallet":"<nama dompet opsional>"}  (koreksi/ralat transaksi terakhir yang baru saja dicatat, mis. "lima belas kocak bukan lima puluh", "eh salah 15rb", "masuk belanja bukan makan")
+{"type":"delete_last_transaction"}  (batalkan/hapus transaksi terakhir jika pengguna minta batal, mis. "eh gak jadi", "hapus yang barusan")
 {"type":"set_budget","category":"<kategori pengeluaran>","amount":<bilangan bulat rupiah>}
 {"type":"set_nickname","nickname":"<nama panggilan>"}
 {"type":"remember","fact":"<satu kalimat singkat>"}
@@ -282,6 +285,10 @@ Kategori: pakai daftar "Kategori pengeluaran/pemasukan" di DATA PENGGUNA (termas
 ATURAN AKSI
 - Catat transaksi atau atur budget hanya jika pengguna jelas memintanya atau jelas melaporkan uang keluar/masuk.
   Pertanyaan dan obrolan tidak butuh aksi.
+- KOREKSI TRANSAKSI TERAKHIR: Jika pengguna mengoreksi/meralat transaksi yang baru saja dicatat (mis. "eh salah 15rb",
+  "lima belas kocak bukan lima puluh", "harusnya 20 ribu bukan 50 ribu", "masuk belanja aja"), gunakan edit_last_transaction
+  (JANGAN buat add_transaction baru). Jika pengguna menyebut angka pendek tanpa "ribu" saat mengoreksi transaksi ribuan
+  (mis. [TRANSAKSI TERAKHIR] Rp 50.000 lalu pengguna bilang "lima belas bukan lima puluh"), artinya Rp 15.000 (amount: 15000).
 - "rb"/"ribu"/"k" = ribu, "jt"/"juta" = juta. amount selalu bilangan bulat tanpa titik/koma.
 - Jangan menebak nominal. Jika nominal tidak ada, tanyakan di reply dan jangan buat aksi.
 - Jika ragu kategori, pakai "lainnya". note maksimal 60 karakter, tanpa nominal.
@@ -305,13 +312,15 @@ ATURAN AKSI
 - Tantangan ("tantangan no jajan seminggu") = start_challenge. Saran budget dari kebiasaan: sarankan ketik "saran budget".
 - Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
-- Untuk hapus transaksi, sarankan /hapus. Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
+- Untuk hapus transaksi, sarankan /hapus (atau pakai delete_last_transaction bila pengguna jelas meminta membatalkan transaksi barusan). Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
 
 CONTOH
 Pengguna: "panggil aku Boss"
 {"reply":"Siap, Boss! Mulai sekarang aku panggil kamu Boss 😎","actions":[{"type":"set_nickname","nickname":"Boss"}]}
 Pengguna: "catat 40K uang rokok"
 {"reply":"Oke, aku catat ya.","actions":[{"type":"add_transaction","tx_type":"expense","amount":40000,"category":"lainnya","note":"rokok"}]}
+Pengguna: "lima belas kocak bukan lima puluh"
+{"reply":"Wkwk maaf, bukan 50 tapi 15 ribu ya. Aku benerin sekarang.","actions":[{"type":"edit_last_transaction","amount":15000}]}
 Pengguna: "gajiku 8 juta, gajian tiap tanggal 25"
 {"reply":"Noted! Penghasilan Rp 8 juta, gajian tanggal 25. Sekarang aku bisa hitung sisa aman belanja per hari sampai gajian.","actions":[{"type":"set_profile","monthly_income":8000000,"payday":25}]}
 Pengguna: "aku lagi nabung buat nikah 50 juta, targetnya Desember 2027, udah kekumpul 10 juta"
@@ -516,6 +525,22 @@ export function sanitizeAction(raw, ctx = {}) {
     const goalId = toInt(raw.goal_id);
     return goalId !== null && goalId > 0 ? { type: 'delete_goal', goal_id: goalId } : null;
   }
+  if (raw.type === 'delete_last_transaction') {
+    return { type: 'delete_last_transaction' };
+  }
+  if (raw.type === 'edit_last_transaction') {
+    const out = { type: 'edit_last_transaction' };
+    const amt = toInt(raw.amount);
+    if (amt !== null && validAmount(amt)) out.amount = amt;
+    if (raw.tx_type === 'income' || raw.tx_type === 'expense') out.tx_type = raw.tx_type;
+    const category = cleanText(raw.category, 30).toLowerCase();
+    const allowedCats = out.tx_type ? categories[out.tx_type] : [...categories.expense, ...categories.income];
+    if (category && allowedCats.includes(category)) out.category = category;
+    if (typeof raw.note === 'string' && raw.note.trim()) out.note = raw.note.trim().slice(0, MAX_NOTE_LENGTH);
+    const wallet = cleanText(raw.wallet, 30);
+    if (wallet) out.wallet = wallet;
+    return Object.keys(out).length > 1 ? out : null;
+  }
 
   const amount = typeof raw.amount === 'string' ? Number(raw.amount) : raw.amount;
   if (!validAmount(amount)) return null;
@@ -568,7 +593,20 @@ export function parseAssistantOutput(content, ctx = {}) {
 
 // The rule parser reads amounts exactly; prefer its number when the model proposes a single matching money action.
 function applyHint(actions, hint) {
-  if (!hint || !hint.amount) return actions;
+  if (!hint) return actions;
+  if (hint.intent === 'edit_last' && hint.amount) {
+    if (actions.some((a) => a.type === 'edit_last_transaction')) {
+      return actions.map((a) => (a.type === 'edit_last_transaction' && !a.amount ? { ...a, amount: hint.amount } : a));
+    }
+    if (actions.length === 1 && actions[0].type === 'add_transaction') {
+      return [{ type: 'edit_last_transaction', amount: hint.amount }];
+    }
+    if (actions.length === 0) {
+      return [{ type: 'edit_last_transaction', amount: hint.amount }];
+    }
+    return actions;
+  }
+  if (!hint.amount) return actions;
   const money = actions.filter((a) => a.type === 'add_transaction' || a.type === 'set_budget');
   if (money.length !== 1) return actions;
   const [target] = money;
@@ -579,9 +617,9 @@ function applyHint(actions, hint) {
 /**
  * One chat-completions call. Resolves to { ok, status, content, finishReason, usage, latencyMs, error } and never throws.
  * `error` is a short provider message with the API key redacted, for logs and diagnostics.
- * @param {{ fetchImpl?: typeof fetch, timeoutMs?: number, maxTokens?: number, temperature?: number, jsonMode?: boolean }} [options]
+ * @param {{ fetchImpl?: typeof fetch, timeoutMs?: number, maxTokens?: number, temperature?: number, jsonMode?: boolean, reasoningEffort?: string }} [options]
  */
-export async function callChat(config, messages, { fetchImpl = fetch, timeoutMs, maxTokens, temperature, jsonMode } = {}) {
+export async function callChat(config, messages, { fetchImpl = fetch, timeoutMs, maxTokens, temperature, jsonMode, reasoningEffort } = {}) {
   const effectiveTimeout = timeoutMs || timeoutFor('chat');
   const redact = (s) => String(s || '').split(config.apiKey).join('<AI_API_KEY>').slice(0, 300);
   const started = Date.now();
@@ -593,6 +631,9 @@ export async function callChat(config, messages, { fetchImpl = fetch, timeoutMs,
   };
   // MiniMax and GLM both honour OpenAI's JSON mode; providers that don't should ignore the field.
   if (jsonMode) body.response_format = { type: 'json_object' };
+  // MiMo models spend 15-20s generating reasoning_content unless reasoning_effort is set to 'none'.
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
+  else if (/^mimo-/i.test(config.model)) body.reasoning_effort = 'none';
   try {
     const res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
       method: 'POST',

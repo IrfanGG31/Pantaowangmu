@@ -58,7 +58,7 @@ export function buildUserContext(userId, from = {}, now = new Date()) {
 
   const recent = getTransactionsByUser(userId, 10).data;
   const recentLines = recent.length
-    ? recent.map((t) => `- ${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}${t.wallet_name ? ` [${t.wallet_name}]` : ''}`).join('\n')
+    ? recent.map((t, idx) => `- ${idx === 0 ? '[TRANSAKSI TERAKHIR] ' : ''}${getDateStr(t.created_at)} ${formatTime(t.created_at)} ${t.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${t.category} ${formatRupiah(t.amount)}${t.note ? ` (${t.note})` : ''}${t.wallet_name ? ` [${t.wallet_name}]` : ''}`).join('\n')
     : 'belum ada';
 
   const memory = getMemory(userId);

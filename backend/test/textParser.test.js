@@ -63,4 +63,43 @@ describe('extractAmount', () => {
     expect(extractAmount('kamar 205 bayar 1.200.000').amount).toBe(1200000);
     expect(extractAmount('2026 rp15000').amount).toBe(15000);
   });
+
+  it('parses spoken Indonesian numbers from voice notes', () => {
+    expect(parseFreeText('beli martabak MBR lima puluh ribu.')).toEqual({
+      intent: 'transaction',
+      type: 'expense',
+      amount: 50000,
+      category: 'makan',
+      note: 'beli martabak MBR'
+    });
+    expect(parseFreeText('kopi dua puluh lima ribu')).toEqual({
+      intent: 'transaction',
+      type: 'expense',
+      amount: 25000,
+      category: 'makan',
+      note: 'kopi'
+    });
+    expect(parseFreeText('bensin seratus ribu')).toEqual({
+      intent: 'transaction',
+      type: 'expense',
+      amount: 100000,
+      category: 'transport',
+      note: 'bensin'
+    });
+  });
+
+  it('parses follow-up correction messages as edit_last intent', () => {
+    expect(parseFreeText('Lima belas kocak buka lima puluh.')).toMatchObject({
+      intent: 'edit_last',
+      amount: 15000
+    });
+    expect(parseFreeText('bukan 50rb tapi 15rb')).toMatchObject({
+      intent: 'edit_last',
+      amount: 15000
+    });
+    expect(parseFreeText('eh salah harusnya 20 ribu')).toMatchObject({
+      intent: 'edit_last',
+      amount: 20000
+    });
+  });
 });
