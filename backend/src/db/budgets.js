@@ -75,9 +75,19 @@ export function getBudgetsByUser(userId, month) {
     ORDER BY id ASC
   `);
   const rows = stmt.all(uid, targetMonth) || [];
+  if (rows.length === 0) return [];
+
+  const { start, end } = getMonthRange(targetMonth);
+  const spentRows = db.prepare(`
+    SELECT category, COALESCE(SUM(amount), 0) AS total
+    FROM transactions
+    WHERE user_id = ? AND type = 'expense' AND created_at >= ? AND created_at < ?
+    GROUP BY category
+  `).all(uid, start, end);
+  const spentByCategory = new Map(spentRows.map((r) => [r.category, Number(r.total)]));
 
   return rows.map((b) => {
-    const spent = getUserExpenseThisMonth(uid, b.category, targetMonth);
+    const spent = spentByCategory.get(b.category) || 0;
     const percentage = Math.round((spent / b.amount) * 100);
     const remaining = b.amount - spent;
     return {
@@ -162,7 +172,7 @@ export function suggestBudgets(userId, now = new Date()) {
     const { start, end } = getMonthRange(month);
     const rows = db.prepare(`
       SELECT category, SUM(amount) AS total FROM transactions
-      WHERE user_id = ? AND type = 'expense' AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)
+      WHERE user_id = ? AND type = 'expense' AND created_at >= ? AND created_at < ?
       GROUP BY category
     `).all(uid, start, end);
     if (rows.length) activeMonths += 1;

@@ -224,7 +224,7 @@ ${categoryLines(today.by_category)}`;
 
   const title = period === 'week'
     ? 'Ringkasan 7 Hari Terakhir'
-    : `Ringkasan Bulan ${now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' })}`;
+    : `Ringkasan Bulan ${now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: getTimeZone() })}`;
 
   return `📊 *${title}*
 

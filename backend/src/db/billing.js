@@ -180,11 +180,25 @@ export function redeemVoucher(userId, rawCode, now = new Date()) {
     return { error: 'Kode ini sudah pernah kamu pakai.' };
   }
 
-  const granted = grantPlan(userId, v.plan_id, v.days, { method: 'voucher', amount: v.price, reference: code, by: 'user' }, now);
-  if (granted.error) return granted;
-  db.prepare('UPDATE vouchers SET used_count = used_count + 1 WHERE code = ?').run(code);
-  db.prepare('INSERT INTO voucher_redemptions (code, user_id) VALUES (?, ?)').run(code, String(userId));
-  return { ...granted, plan: getPlan(v.plan_id) };
+  db.exec('BEGIN');
+  try {
+    const updated = db.prepare('UPDATE vouchers SET used_count = used_count + 1 WHERE code = ? AND disabled = 0 AND used_count < max_uses').run(code);
+    if (!updated.changes) {
+      db.exec('ROLLBACK');
+      return { error: 'Kode ini sudah habis dipakai.' };
+    }
+    const granted = grantPlan(userId, v.plan_id, v.days, { method: 'voucher', amount: v.price, reference: code, by: 'user' }, now);
+    if (granted.error) {
+      db.exec('ROLLBACK');
+      return granted;
+    }
+    db.prepare('INSERT INTO voucher_redemptions (code, user_id) VALUES (?, ?)').run(code, String(userId));
+    db.exec('COMMIT');
+    return { ...granted, plan: getPlan(v.plan_id) };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 // ── Payments ─────────────────────────────────────────────────────────────
