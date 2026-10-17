@@ -606,10 +606,15 @@ export async function callChat(config, messages, { fetchImpl = fetch, timeoutMs,
       return { ok: false, status: res.status, latencyMs: Date.now() - started, error: redact(typeof message === 'string' ? message : JSON.stringify(message)) };
     }
     const choice = resp?.choices?.[0];
+    const msg = choice?.message || {};
+    const reasoningContent = typeof msg.reasoning_content === 'string'
+      ? msg.reasoning_content
+      : (typeof msg.reasoning === 'string' ? msg.reasoning : '');
     return {
       ok: true,
       status: res.status,
-      content: choice?.message?.content ?? '',
+      content: msg.content ?? '',
+      reasoningContent,
       finishReason: choice?.finish_reason ?? null,
       usage: { prompt_tokens: Number(resp?.usage?.prompt_tokens) || 0, completion_tokens: Number(resp?.usage?.completion_tokens) || 0 },
       latencyMs: Date.now() - started
@@ -652,7 +657,10 @@ export async function runAssistant({ userId, text, context, hint = null, categor
     }
     const kind = i === 0 ? 'chat' : 'fallback';
     result = await callChat(config, messages, { fetchImpl, timeoutMs: Math.min(timeoutFor(kind), left), maxTokens: maxTokensFor('chat') });
-    output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
+    const rawText = result.ok
+      ? (String(result.content || '').trim() || (String(result.reasoningContent || '').includes('{') ? result.reasoningContent : ''))
+      : '';
+    output = result.ok ? parseAssistantOutput(rawText, categories ? { categories } : {}) : null;
 
     try {
       onUsage?.({
@@ -769,7 +777,7 @@ export async function readReceipt({ imageBase64, mimeType, caption = '', categor
   ];
 
   const result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor('receipt'), maxTokens: maxTokensFor('receipt'), temperature: 0, jsonMode: true });
-  const json = result.ok ? extractJson(stripThinking(result.content)) : null;
+  const json = result.ok ? extractJson(stripThinking(result.content || result.reasoningContent || '')) : null;
   reportUsage(onUsage, logger, config.model, result, Boolean(json), result.ok ? 'unusable receipt response' : result.error);
   if (!result.ok) {
     logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Receipt request failed');

@@ -78,8 +78,8 @@ export async function transcribeWithChat({ audio, mimeType = 'audio/ogg' }, { fe
   ];
   const result = await callChat(config, messages, { fetchImpl, timeoutMs: sttTimeoutMs(), maxTokens: 800, temperature: 0 });
   if (!result.ok) return { ok: false, status: result.status, latencyMs: result.latencyMs, model: config.model, error: result.error };
-  const raw = stripThinking(result.content).replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim();
-  const text = /^(?:<empty>|<br\s*\/?>|<none>|kosong)$/i.test(raw) ? '' : raw;
+  const raw = stripThinking(result.content || result.reasoningContent || '').replace(/^["'“]|["'”]$/g, '').replace(/\s+/g, ' ').trim();
+  const text = /^(?:<empty>|<br\s*\/?>|<none>|kosong|hmm\.?|tidak ada (?:ucapan|suara).*|the audio (?:contains|has) no speech.*|no speech.*)$/i.test(raw) ? '' : raw;
   return { ok: true, text, status: result.status, latencyMs: result.latencyMs, model: config.model };
 }
 
