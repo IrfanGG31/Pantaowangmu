@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import requireTelegramAuth from '../middleware/auth.js';
+import apiLimiter from '../middleware/rateLimit.js';
 import { getAllTransactions } from '../../db/transactions.js';
 import { generateTransactionsCSV, delimiterFromQuery } from '../../utils/csv.js';
 import { getMonthStr } from '../../utils/formatter.js';
@@ -12,18 +13,34 @@ const router = Router();
 
 // ── One-time-ish download links (Telegram WebApp.downloadFile / external browser can't send our auth header) ──
 const LINK_TTL_MS = 5 * 60 * 1000;
+const MAX_EXPORT_LINKS = 1000;
 const links = new Map(); // token → { userId, period, expires }
 
 function createLink(userId, period) {
   const now = Date.now();
   for (const [token, link] of links) if (link.expires <= now) links.delete(token);
+  if (links.size >= MAX_EXPORT_LINKS) {
+    const oldest = links.keys().next().value;
+    if (oldest !== undefined) links.delete(oldest);
+  }
   const token = crypto.randomBytes(24).toString('base64url');
   links.set(token, { userId: String(userId), period, expires: now + LINK_TTL_MS });
   return { token, expires: now + LINK_TTL_MS };
 }
 
+function resolvePublicBaseUrl(req) {
+  if (process.env.NODE_ENV === 'production' && process.env.WEBAPP_URL) {
+    try {
+      return new URL(process.env.WEBAPP_URL).origin;
+    } catch {
+      // Fall back to request host if WEBAPP_URL is malformed
+    }
+  }
+  return `${req.protocol}://${req.get('host')}`;
+}
+
 // Public on purpose: the unguessable token is the credential, valid for 5 minutes.
-router.get('/file/:token', (req, res) => {
+router.get('/file/:token', apiLimiter, (req, res) => {
   const link = links.get(req.params.token);
   if (!link || link.expires <= Date.now()) return res.status(404).json({ error: 'Link unduhan sudah kedaluwarsa. Buat lagi dari Mini App.' });
   const report = buildUserReport(link.userId, link.period);
@@ -37,6 +54,7 @@ router.get('/file/:token', (req, res) => {
 });
 
 router.use(requireTelegramAuth);
+router.use(apiLimiter);
 
 /**
  * Handles CSV export endpoint.
@@ -89,7 +107,7 @@ router.post('/link', (req, res) => {
   const period = periodFrom(req, res);
   if (!period) return;
   const { token, expires } = createLink(req.user.user_id, period);
-  const base = `${req.protocol}://${req.get('host')}`;
+  const base = resolvePublicBaseUrl(req);
   res.json({ url: `${base}/api/export/file/${token}`, file_name: reportFileName(period), expires_at: new Date(expires).toISOString() });
 });
 

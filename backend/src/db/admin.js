@@ -71,28 +71,28 @@ export function getOverview({ days = 30, now = new Date() } = {}) {
     SELECT COUNT(*) AS calls, SUM(1 - ok) AS errors,
       COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
       COALESCE(AVG(CASE WHEN ok = 1 THEN latency_ms END), 0) AS avg_latency_ms, COUNT(DISTINCT user_id) AS users
-    FROM ai_usage WHERE datetime(created_at) >= datetime(?)
+    FROM ai_usage WHERE created_at >= ?
   `).get(since);
   const todayRange = getDayRange(today);
   const aiToday = db.prepare(`
-    SELECT COUNT(*) AS calls FROM ai_usage WHERE datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)
+    SELECT COUNT(*) AS calls FROM ai_usage WHERE created_at >= ? AND created_at < ?
   `).get(todayRange.start, todayRange.end);
 
   const tx = db.prepare(`
-    SELECT COUNT(*) AS count, COUNT(DISTINCT user_id) AS users FROM transactions WHERE datetime(created_at) >= datetime(?)
+    SELECT COUNT(*) AS count, COUNT(DISTINCT user_id) AS users FROM transactions WHERE created_at >= ?
   `).get(since);
 
   const activeByDay = new Map(
     db.prepare('SELECT date, COUNT(*) AS n FROM user_activity_daily WHERE date >= ? GROUP BY date').all(dates[0]).map((r) => [r.date, Number(r.n)])
   );
   const newByDay = perLocalDay(
-    "SELECT strftime('%Y-%m-%d %H', created_at) AS hour, COUNT(*) AS new_users FROM users WHERE datetime(created_at) >= datetime(?) GROUP BY hour",
+    "SELECT strftime('%Y-%m-%d %H', created_at) AS hour, COUNT(*) AS new_users FROM users WHERE created_at >= ? GROUP BY hour",
     [since]
   );
   const aiByDay = perLocalDay(
     `SELECT strftime('%Y-%m-%d %H', created_at) AS hour, COUNT(*) AS ai_calls, SUM(1 - ok) AS ai_errors,
        SUM(prompt_tokens + completion_tokens) AS ai_tokens
-     FROM ai_usage WHERE datetime(created_at) >= datetime(?) GROUP BY hour`,
+     FROM ai_usage WHERE created_at >= ? GROUP BY hour`,
     [since]
   );
 
@@ -190,10 +190,10 @@ export function listUsers({ search = '', state = '', plan = '', limit = 50, offs
   const rows = db.prepare(`
     SELECT u.user_id, u.first_name, u.username, u.plan, u.status, u.plan_expires_at, u.ai_daily_limit,
       u.created_at, u.last_active_at,
-      (SELECT COUNT(*) FROM ai_usage a WHERE a.user_id = u.user_id AND datetime(a.created_at) >= datetime(?) AND datetime(a.created_at) < datetime(?)) AS ai_calls_today,
-      (SELECT COUNT(*) FROM ai_usage a WHERE a.user_id = u.user_id AND datetime(a.created_at) >= datetime(?)) AS ai_calls_30d,
-      (SELECT COALESCE(SUM(a.prompt_tokens + a.completion_tokens), 0) FROM ai_usage a WHERE a.user_id = u.user_id AND datetime(a.created_at) >= datetime(?)) AS ai_tokens_30d,
-      (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.user_id AND datetime(t.created_at) >= datetime(?)) AS tx_count_30d
+      (SELECT COUNT(*) FROM ai_usage a WHERE a.user_id = u.user_id AND a.created_at >= ? AND a.created_at < ?) AS ai_calls_today,
+      (SELECT COUNT(*) FROM ai_usage a WHERE a.user_id = u.user_id AND a.created_at >= ?) AS ai_calls_30d,
+      (SELECT COALESCE(SUM(a.prompt_tokens + a.completion_tokens), 0) FROM ai_usage a WHERE a.user_id = u.user_id AND a.created_at >= ?) AS ai_tokens_30d,
+      (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.user_id AND t.created_at >= ?) AS tx_count_30d
     FROM users u ${whereSql}
     ORDER BY u.last_active_at IS NULL, datetime(u.last_active_at) DESC, datetime(u.created_at) DESC
     LIMIT ? OFFSET ?

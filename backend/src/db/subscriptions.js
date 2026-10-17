@@ -78,6 +78,7 @@ export function blockedMessage(user) {
 
 const lastTouched = new Map();
 const TOUCH_INTERVAL_MS = 60 * 1000;
+const MAX_TOUCHED_CACHE = 2000;
 
 /**
  * Records that the user was active now (last_active_at + one row per local day). Throttled per user.
@@ -85,9 +86,15 @@ const TOUCH_INTERVAL_MS = 60 * 1000;
  */
 export function touchActivity(userId, now = new Date()) {
   const uid = String(userId);
+  const nowMs = now.getTime();
   const last = lastTouched.get(uid) || 0;
-  if (now.getTime() - last < TOUCH_INTERVAL_MS) return;
-  lastTouched.set(uid, now.getTime());
+  if (nowMs - last < TOUCH_INTERVAL_MS) return;
+  if (lastTouched.size >= MAX_TOUCHED_CACHE) {
+    for (const [k, ts] of lastTouched) {
+      if (nowMs - ts >= TOUCH_INTERVAL_MS || lastTouched.size >= MAX_TOUCHED_CACHE) lastTouched.delete(k);
+    }
+  }
+  lastTouched.set(uid, nowMs);
   db.prepare("UPDATE users SET last_active_at = datetime('now') WHERE user_id = ?").run(uid);
   db.prepare('INSERT OR IGNORE INTO user_activity_daily (user_id, date) VALUES (?, ?)').run(uid, getDateStr(now));
 }
@@ -123,7 +130,7 @@ export function countAiCallsToday(userId) {
   const row = db.prepare(`
     SELECT COUNT(*) AS n FROM ai_usage
     WHERE user_id = ? AND ok = 1 AND COALESCE(kind, 'chat') != 'receipt'
-      AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)
+      AND created_at >= ? AND created_at < ?
   `).get(String(userId), start, end);
   return row ? Number(row.n) : 0;
 }
@@ -138,7 +145,7 @@ export function countReceiptsThisMonth(userId) {
   const row = db.prepare(`
     SELECT COUNT(*) AS n FROM ai_usage
     WHERE user_id = ? AND ok = 1 AND kind = 'receipt'
-      AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)
+      AND created_at >= ? AND created_at < ?
   `).get(String(userId), start, end);
   return row ? Number(row.n) : 0;
 }

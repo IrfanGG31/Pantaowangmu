@@ -9,6 +9,7 @@ import { runReminderTick, runBillTick, runDailyTick, TICK_MINUTES } from './nudg
 import { purgeExpiredResets } from '../db/resets.js';
 import { runAnnouncementTick } from './announcements.js';
 import { getBudgetsByUser } from '../db/budgets.js';
+import { claimNudge } from '../db/bills.js';
 import { getStartOfWeek, formatRupiah, getMonthStr, getDateStr, formatDateShort } from '../utils/formatter.js';
 import { getStatsByCategory } from '../db/transactions.js';
 import { safeSendMessage } from '../utils/telegram.js';
@@ -126,6 +127,9 @@ export function startScheduler(bot) {
           for (const b of budgets) {
             const pct = b.percentage || 0;
             if (pct >= 80) {
+              const tier = pct >= 100 ? 100 : 80;
+              if (!claimNudge(user.user_id, currentMonth, `budget-${tier}:${b.category}`)) continue;
+
               const catName = b.category.charAt(0).toUpperCase() + b.category.slice(1);
               const statusIcon = pct >= 100 ? '🚨 *BUDGET MELEBIHI BATAS!*' : '⚠️ *PERINGATAN BUDGET (≥80%)*';
 

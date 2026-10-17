@@ -24,7 +24,8 @@ const serializeTags = (tags) => {
 function withTags(row) {
   return { ...row, tags: row.tags ? String(row.tags).split(',').filter(Boolean) : [] };
 }
-const IN_RANGE = 'datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)';
+// Canonical "YYYY-MM-DD HH:MM:SS" UTC strings sort lexicographically and allow SQLite to use idx_transactions_user_created.
+const IN_RANGE = 'created_at >= ? AND created_at < ?';
 
 /**
  * Creates a new transaction.
@@ -99,8 +100,8 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
 
   const dataStmt = db.prepare(`
     SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
-    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
-    WHERE ${whereSql.replace(/\b(user_id|type|created_at)\b/g, 't.$1')}
+    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
+    WHERE ${whereSql.replace(/\b(user_id|type|created_at|tags)\b/g, 't.$1')}
     ORDER BY t.created_at DESC, t.id DESC
     LIMIT ? OFFSET ?
   `);
@@ -119,7 +120,7 @@ export function getTransactionById(userId, id) {
   const uid = String(userId);
   const stmt = db.prepare(`
     SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
-    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
+    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
     WHERE t.id = ? AND t.user_id = ?
   `);
   const row = stmt.get(parseInt(id, 10), uid);
@@ -205,14 +206,16 @@ export function getTodaySummary(userId) {
  */
 export function getStatsByCategory(userId, startDate, endDate) {
   const uid = String(userId);
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? `${startDate} 00:00:00` : startDate;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? `${endDate} 23:59:59` : endDate;
   const stmt = db.prepare(`
     SELECT type, category, SUM(amount) as total, COUNT(*) as count
     FROM transactions
-    WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND datetime(created_at) <= datetime(?)
+    WHERE user_id = ? AND created_at >= ? AND created_at <= ?
     GROUP BY type, category
     ORDER BY total DESC
   `);
-  return stmt.all(uid, startDate, endDate) || [];
+  return stmt.all(uid, start, end) || [];
 }
 
 /**
@@ -265,7 +268,7 @@ export function getAllTransactions(userId) {
   const uid = String(userId);
   const stmt = db.prepare(`
     SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
-    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id
+    FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
     WHERE t.user_id = ?
     ORDER BY t.created_at DESC, t.id DESC
   `);

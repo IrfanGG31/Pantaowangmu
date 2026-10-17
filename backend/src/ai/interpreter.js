@@ -144,17 +144,33 @@ export function getAiShortCircuitStats(now = new Date()) {
 
 // ── Short conversation memory (in-process; single replica) ──
 
+const MAX_HISTORIES = 1000;
 const histories = new Map();
 
 function getHistory(userId) {
   const entry = histories.get(userId);
-  if (!entry || Date.now() - entry.at > HISTORY_IDLE_MS) return [];
+  if (!entry) return [];
+  if (Date.now() - entry.at > HISTORY_IDLE_MS) {
+    histories.delete(userId);
+    return [];
+  }
   return entry.messages;
 }
 
 function remember(userId, userText, assistantText) {
+  const now = Date.now();
   const messages = [...getHistory(userId), { role: 'user', content: userText }, { role: 'assistant', content: assistantText }];
-  histories.set(userId, { at: Date.now(), messages: messages.slice(-HISTORY_TURNS * 2) });
+  if (!histories.has(userId) && histories.size >= MAX_HISTORIES) {
+    for (const [key, entry] of histories) {
+      if (now - entry.at > HISTORY_IDLE_MS) histories.delete(key);
+    }
+    if (histories.size >= MAX_HISTORIES) {
+      const oldest = histories.keys().next().value;
+      if (oldest !== undefined) histories.delete(oldest);
+    }
+  }
+  histories.delete(userId);
+  histories.set(userId, { at: now, messages: messages.slice(-HISTORY_TURNS * 2) });
 }
 
 export function forgetConversation(userId) {
