@@ -56,8 +56,8 @@
 .f7-free span { font-size:34px; padding:18px 40px; }
 
   </style>
-  <div id="root" data-composition-id="07-mvp" data-width="1080" data-height="1920">
-    <div class="ground clip" id="f7-ground" data-start="0" data-duration="5.5" data-track-index="0"></div>
+  <div id="root" data-composition-id="07-mvp" data-width="1080" data-height="1920" data-duration="9.05">
+    <div class="ground clip" id="f7-ground" data-start="0" data-duration="9.05" data-track-index="0"></div>
 
     <div class="head"><span class="eyebrow" id="f7-eb">MVP · Siap dipakai</span><span class="h2" id="f7-h">Semua yang <span class="b">kamu butuh.</span></span></div>
     <div class="f7-grid">
@@ -73,6 +73,12 @@
   </div>
   <script>
     const tl = gsap.timeline({ paused: true });
+    // Reveal times were authored for 5.5s; stretch positions (not tween lengths) to the voice-synced 8.45s.
+    const S = 1.5364;
+    for (const m of ["fromTo", "to", "set"]) {
+      const f = tl[m].bind(tl);
+      tl[m] = (...a) => { if (typeof a[a.length - 1] === "number") a[a.length - 1] *= S; return f(...a); };
+    }
     const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
     const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
     const typeInto = (sel, text, at, cps = 14) => {

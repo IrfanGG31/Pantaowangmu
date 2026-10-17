@@ -28,11 +28,13 @@ anggaran, pengingat, ekspor CSV). Nada: ramah, ringan, percaya diri.
 
 ## Customizations
 
-- Tanpa narasi bawaan dan tanpa BGM: voice-over dibuat user sendiri dengan Cartesia lalu dipadukan. Video harus mengikuti naskah VO berwaktu (CARTESIA_VO.md).
-- Tanpa caption karaoke (tidak ada audio untuk disinkronkan).
+- Voice-over: rekaman Cartesia dari user (60 dtk). Dinormalisasi (loudnorm -14 LUFS) lalu dipotong di jedanya menjadi assets/voice/01–08.wav; durasi tiap frame mengikuti potongan itu (0 · 7.6 · 11.6 · 17.9 · 25.7 · 36 · 44 · 52.45 · 60). Teks persis yang dipakai user belum diketahui, jadi pemetaan kalimat ke adegan diperkirakan dari jeda.
+- BGM: musik upbeat prosedural 112 BPM (tools/make_bgm.py, bebas lisensi), di-duck di bawah suara dengan sidechain → assets/audio/bgm-ducked.wav.
+- Tanpa caption karaoke.
 
 ## Notes
 
 - Uang ditulis format Indonesia (Rp 25.000). Bahasa Indonesia santai.
 - Belum ada username bot; CTA memakai "Buka Telegram → /start".
 - GSAP dimuat lokal dari `assets/vendor/gsap.min.js` (CDN diblok proxy saat render headless). Kalau `assemble-index.mjs` dijalankan ulang, ganti lagi tag `<script>` GSAP CDN di `index.html` ke path lokal ini.
+- Frame HTML dibangkitkan oleh `python3 tools/gen_frames.py .` (durasi frame di dict DURATIONS). File mentah audio (vo-cartesia.wav, vo-norm.wav, bgm-upbeat.wav) tidak di-commit; bgm-upbeat bisa dibuat ulang dengan `python3 tools/make_bgm.py assets/audio/bgm-upbeat.wav 60`.

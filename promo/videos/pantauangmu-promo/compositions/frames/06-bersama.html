@@ -58,8 +58,8 @@
 .f6-ok { color:#03A372; font-weight:800; }
 
   </style>
-  <div id="root" data-composition-id="06-bersama" data-width="1080" data-height="1920">
-    <div class="ground clip" id="f6-ground" data-start="0" data-duration="6" data-track-index="0"></div>
+  <div id="root" data-composition-id="06-bersama" data-width="1080" data-height="1920" data-duration="8.5">
+    <div class="ground clip" id="f6-ground" data-start="0" data-duration="8.5" data-track-index="0"></div>
 
     <div class="head"><span class="eyebrow" id="f6-eb">USP 04 · Buku bersama</span><span class="h2" id="f6-h">Bareng <span class="b">lebih rapi.</span></span></div>
     <div class="f6-avs">
@@ -78,6 +78,12 @@
   </div>
   <script>
     const tl = gsap.timeline({ paused: true });
+    // Reveal times were authored for 6s; stretch positions (not tween lengths) to the voice-synced 8.0s.
+    const S = 1.3333;
+    for (const m of ["fromTo", "to", "set"]) {
+      const f = tl[m].bind(tl);
+      tl[m] = (...a) => { if (typeof a[a.length - 1] === "number") a[a.length - 1] *= S; return f(...a); };
+    }
     const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
     const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
     const typeInto = (sel, text, at, cps = 14) => {

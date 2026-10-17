@@ -1,6 +1,6 @@
 ---
 format: 1080x1920
-duration: 44.5s
+duration: 60s
 message: "Catat dalam 3 detik. Paham dalam 10 detik. Di dalam Telegram."
 arc: Hook (ribet) → Product_Intro → USP 1 → USP 2 → USP 3 → USP 4 → MVP breadth → CTA
 audience: Gen Z, mahasiswa, dan karyawan muda Indonesia pengguna Telegram
@@ -15,13 +15,14 @@ Light, friendly, rounded. Canvas #F4F8FF with soft blue/green radial glows; ever
 lives inside a Telegram-style phone mockup (white bubbles / blue user bubbles, rounded 40px device).
 Display Fredoka (matches the wordmark), body Plus Jakarta Sans. Blue = chrome/eyebrow/CTA, green =
 money-safe / success. Motion is springy but short (back.out on pops, power3.out on rises), camera
-moves are slow push-ins on the phone. No narration track in the render: the `voiceover` lines are
-the Cartesia VO script, and each reveal is timed to where that line lands. All content above y 1600.
+moves are slow push-ins on the phone. Narration is the user's Cartesia take (assets/audio/vo-cartesia.wav), split per frame at its pauses
+into assets/voice/NN.wav; frame lengths follow those cuts. BGM is a procedural upbeat bed
+(tools/make_bgm.py) pre-ducked under the voice (assets/audio/bgm-ducked.wav). All content above y 1600.
 
 ## Frame 1 — Hook: input itu ribet
 
 - scene: Typed "kopi 25rb" stalls while four app steps stack up and dim, ending on "ribet."
-- duration: 5s
+- duration: 7.6s
 - transition_in: cut
 - status: animated
 - voiceover: "Mau catat kopi dua puluh lima ribu aja, harus buka aplikasi, cari menu, pilih kategori, isi kolom… ribet!"
@@ -36,7 +37,7 @@ Scene 3 (3.6–5.0s): cards desaturate to 45% and shake once; stamp word "ribet.
 ## Frame 2 — Product intro: logo
 
 - scene: Mascot bubble springs in, wordmark lockup resolves, tagline "di dalam Telegram".
-- duration: 4.5s
+- duration: 4s
 - transition_in: blur-crossfade
 - status: animated
 - voiceover: "Kenalin, PantaUangmu. Pencatat keuangan yang hidup di dalam Telegram."
@@ -53,7 +54,7 @@ Scene 3 (3.0–4.5s): three tiny chips (Tanpa install · Tanpa akun · Gratis) p
 ## Frame 3 — USP 01: Zero friction
 
 - scene: Phone: user types /start, bot greets instantly; "Download app / Email / Password" chips get struck out.
-- duration: 5s
+- duration: 6.3s
 - transition_in: crossfade
 - status: animated
 - voiceover: "Nggak perlu install, nggak perlu bikin akun. Cukup ketik slash start."
@@ -69,7 +70,7 @@ Scene 3 (3.4–5.0s): bot reply bubble pops ("Halo! Langsung catat aja 👋"), m
 ## Frame 4 — USP 02: Bahasa sehari-hari
 
 - scene: "25rb makan siang" typed and sent, confirmation card with buttons; Indonesian amount chips float around.
-- duration: 6.5s
+- duration: 7.8s
 - transition_in: crossfade
 - status: animated
 - voiceover: "Tinggal chat kayak biasa: dua puluh lima ribu makan siang. Tiga detik, langsung tercatat."
@@ -85,7 +86,7 @@ Scene 4 (4.6–6.5s): parser chips (1,5jt · 150k · 35.000 · kemarin · gojek 
 ## Frame 5 — USP 03: Jatah Aman Harian
 
 - scene: Mini App: big green number counts up to Rp 87.500, status AMAN, progress to payday, status trio.
-- duration: 7s
+- duration: 10.3s
 - transition_in: zoom-through
 - status: animated
 - voiceover: "Lalu satu angka menjawab: aman nggak belanja hari ini? Itulah Jatah Aman Harian, dihitung sampai tanggal gajianmu."
@@ -101,7 +102,7 @@ Scene 4 (5.4–7.0s): below phone, status trio chips (Aman · Hati-hati · Melam
 ## Frame 6 — USP 04: Buku bersama & bot grup
 
 - scene: Group chat "Kos Melati": Raka and Nabila log expenses, bot confirms "dicatat oleh …".
-- duration: 6s
+- duration: 8s
 - transition_in: crossfade
 - status: animated
 - voiceover: "Bisa juga bareng pasangan, keluarga, atau teman kos. Semua tercatat, kelihatan siapa belanja apa."
@@ -116,7 +117,7 @@ Scene 3 (3.6–6.0s): "Nabila: 120rb belanja mingguan" → bot "✓ Rp 120.000 �
 ## Frame 7 — MVP: semua siap dipakai
 
 - scene: Six feature cards assemble in a 2×3 grid; "Pencatatan inti gratis" pill lands.
-- duration: 5.5s
+- duration: 8.45s
 - transition_in: crossfade
 - status: animated
 - voiceover: "Ada ringkasan, banyak dompet, anggaran, pengingat, sampai ekspor data. Pencatatan intinya gratis."
@@ -131,7 +132,7 @@ Scene 3 (4.0–5.5s): green pill "PENCATATAN INTI SELALU GRATIS" springs in unde
 ## Frame 8 — CTA
 
 - scene: Lockup returns, "Catat 3 detik. Paham 10 detik." and blue CTA pill "Buka Telegram → /start".
-- duration: 5s
+- duration: 7.55s
 - transition_in: blur-crossfade
 - status: animated
 - voiceover: "PantaUangmu. Catat dalam tiga detik, paham dalam sepuluh detik. Buka Telegram sekarang."

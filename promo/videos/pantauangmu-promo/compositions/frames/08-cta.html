@@ -60,7 +60,7 @@
 
   </style>
   <div id="root" data-composition-id="08-cta" data-width="1080" data-height="1920">
-    <div class="ground clip" id="f8-ground" data-start="0" data-duration="5" data-track-index="0"></div>
+    <div class="ground clip" id="f8-ground" data-start="0" data-duration="7.55" data-track-index="0"></div>
 
     <div class="f8-rings" id="f8-rings"><div class="f8-ring"></div><div class="f8-ring r2"></div></div>
     <div class="f8-logo" id="f8-logo"><img src="assets/pantauangmu-lockup.png" alt="PantaUangmu"></div>
@@ -70,6 +70,12 @@
   </div>
   <script>
     const tl = gsap.timeline({ paused: true });
+    // Reveal times were authored for 5s; stretch positions (not tween lengths) to the voice-synced 7.55s.
+    const S = 1.51;
+    for (const m of ["fromTo", "to", "set"]) {
+      const f = tl[m].bind(tl);
+      tl[m] = (...a) => { if (typeof a[a.length - 1] === "number") a[a.length - 1] *= S; return f(...a); };
+    }
     const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
     const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
     const typeInto = (sel, text, at, cps = 14) => {

@@ -2,3 +2,6 @@ renders/
 .hyperframes/*
 !.hyperframes/caption-skin.html
 node_modules/
+assets/audio/vo-cartesia.wav
+assets/audio/vo-norm.wav
+assets/audio/bgm-upbeat.wav

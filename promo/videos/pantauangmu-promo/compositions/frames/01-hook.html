@@ -57,8 +57,8 @@
 .f1-stamp span { display:inline-block; font-family:"Fredoka", sans-serif; font-weight:700; font-size:170px; color:#dc2626; letter-spacing:-.02em; }
 
   </style>
-  <div id="root" data-composition-id="01-hook" data-width="1080" data-height="1920">
-    <div class="ground clip" id="f1-ground" data-start="0" data-duration="5" data-track-index="0"></div>
+  <div id="root" data-composition-id="01-hook" data-width="1080" data-height="1920" data-duration="8.2">
+    <div class="ground clip" id="f1-ground" data-start="0" data-duration="8.2" data-track-index="0"></div>
 
     <div class="f1-head"><span class="eyebrow" id="f1-eb">Mau catat</span><span class="f1-big" id="f1-big">kopi <span>25rb</span>?</span></div>
     <div class="f1-steps">
@@ -72,6 +72,12 @@
   </div>
   <script>
     const tl = gsap.timeline({ paused: true });
+    // Reveal times were authored for 5s; stretch positions (not tween lengths) to the voice-synced 7.6s.
+    const S = 1.52;
+    for (const m of ["fromTo", "to", "set"]) {
+      const f = tl[m].bind(tl);
+      tl[m] = (...a) => { if (typeof a[a.length - 1] === "number") a[a.length - 1] *= S; return f(...a); };
+    }
     const rise = (sel, at, d = 0.6, y = 60) => tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: d, ease: "power3.out" }, at);
     const pop = (sel, at, d = 0.5) => tl.fromTo(sel, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: d, ease: "back.out(1.8)" }, at);
     const typeInto = (sel, text, at, cps = 14) => {
