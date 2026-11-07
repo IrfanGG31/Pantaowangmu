@@ -10,8 +10,16 @@ services:
     # Image mode: ghcr.io image built by GitHub Actions (setup.sh sets PANTA_IMAGE on x86_64). Else built here.
     image: ${PANTA_IMAGE:-panta-${PANTA_NAME}:latest}
     restart: unless-stopped
-    # Hard RAM cap so Panta can never starve other apps on a shared server (runs at ~150–250 MB).
-    mem_limit: ${MEM_LIMIT:-512m}
+    # ── Good neighbour on a shared server (e.g. next to Hermes) ──
+    # RAM: hard cap, and no swap for Panta (memswap = mem) so the other app keeps the swap.
+    mem_limit: ${MEM_LIMIT:-320m}
+    memswap_limit: ${MEM_LIMIT:-320m}
+    # CPU: at most this many cores, and half the scheduling weight of a default container/process.
+    cpus: ${CPU_LIMIT:-0.75}
+    cpu_shares: 512
+    # If the server ever runs out of memory, the kernel kills Panta before the other app.
+    oom_score_adj: 500
+    pids_limit: 256
     env_file:
       # raw: values are taken literally, so '$' in ADMIN_PASSWORD_HASH or API keys is safe. Do not quote values.
       - path: ./app.env
@@ -19,6 +27,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # V8 heap below the container cap so Node collects garbage instead of hitting the limit.
+      NODE_OPTIONS: --max-old-space-size=${NODE_HEAP_MB:-192}
       DB_PATH: /data/finance.db
     volumes:
       - ./data:/data
@@ -34,5 +44,5 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "5m"
+        max-file: "2"
