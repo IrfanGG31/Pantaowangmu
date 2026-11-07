@@ -7,8 +7,11 @@ services:
     build:
       context: ./repo
       dockerfile: Dockerfile
-    image: panta-${PANTA_NAME}:latest
+    # Image mode: ghcr.io image built by GitHub Actions (setup.sh sets PANTA_IMAGE on x86_64). Else built here.
+    image: ${PANTA_IMAGE:-panta-${PANTA_NAME}:latest}
     restart: unless-stopped
+    # Hard RAM cap so Panta can never starve other apps on a shared server (runs at ~150–250 MB).
+    mem_limit: ${MEM_LIMIT:-512m}
     env_file:
       # raw: values are taken literally, so '$' in ADMIN_PASSWORD_HASH or API keys is safe. Do not quote values.
       - path: ./app.env
