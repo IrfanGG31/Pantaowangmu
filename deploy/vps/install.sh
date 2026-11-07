@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-shot PantaUangmu install on a fresh Ubuntu VPS:
 #   curl -fsSL https://raw.githubusercontent.com/IrfanGG31/Pantaowangmu/main/deploy/vps/install.sh | sudo bash
-# Optional env: NAME=prod BRANCH=main PORT=3000 DOMAIN=panta.example.com
+# Optional env: NAME=prod BRANCH=main PORT=3000 DOMAIN=panta.example.com PROXY=caddy|none
+# Shared server: curl -fsSL .../install.sh | sudo PORT=3100 PROXY=none bash
 # Asks (on the terminal, never echoed to logs) for Railway's Raw Editor variables, restores the newest
 # ~/finance-*.db.gz backup if present, starts the app and connects Telegram.
 set -euo pipefail
@@ -22,7 +23,7 @@ if [ -d "$SRC/.git" ]; then git -C "$SRC" fetch -q origin main && git -C "$SRC" 
 else mkdir -p /opt/panta && git clone -q https://github.com/IrfanGG31/Pantaowangmu.git "$SRC"; fi
 
 say "2/5 Pasang Docker, Caddy, firewall, instance '$NAME'"
-bash "$SRC/deploy/vps/setup.sh" "$NAME" "$BRANCH" "$PORT" $DOMAIN | tail -n 3
+bash "$SRC/deploy/vps/setup.sh" "$NAME" "$BRANCH" "$PORT" $DOMAIN
 
 say "3/5 Variabel"
 if grep -Eq '^BOT_TOKEN=.+' "$DIR/app.env"; then
