@@ -13,6 +13,7 @@ import {
 import { listPlans, getSetting, redeemVoucher } from '../db/billing.js';
 import {
   createTransaction,
+  updateTransaction,
   getLastTransaction,
   deleteTransaction,
   getTodaySummary,
@@ -48,7 +49,7 @@ import { previewReset, performReset, undoLastReset, formatResetCounts, RESET_SCO
 import { parseFreeText, splitItems } from './textParser.js';
 import { buildUserContext } from '../ai/context.js';
 import { transcribeVoice, voiceAvailable } from '../ai/transcribe.js';
-import { getVisionConfig, aiAvailable, runAssistant, forgetConversation, readReceipt } from '../ai/interpreter.js';
+import { getVisionConfig, aiAvailable, runAssistant, forgetConversation, rememberTurn, readReceipt, recordShortCircuit } from '../ai/interpreter.js';
 import { getMemory, setNickname, addFact, removeFact, clearMemory, setProfile, saveGoal, deleteGoal, LANGUAGE_LABEL, PERSONA_LABEL, getOnboarding, setOnboarding } from '../db/memory.js';
 import { isValidCategory, learnKeyword, emojiMap, listKeywords } from '../db/categories.js';
 import { getWallet, defaultWallet, findWalletByName, listWallets, assignTransactionWallet, walletParserOptions, updateWallet } from '../db/wallets.js';
@@ -168,6 +169,40 @@ const undoKeyboard = (txId) => ({ inline_keyboard: [[{ text: '↩️ Batalkan', 
 // Undo plus "move to another wallet" buttons when the user has 2+ wallets.
 const txKeyboard = (userId, tx) => ({ inline_keyboard: [...undoKeyboard(tx.id).inline_keyboard, ...walletSwitchRow(userId, tx)] });
 
+function editLastTransactionCard(userId, action) {
+  const last = getLastTransaction(userId);
+  if (!last) return { error: 'Belum ada transaksi yang bisa dikoreksi.' };
+
+  const updates = {};
+  if (action.amount && action.amount > 0) updates.amount = action.amount;
+  if (action.tx_type && ['income', 'expense'].includes(action.tx_type)) updates.type = action.tx_type;
+  const targetType = updates.type || last.type;
+  if (action.category && isValidCategory(userId, targetType, action.category)) {
+    updates.category = action.category;
+  }
+  if (action.note !== undefined && action.note !== '') {
+    updates.note = action.note;
+  }
+  if (action.wallet) {
+    const wallet = findWalletByName(userId, action.wallet);
+    if (wallet) updates.wallet_id = wallet.id;
+  }
+  if (!Object.keys(updates).length) return { error: 'Tidak ada perubahan untuk transaksi terakhir.' };
+
+  const tx = updateTransaction(userId, last.id, updates);
+  if (!tx) return { error: 'Gagal memperbarui transaksi terakhir.' };
+
+  const symbol = tx.type === 'expense' ? '💸' : '💚';
+  const catFormatted = escapeMd(categoryLabel(userId, tx.category));
+  const noteText = tx.note ? `\n📝 ${escapeMd(tx.note)}` : '';
+  const prevText = last.amount !== tx.amount ? ` _(sebelumnya ${formatRupiah(last.amount)})_` : '';
+  const wallet = tx.wallet_id ? getWallet(userId, tx.wallet_id) : null;
+  const walletText = wallet ? `\n👛 ${escapeMd(walletLabel(wallet))} (saldo ${wallet.balance < 0 ? '-' : ''}${formatRupiah(wallet.balance)})` : '';
+
+  const text = `✏️ *Transaksi terakhir diperbarui!*\n\n${symbol} ${formatRupiah(tx.amount)}${prevText}\n📁 ${catFormatted}${noteText}${walletText}`;
+  return { tx, text };
+}
+
 function budgetText(userId, category, amount) {
   const budget = setBudget(userId, category, amount, getMonthStr());
   return `✅ *Budget ${capitalize(category)}:* ${formatRupiah(budget.amount)} untuk bulan ini\n\nTerpakai: ${formatRupiah(budget.spent)} (${budget.percentage}%)\nSisa: ${formatRupiah(budget.remaining)}`;
@@ -250,9 +285,15 @@ Atau ketik /help untuk daftar perintah.`;
 
 const UNSUPPORTED_MEDIA = 'ℹ️ File ini belum bisa dibaca. Ketik saja transaksinya, misalnya `makan siang 25rb`, atau kirim voice note.';
 
-// Receipt photos are off until a vision model is set up again (RECEIPTS_ENABLED=true turns them back on).
+// Receipt photos are on when RECEIPTS_ENABLED=true, AI_VISION_MODEL is set, or the active vision model is a MiMo multimodal model / admin override.
 const RECEIPTS_SOON = '🧾 Terima kasih! Fitur baca foto struk sedang kami siapkan dan akan segera hadir.\n\nSementara ini ketik saja, misalnya `belanja 87rb indomaret`, atau kirim voice note.';
-const receiptsEnabled = () => process.env.RECEIPTS_ENABLED === 'true';
+const receiptsEnabled = () => {
+  if (process.env.RECEIPTS_ENABLED === 'false') return false;
+  if (process.env.RECEIPTS_ENABLED === 'true') return true;
+  if (process.env.AI_VISION_MODEL && process.env.AI_VISION_MODEL.trim()) return true;
+  const v = getVisionConfig();
+  return Boolean(v && (v.source === 'override' || /^mimo-/i.test(v.model)));
+};
 
 const MAX_VOICE_BYTES = 10 * 1024 * 1024;
 const MAX_VOICE_SECONDS = 300;
@@ -921,6 +962,13 @@ Mau per bulan saja? Buka Laporan di Mini App.`;
       return safeSendMessage(bot, chatId, `🧠 Profil diperbarui: ${describeProfileChange(changes)}. Jatah aman harian sekarang dihitung dari sini (lihat Beranda Mini App).`);
     }
 
+    if (parsed.intent === 'edit_last') {
+      const edited = editLastTransactionCard(userId, parsed);
+      if (edited.error) return safeSendMessage(bot, chatId, `ℹ️ ${edited.error}`);
+      if (text) rememberTurn(userId, text, `Transaksi terakhir diperbarui menjadi ${formatRupiah(edited.tx.amount)} [aksi: edit_last_transaction]`);
+      return safeSendMessage(bot, chatId, edited.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, edited.tx) });
+    }
+
     // Several amounts in one message ("cat 95rb timah 30rb"): one transaction per item.
     const items = parsed.intent === 'transaction' ? splitItems(text, parseOptionsFor(userId)) : null;
     if (items) {
@@ -949,6 +997,9 @@ Mau per bulan saja? Buka Laporan di Mini App.`;
       const saved = saveTransaction(userId, parsed);
       if (saved.error) {
         return safeSendMessage(bot, chatId, `❌ ${saved.error}`);
+      }
+      if (text) {
+        rememberTurn(userId, text, `Tercatat ${saved.tx.type === 'income' ? 'pemasukan' : 'pengeluaran'} ${formatRupiah(saved.tx.amount)} kategori ${saved.tx.category}${saved.tx.note ? ` (${saved.tx.note})` : ''} [aksi: add_transaction]`);
       }
       return safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
     }
@@ -1029,6 +1080,21 @@ Mau per bulan saja? Buka Laporan di Mini App.`;
         } else {
           await safeSendMessage(bot, chatId, saved.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, saved.tx) });
         }
+      } else if (action.type === 'edit_last_transaction') {
+        const edited = editLastTransactionCard(userId, action);
+        if (edited.error) {
+          await safeSendMessage(bot, chatId, `ℹ️ ${edited.error}`);
+        } else {
+          await safeSendMessage(bot, chatId, edited.text, { parse_mode: 'Markdown', reply_markup: txKeyboard(userId, edited.tx) });
+        }
+      } else if (action.type === 'delete_last_transaction') {
+        const last = getLastTransaction(userId);
+        if (!last) {
+          await safeSendMessage(bot, chatId, 'ℹ️ Belum ada transaksi untuk dihapus.');
+        } else {
+          deleteTransaction(userId, last.id);
+          await safeSendMessage(bot, chatId, `🗑️ *Transaksi terakhir dihapus:* ${formatRupiah(last.amount)} (${escapeMd(last.note || last.category)})`, { parse_mode: 'Markdown' });
+        }
       } else if (action.type === 'set_budget' && isValidCategory(userId, 'expense', action.category)) {
         await safeSendMessage(bot, chatId, budgetText(userId, action.category, action.amount), { parse_mode: 'Markdown' });
       }
@@ -1076,10 +1142,36 @@ Mau per bulan saja? Buka Laporan di Mini App.`;
     return answerFreeText(msg, userId, parsed);
   };
 
+  // Intents the rule parser is certain about: no need to spend an AI call (saves 2-15 s and keeps quota for free chat).
+  // Only clear-cut short messages qualify; a long or compound message may carry more intent than the parser catches
+  // (e.g. "panggil aku X, aku gajian tgl 25") and still goes to AI.
+  const confidentIntent = (parsed, text) => {
+    if (!parsed || parsed.intent === 'unknown') return false;
+    if ((text || '').length > 60) return false;
+    switch (parsed.intent) {
+      case 'transaction': return parsed.amount > 0 && !!parsed.category;
+      case 'budget': return parsed.amount > 0 && !!parsed.category;
+      case 'learn': return !!parsed.keyword && !!parsed.category;
+      case 'add_category': return !!parsed.name && (text || '').length < 40;
+      case 'add_wallet': return !!parsed.name;
+      case 'wallet_balance': return parsed.amount >= 0;
+      case 'transfer': return parsed.amount > 0 && !!parsed.kind;
+      case 'tag_summary': return true;
+      default: return false;
+    }
+  };
+
   const answerFreeText = async (msg, userId, parsed) => {
     const chatId = msg.chat.id;
     const ai = aiAvailable();
     const entitlement = getEntitlement(getUser(userId));
+
+    // Short-circuit: the rule parser is sure what the user wants — skip AI entirely.
+    if (confidentIntent(parsed, msg.text)) {
+      recordShortCircuit();
+      return handleRuleBased(chatId, userId, parsed, { upsell: entitlement.tier === 'free' && Boolean(ai), text: msg.text });
+    }
+
     if (ai && entitlement.ai && countAiCallsToday(userId) < entitlement.ai_daily_limit) {
       Promise.resolve().then(() => bot.sendChatAction?.(chatId, 'typing')).catch(() => {});
       let turn = null;

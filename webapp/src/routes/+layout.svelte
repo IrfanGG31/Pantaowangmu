@@ -4,7 +4,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { initWebApp, getColorScheme } from '$lib/telegram.js';
+  import { initWebApp, getColorScheme, haptic } from '$lib/telegram.js';
   import { colorScheme, toasts, loadUserCategories, loadWallets, loadAnnouncements } from '$lib/stores.js';
   import { getPlatform, refreshInstall, watchSystemTheme } from '$lib/platform.js';
   import WebGate from '$lib/components/WebGate.svelte';
@@ -68,7 +68,10 @@
   }
 
   function navClick(path: string) {
-    if (currentPath !== path) goto(path);
+    if (currentPath !== path) {
+      haptic('selection');
+      goto(path);
+    }
   }
 </script>
 

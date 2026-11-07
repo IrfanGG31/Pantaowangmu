@@ -55,6 +55,142 @@ const AMOUNT_RE = /(?<![\p{L}\p{N}])(?:rp\.?\s*)?(\d+(?:[.,]\d+)*)(?:\s*(ribu|rb
 
 const SUFFIX_ALIASES = { ribu: 'rb', juta: 'jt' };
 
+const SPOKEN_DIGITS = {
+  satu: 1, dua: 2, tiga: 3, empat: 4, lima: 5,
+  enam: 6, tujuh: 7, delapan: 8, sembilan: 9
+};
+
+export function evalSpokenTokens(tokens) {
+  let total = 0;
+  let current = 0;
+  let hasMultiplier = false;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (SPOKEN_DIGITS[t]) {
+      current += SPOKEN_DIGITS[t];
+    } else if (t === 'sepuluh') {
+      current += 10;
+    } else if (t === 'sebelas') {
+      current += 11;
+    } else if (t === 'belas') {
+      if (current <= 0) return { value: 0, hasMultiplier: false };
+      const ones = current % 10;
+      current = (current - ones) + 10 + ones;
+    } else if (t === 'puluh') {
+      if (current <= 0) return { value: 0, hasMultiplier: false };
+      const ones = current % 10;
+      current = (current - ones) + (ones || 1) * 10;
+    } else if (t === 'seratus') {
+      current += 100;
+    } else if (t === 'ratus') {
+      if (current <= 0) return { value: 0, hasMultiplier: false };
+      current *= 100;
+    } else if (t === 'setengah') {
+      const next = tokens[i + 1];
+      const prev = tokens[i - 1];
+      if (next === 'juta' || next === 'ribu') {
+        current += 0.5;
+      } else if (prev === 'juta') {
+        total += 500000;
+        hasMultiplier = true;
+      } else if (prev === 'ribu' || prev === 'seribu') {
+        total += 500;
+        hasMultiplier = true;
+      } else {
+        return { value: 0, hasMultiplier: false };
+      }
+    } else if (t === 'seribu') {
+      total += 1000;
+      hasMultiplier = true;
+    } else if (t === 'ribu') {
+      if (current <= 0) return { value: 0, hasMultiplier: false };
+      total += Math.round(current * 1000);
+      current = 0;
+      hasMultiplier = true;
+    } else if (t === 'sejuta') {
+      total += 1000000;
+      hasMultiplier = true;
+    } else if (t === 'juta') {
+      if (current <= 0) return { value: 0, hasMultiplier: false };
+      total += Math.round(current * 1000000);
+      current = 0;
+      hasMultiplier = true;
+    } else if (t === 'seceng') {
+      total += 1000;
+      hasMultiplier = true;
+    } else if (t === 'goceng') {
+      total += 5000;
+      hasMultiplier = true;
+    } else if (t === 'ceban') {
+      total += 10000;
+      hasMultiplier = true;
+    } else if (t === 'gocap' || t === 'goban') {
+      total += 50000;
+      hasMultiplier = true;
+    } else if (t === 'cepek') {
+      total += 100000;
+      hasMultiplier = true;
+    }
+  }
+  return { value: Math.round(total + current), hasMultiplier };
+}
+
+const SPOKEN_TOKEN_STR = '(?:satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|sebelas|belas|puluh|seratus|ratus|seribu|ribu|sejuta|juta|setengah|seceng|goceng|ceban|gocap|goban|cepek)';
+const SPOKEN_SEQ_RE = new RegExp(`(?<![\\p{L}\\p{N}])(${SPOKEN_TOKEN_STR}(?:\\s+${SPOKEN_TOKEN_STR})*)(?![\\p{L}\\p{N}])`, 'giu');
+
+export function normalizeSpokenNumbers(text, { allowBare = false } = {}) {
+  return String(text || '').replace(SPOKEN_SEQ_RE, (full, phrase) => {
+    const tokens = phrase.toLowerCase().trim().split(/\s+/);
+    const { value, hasMultiplier } = evalSpokenTokens(tokens);
+    if (value <= 0) return full;
+    if (!hasMultiplier && !allowBare) return full;
+    return String(value);
+  });
+}
+
+const NEGATED_NUMBER_RE = new RegExp(
+  `\\b(?:bukan(?:nya)?|buka)\\s+(?:rp\\.?\\s*)?(?:\\d+(?:[.,]\\d+)*(?:\\s*(?:ribu|rb|k|juta|jt))?|${SPOKEN_TOKEN_STR}(?:\\s+${SPOKEN_TOKEN_STR})*)`,
+  'giu'
+);
+
+const CORRECTION_CUE_RE = new RegExp(
+  `^(?:eh\\s+|duh\\s+|aduh\\s+|waduh\\s+|wkwk\\s+|lah\\s+)*(?:salah|ralat|koreksi|revisi|maksudnya|maksudku|harusnya|seharusnya|ganti\\s+jadi|ubah\\s+jadi)\\b|` +
+  `\\b(?:maksudnya|maksudku|harusnya|seharusnya|salah\\s+(?:catat|ketik|nominal|angka|input|tulis)|ganti\\s+jadi|ubah\\s+jadi)\\b|` +
+  `\\bbukan(?:nya)?\\s+(?:rp\\.?\\s*)?(?:\\d+|${SPOKEN_TOKEN_STR}\\b)|` +
+  `(?:\\d+|${SPOKEN_TOKEN_STR}|kocak|salah|ralat)\\s+buka\\s+(?:rp\\.?\\s*)?(?:\\d+|${SPOKEN_TOKEN_STR}\\b)`,
+  'iu'
+);
+
+export function parseCorrection(original, options = {}) {
+  const raw = String(original || '').trim();
+  if (!raw || !CORRECTION_CUE_RE.test(raw)) return null;
+  const withoutNegated = raw.replace(NEGATED_NUMBER_RE, ' ');
+  const normalized = normalizeSpokenNumbers(withoutNegated, { allowBare: true });
+  const strongOrPlain = extractAmount(normalized);
+  let amount = strongOrPlain ? strongOrPlain.amount : null;
+  let bareNumber = false;
+  if (!amount) {
+    const smallMatch = /(?<![\p{L}\p{N}])(\d{1,3})(?![\p{L}\p{N}])/u.exec(normalized);
+    if (smallMatch) {
+      const n = Number(smallMatch[1]);
+      if (n >= 1 && n < 1000) {
+        amount = n * 1000;
+        bareNumber = true;
+      }
+    }
+  }
+  const lower = withoutNegated.toLowerCase();
+  const personal = detectPersonal(lower, options);
+  const category = personal ? personal.category : detectCategory(lower);
+  if (!amount && !category) return null;
+  return {
+    intent: 'edit_last',
+    amount,
+    ...(bareNumber ? { bare_number: true } : {}),
+    ...(category ? { category } : {})
+  };
+}
+
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -334,18 +470,23 @@ function parseWalletBalance(original, text, found, wallets) {
  * )}
  */
 export function parseFreeText(input, options = {}) {
-  const original = String(input || '').trim();
-  if (!original) return { intent: 'unknown' };
-  const text = original.toLowerCase();
-  const wallets = options.wallets || [];
-  const expenseNames = [...new Set([...EXPENSE_CATEGORIES, ...(options.categories?.expense || [])])];
-  const incomeNames = [...new Set([...INCOME_CATEGORIES, ...(options.categories?.income || [])])];
+  const rawOriginal = String(input || '').trim();
+  if (!rawOriginal) return { intent: 'unknown' };
 
-  const nick = NICKNAME_RE.exec(original);
+  const nick = NICKNAME_RE.exec(rawOriginal);
   if (nick) {
     const nickname = (nick[1] || nick[2]).replace(/[.!?,\s]+$/, '').replace(/^["'“]|["'”]$/g, '').trim().slice(0, 40);
     if (nickname) return { intent: 'nickname', nickname };
   }
+
+  const correction = parseCorrection(rawOriginal, options);
+  if (correction) return correction;
+
+  const original = normalizeSpokenNumbers(rawOriginal);
+  const text = original.toLowerCase();
+  const wallets = options.wallets || [];
+  const expenseNames = [...new Set([...EXPENSE_CATEGORIES, ...(options.categories?.expense || [])])];
+  const incomeNames = [...new Set([...INCOME_CATEGORIES, ...(options.categories?.income || [])])];
 
   const found = extractAmount(original);
 

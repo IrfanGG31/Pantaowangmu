@@ -1,5 +1,5 @@
 import db from './connection.js';
-import { getDateStr, getDayRange, getMonthRange, getMonthStr, toSqlDateTime } from '../utils/formatter.js';
+import { getDateStr, getDayRange, getMonthRange, getMonthStr, toSqlDateTime, zonedDateTime } from '../utils/formatter.js';
 
 // created_at is UTC; local day/month ranges are converted to UTC bounds before comparing.
 
@@ -27,6 +27,19 @@ function withTags(row) {
 // Canonical "YYYY-MM-DD HH:MM:SS" UTC strings sort lexicographically and allow SQLite to use idx_transactions_user_created.
 const IN_RANGE = 'created_at >= ? AND created_at < ?';
 
+function resolveCreatedAt(dateStr, existingCreatedAt = null) {
+  const cleanDate = String(dateStr || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+    return existingCreatedAt || toSqlDateTime(new Date());
+  }
+  const todayStr = getDateStr();
+  if (!existingCreatedAt && cleanDate === todayStr) {
+    return toSqlDateTime(new Date());
+  }
+  const target = zonedDateTime(cleanDate, '12:00');
+  return target ? toSqlDateTime(target) : (existingCreatedAt || toSqlDateTime(new Date()));
+}
+
 /**
  * Creates a new transaction.
  * @param {string|number} userId
@@ -34,23 +47,64 @@ const IN_RANGE = 'created_at >= ? AND created_at < ?';
  * @param {number} amount
  * @param {string} category
  * @param {string} [note='']
+ * @param {number|null} [walletId=null]
+ * @param {string[]} [tags=[]]
+ * @param {string|null} [date=null] YYYY-MM-DD
  * @returns {Object} Created transaction
  */
-export function createTransaction(userId, type, amount, category, note = '', walletId = null, tags = []) {
+export function createTransaction(userId, type, amount, category, note = '', walletId = null, tags = [], date = null) {
   const uid = String(userId);
   const cleanCat = String(category).toLowerCase().trim();
   const cleanNote = String(note || '').trim();
   const cleanAmount = parseInt(amount, 10);
   const wallet = Number.isInteger(walletId) && walletId > 0 ? walletId : null;
+  const createdAt = resolveCreatedAt(date);
 
   const stmt = db.prepare(`
     INSERT INTO transactions (user_id, type, amount, category, note, wallet_id, tags, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  // Same UTC format as SQLite's datetime('now'), taken from the app clock so all time math uses one source.
-  const result = stmt.run(uid, type, cleanAmount, cleanCat, cleanNote, wallet, serializeTags(tags), toSqlDateTime(new Date()));
+  const result = stmt.run(uid, type, cleanAmount, cleanCat, cleanNote, wallet, serializeTags(tags), createdAt);
   return getTransactionById(uid, result.lastInsertRowid);
+}
+
+/**
+ * Updates an existing transaction by ID and user ID.
+ * @param {string|number} userId
+ * @param {number} id
+ * @param {Object} fields
+ * @returns {Object|null} Updated transaction or null if not found
+ */
+export function updateTransaction(userId, id, fields = {}) {
+  const uid = String(userId);
+  const existing = getTransactionById(uid, id);
+  if (!existing) return null;
+
+  const nextType = fields.type !== undefined ? fields.type : existing.type;
+  const nextAmount = fields.amount !== undefined ? parseInt(fields.amount, 10) : existing.amount;
+  const nextCategory = fields.category !== undefined ? String(fields.category).toLowerCase().trim() : existing.category;
+  const nextNote = fields.note !== undefined ? String(fields.note || '').trim() : existing.note;
+  const nextWallet = fields.wallet_id !== undefined
+    ? (Number.isInteger(fields.wallet_id) && fields.wallet_id > 0 ? fields.wallet_id : null)
+    : existing.wallet_id;
+  const nextTags = fields.tags !== undefined ? serializeTags(fields.tags) : serializeTags(existing.tags || []);
+
+  let nextCreatedAt = existing.created_at;
+  if (fields.date && /^\d{4}-\d{2}-\d{2}$/.test(fields.date)) {
+    const existingLocalDate = getDateStr(existing.created_at);
+    if (fields.date !== existingLocalDate) {
+      nextCreatedAt = resolveCreatedAt(fields.date, existing.created_at);
+    }
+  }
+
+  db.prepare(`
+    UPDATE transactions
+    SET type = ?, amount = ?, category = ?, note = ?, wallet_id = ?, tags = ?, created_at = ?
+    WHERE id = ? AND user_id = ?
+  `).run(nextType, nextAmount, nextCategory, nextNote, nextWallet, nextTags, nextCreatedAt, parseInt(id, 10), uid);
+
+  return getTransactionById(uid, id);
 }
 
 /**
@@ -60,6 +114,9 @@ export function createTransaction(userId, type, amount, category, note = '', wal
  * @param {number} [offset=0]
  * @param {Object} [filters={}]
  * @param {string} [filters.type]
+ * @param {string} [filters.category]
+ * @param {number|string} [filters.wallet_id]
+ * @param {string} [filters.q]
  * @param {string} [filters.month] YYYY-MM
  * @param {string} [filters.date] YYYY-MM-DD
  * @returns {{ data: Array<Object>, total: number }}
@@ -72,6 +129,26 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
   if (filters.type && ['income', 'expense'].includes(filters.type)) {
     whereClauses.push('type = ?');
     params.push(filters.type);
+  }
+
+  if (filters.category && String(filters.category).trim()) {
+    whereClauses.push('category = ?');
+    params.push(String(filters.category).toLowerCase().trim());
+  }
+
+  if (filters.wallet_id !== undefined && filters.wallet_id !== '') {
+    const wid = parseInt(filters.wallet_id, 10);
+    if (Number.isInteger(wid) && wid > 0) {
+      whereClauses.push('wallet_id = ?');
+      params.push(wid);
+    }
+  }
+
+  if (filters.q && String(filters.q).trim()) {
+    const qClean = String(filters.q).trim().toLowerCase().replace(/^#/, '');
+    const likePattern = `%${qClean}%`;
+    whereClauses.push('(LOWER(note) LIKE ? OR LOWER(category) LIKE ? OR LOWER(COALESCE(tags, \'\')) LIKE ?)');
+    params.push(likePattern, likePattern, likePattern);
   }
 
   if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) {
@@ -101,7 +178,7 @@ export function getTransactionsByUser(userId, limit = 20, offset = 0, filters = 
   const dataStmt = db.prepare(`
     SELECT t.id, t.user_id, t.type, t.amount, t.category, t.note, t.wallet_id, w.name AS wallet_name, t.tags, t.created_at
     FROM transactions t LEFT JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
-    WHERE ${whereSql.replace(/\b(user_id|type|created_at|tags)\b/g, 't.$1')}
+    WHERE ${whereSql.replace(/\b(user_id|type|category|note|wallet_id|created_at|tags)\b/g, 't.$1')}
     ORDER BY t.created_at DESC, t.id DESC
     LIMIT ? OFFSET ?
   `);

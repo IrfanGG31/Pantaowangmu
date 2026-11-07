@@ -114,6 +114,9 @@ export interface TransactionListParams {
   limit?: number;
   offset?: number;
   type?: 'income' | 'expense';
+  category?: string;
+  wallet_id?: number;
+  q?: string;
   month?: string;   // YYYY-MM
   date?: string;    // YYYY-MM-DD
 }
@@ -141,8 +144,21 @@ export const transactionsApi = {
     note?: string;
     wallet_id?: number | null;   // omitted = the default wallet (if any)
     tags?: string[];
+    date?: string;               // YYYY-MM-DD (optional backdated entry)
   }): Promise<TransactionCreateResponse> {
     return request<TransactionCreateResponse>('POST', '/transactions', data);
+  },
+
+  update(id: number, data: {
+    type?: 'income' | 'expense';
+    amount?: number;
+    category?: string;
+    note?: string;
+    wallet_id?: number | null;
+    tags?: string[];
+    date?: string;
+  }): Promise<{ data: Transaction }> {
+    return request<{ data: Transaction }>('PATCH', `/transactions/${id}`, data);
   },
 
   delete(id: number): Promise<{ data: Transaction; message: string }> {

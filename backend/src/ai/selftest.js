@@ -37,7 +37,7 @@ export async function runAiSelfTest({ logger, fetchImpl = fetch } = {}) {
       { role: 'system', content: 'Balas hanya dengan JSON: {"reply":"ok","actions":[]}' },
       { role: 'user', content: 'tes' }
     ], { fetchImpl });
-    report({ check: i === 0 ? 'chat utama' : 'chat cadangan', model: config.model, ok: r.ok && Boolean(String(r.content).trim()), status: r.status, latency_ms: r.latencyMs, detail: r.ok ? short(stripThinking(r.content)) : r.error });
+    report({ check: i === 0 ? 'chat utama' : i === 1 ? 'chat cadangan' : `chat cadangan ${i}`, model: config.model, ok: r.ok && Boolean(String(r.content).trim()), status: r.status, latency_ms: r.latencyMs, detail: r.ok ? short(stripThinking(r.content)) : r.error });
   }
 
   const vision = getVisionConfig();

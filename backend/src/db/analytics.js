@@ -148,7 +148,7 @@ const p95 = (values) => {
 export function getAiHealth({ days = 7, now = new Date() } = {}) {
   const since = new Date(now.getTime() - days * DAY_MS).toISOString().slice(0, 19).replace('T', ' ');
   const rows = db.prepare(`
-    SELECT model, COALESCE(kind, 'chat') AS kind, ok, http_status, latency_ms, error, prompt_tokens, completion_tokens, created_at
+    SELECT user_id, model, COALESCE(kind, 'chat') AS kind, ok, http_status, latency_ms, error, prompt_tokens, completion_tokens, created_at
     FROM ai_usage WHERE created_at >= ? ORDER BY id ASC
   `).all(since);
 
@@ -218,12 +218,48 @@ export function getAiHealth({ days = 7, now = new Date() } = {}) {
     alerts.unshift({ level: 'critical', model: null, kind: null, message: 'Tidak ada panggilan AI yang berhasil dalam 24 jam terakhir. Bot hanya memakai parser biasa.' });
   }
 
+  // Fallback usage (24 h): heuristic for chats where the primary failed and the fallback succeeded.
+  // Groups rows into bursts of ≤5 s per user — approximates one user turn passing through the chain.
+  const chatRows = rows.filter((r) => (r.kind || 'chat') === 'chat' && toDate(r.created_at).getTime() >= dayAgo);
+  const byUser = new Map();
+  for (const r of chatRows) {
+    if (!byUser.has(r.user_id)) byUser.set(r.user_id, []);
+    byUser.get(r.user_id).push(r);
+  }
+  let fallbackOk = 0;
+  let fallbackTotal = 0;
+  for (const bursts of byUser.values()) {
+    bursts.sort((a, b) => toDate(a.created_at) - toDate(b.created_at));
+    let group = [];
+    const flush = () => {
+      if (group.length < 2) { group = []; return; }
+      const anyFailed = group.some((x) => !x.ok);
+      const lastOkRow = [...group].reverse().find((x) => x.ok);
+      if (anyFailed && lastOkRow) fallbackOk += 1;
+      if (anyFailed) fallbackTotal += 1;
+      group = [];
+    };
+    for (const r of bursts) {
+      if (group.length && toDate(r.created_at) - toDate(group.at(-1).created_at) > 5000) flush();
+      group.push(r);
+    }
+    flush();
+  }
+  const totalChats = chatRows.length;
+  const totalChatsOk = chatRows.filter((r) => r.ok).length;
+
   return {
     days,
     status: alerts.some((a) => a.level === 'critical') ? 'critical' : alerts.length ? 'warning' : rows.length ? 'ok' : 'idle',
     alerts,
     models: list,
     daily: [...daily.values()].sort((a, b) => a.date.localeCompare(b.date)),
-    last_ok_at: lastOk
+    last_ok_at: lastOk,
+    chain_24h: {
+      total_chats: totalChats,
+      ok: totalChatsOk,
+      fallback_rescued: fallbackOk,
+      fallback_rate_pct: pct(fallbackOk, totalChats)
+    }
   };
 }

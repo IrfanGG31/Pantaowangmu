@@ -3,94 +3,149 @@
 // validates and executes. Never logs the API key.
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../utils/validator.js';
 import { MAX_FACT_LENGTH, MAX_NICKNAME_LENGTH, MAX_GOAL_NAME_LENGTH, STYLES, LANGUAGES, PERSONAS } from '../db/memory.js';
+import { getOverride, resolvePreset, CHAT_ROLES } from '../db/aiConfig.js';
 
 const MAX_AMOUNT = 999999999;
 const MAX_NOTE_LENGTH = 200;
 const MAX_INPUT_LENGTH = 2000;
 const MAX_REPLY_LENGTH = 3800;
 const MAX_ACTIONS = 5;
-const HISTORY_TURNS = 12;
+const HISTORY_TURNS = 4;
 const HISTORY_IDLE_MS = 60 * 60 * 1000;
+
+// Per-task timeouts: chat is short so users don't wait; receipts and weekly reports are longer because the model
+// genuinely needs more time. AI_TIMEOUT_<kind>_MS override each, AI_TIMEOUT_MS stays as a general fallback.
+const SAFETY_TIMEOUT_MS = 60000;
+const DEFAULT_TIMEOUT_MS = {
+  chat: 12000,
+  fallback: 6000,
+  receipt: 20000,
+  report: 20000
+};
+const envTimeout = (envName) => {
+  const n = Number(process.env[envName]);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, SAFETY_TIMEOUT_MS) : null;
+};
+export const timeoutFor = (kind) => envTimeout(`AI_TIMEOUT_${kind.toUpperCase()}_MS`)
+  || envTimeout('AI_TIMEOUT_MS')
+  || DEFAULT_TIMEOUT_MS[kind]
+  || DEFAULT_TIMEOUT_MS.chat;
+
+// Short answers are the goal — these caps keep both latency and cost down while leaving room for reasoning_tokens.
+const DEFAULT_MAX_TOKENS = { chat: 1500, receipt: 1500, report: 2500 };
+const maxTokensFor = (kind) => Number(process.env[`AI_MAX_TOKENS_${kind.toUpperCase()}`]) || Number(process.env.AI_MAX_TOKENS) || DEFAULT_MAX_TOKENS[kind] || DEFAULT_MAX_TOKENS.chat;
 
 // Tolerates values pasted with surrounding quotes or angle brackets, e.g. "<https://...>".
 function cleanEnv(value) {
   return String(value || '').trim().replace(/^["'<\s]+|["'>\s]+$/g, '');
 }
 
-/**
- * @returns {{ baseUrl: string, apiKey: string, model: string, timeoutMs: number, maxTokens: number } | null}
- */
-export function getAiConfig() {
-  const baseUrl = cleanEnv(process.env.AI_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_API_KEY);
-  const model = cleanEnv(process.env.AI_MODEL);
-  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
-  return {
-    baseUrl,
-    apiKey,
-    model,
-    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
-    maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
-  };
+/** Admin override (preset from AI_PRESETS) takes precedence over the env var; returns null when nothing is set. */
+function overrideConfig(role) {
+  try {
+    const row = getOverride(role);
+    if (!row) return null;
+    const resolved = resolvePreset(row.preset_id);
+    return resolved ? { ...resolved, source: 'override' } : null;
+  } catch {
+    // DB not ready during cold boot: fall back to env. Never throw to callers.
+    return null;
+  }
 }
 
-// Every AI call gives up after at most 15 s (AI_TIMEOUT_MS can only lower it), so the user is never kept waiting long.
-const MAX_TIMEOUT_MS = 15000;
-const timeoutFromEnv = (value) => Math.min(Number(value) || MAX_TIMEOUT_MS, MAX_TIMEOUT_MS);
-
-/**
- * Fallback chat model tried when AI_* fails or times out (e.g. MiniMax): AI_FALLBACK_BASE_URL, AI_FALLBACK_API_KEY,
- * AI_FALLBACK_MODEL. Used for chat only; receipts and reports use AI_*.
- */
-export function getFallbackAiConfig() {
-  const baseUrl = cleanEnv(process.env.AI_FALLBACK_BASE_URL).replace(/\/+$/, '');
-  const apiKey = cleanEnv(process.env.AI_FALLBACK_API_KEY);
-  const model = cleanEnv(process.env.AI_FALLBACK_MODEL);
-  if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
-  return {
-    baseUrl,
-    apiKey,
-    model,
-    timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS),
-    maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000
-  };
-}
-
-/** Chat models in the order they are tried: AI_* (e.g. Groq), then AI_FALLBACK_* (e.g. MiniMax). */
-export function getAiChain() {
-  return [getAiConfig(), getFallbackAiConfig()].filter(Boolean);
-}
-
-/**
- * A model for one kind of media, e.g. AI_VISION_* or AI_AUDIO_*: <PREFIX>_MODEL (+ <PREFIX>_BASE_URL and
- * <PREFIX>_API_KEY for another provider such as OpenRouter; without them AI_BASE_URL / AI_API_KEY are used).
- * @param {string} prefix
- * @param {{ defaultModel?: string }} [options]
- */
-function mediaConfig(prefix, { defaultModel = '' } = {}) {
+function envConfig(prefix, { defaultModel = '' } = {}) {
   const ownBase = cleanEnv(process.env[`${prefix}_BASE_URL`]);
   const baseUrl = (ownBase || cleanEnv(process.env.AI_BASE_URL)).replace(/\/+$/, '');
   const apiKey = ownBase ? cleanEnv(process.env[`${prefix}_API_KEY`]) : cleanEnv(process.env.AI_API_KEY);
   const model = cleanEnv(process.env[`${prefix}_MODEL`]) || defaultModel;
   if (!baseUrl || !apiKey || !model || !/^https?:\/\//.test(baseUrl)) return null;
-  return { baseUrl, apiKey, model, timeoutMs: timeoutFromEnv(process.env.AI_TIMEOUT_MS), maxTokens: Number(process.env.AI_MAX_TOKENS) || 4000 };
+  return { baseUrl, apiKey, model, source: 'env' };
 }
 
-/** Receipt photos: AI_VISION_* (e.g. OpenRouter Inkling), else AI_MODEL on AI_*. */
-export const getVisionConfig = () => mediaConfig('AI_VISION', { defaultModel: cleanEnv(process.env.AI_MODEL) });
+/**
+ * @returns {{ baseUrl: string, apiKey: string, model: string, source: 'env'|'override' } | null}
+ */
+export function getAiConfig() {
+  return overrideConfig('primary') || envConfig('AI');
+}
 
-/** Voice notes through a chat model that accepts audio: AI_AUDIO_* (e.g. OpenRouter Inkling). Off unless AI_AUDIO_MODEL is set. */
-export const getAudioConfig = () => mediaConfig('AI_AUDIO');
+/**
+ * Fallback chat model tried when primary fails or times out. Admin override (role='fallback') takes precedence,
+ * otherwise AI_FALLBACK_* env.
+ */
+export function getFallbackAiConfig() {
+  return overrideConfig('fallback') || envConfig('AI_FALLBACK');
+}
+
+/** The model set for one role; extra fallbacks (fallback_2, fallback_3) exist only as admin picks. */
+export function getRoleConfig(role) {
+  switch (role) {
+    case 'primary': return getAiConfig();
+    case 'fallback': return getFallbackAiConfig();
+    case 'vision': return getVisionConfig();
+    case 'audio': return getAudioConfig();
+    default: return CHAT_ROLES.includes(role) ? overrideConfig(role) : null;
+  }
+}
+
+/** Chat models in the order they are tried: primary, fallback, fallback_2, fallback_3 (the same model only once). */
+export function getAiChain() {
+  const seen = new Set();
+  return CHAT_ROLES.map(getRoleConfig).filter((c) => {
+    if (!c) return false;
+    const key = `${c.baseUrl}|${c.model}|${c.apiKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// One user message never waits longer than this across the whole chain; the rule parser answers after that.
+const chatBudgetMs = () => {
+  const n = Number(process.env.AI_CHAT_BUDGET_MS);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, SAFETY_TIMEOUT_MS) : 25000;
+};
+const MIN_ATTEMPT_MS = 3000;
+
+/** Receipt photos: override, then AI_VISION_*, else primary (getAiConfig). */
+export const getVisionConfig = () => overrideConfig('vision') || envConfig('AI_VISION') || getAiConfig();
+
+/** Voice notes through a chat model that accepts audio: override, then AI_AUDIO_*, else primary when it is a MiMo multimodal model. */
+export const getAudioConfig = () => {
+  const explicit = overrideConfig('audio') || envConfig('AI_AUDIO');
+  if (explicit) return explicit;
+  const primary = getAiConfig();
+  return primary && /^mimo-/i.test(primary.model) ? primary : null;
+};
 
 export const aiAvailable = () => getAiChain().length > 0;
 
 // A model that just failed (timeout, network, 5xx, rate limit) is skipped for a while, so users get the next model
 // or the rule-based reply right away instead of waiting for another timeout.
 const cooldowns = new Map();
-const cooldownMs = () => Number(process.env.AI_COOLDOWN_MS) || 5 * 60 * 1000;
+const cooldownMs = () => Number(process.env.AI_COOLDOWN_MS) || 30 * 1000;
 const modelKey = (config) => `${config.baseUrl}|${config.model}`;
 const coolingDown = (config) => (cooldowns.get(modelKey(config)) || 0) > Date.now();
 const isOutage = (result) => result.status === 0 || result.status === 429 || result.status >= 500;
+
+/** Clears every model cooldown. Called when admin switches presets so a stale cooldown doesn't disable the new pick. */
+export function clearCooldowns() {
+  cooldowns.clear();
+}
+
+// Admin visibility: how many user messages are being answered by the rule parser alone (zero AI call).
+// Counted per-day in the bot's local timezone; falls through to today's bucket in getAiShortCircuitStats().
+const skipped = new Map(); // 'YYYY-MM-DD' → count
+const skipKey = (now = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.TIMEZONE || 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+export function recordShortCircuit(now = new Date()) {
+  const key = skipKey(now);
+  skipped.set(key, (skipped.get(key) || 0) + 1);
+}
+export function getAiShortCircuitStats(now = new Date()) {
+  const today = skipKey(now);
+  const yesterday = skipKey(new Date(now.getTime() - 86400000));
+  return { today: skipped.get(today) || 0, yesterday: skipped.get(yesterday) || 0 };
+}
 
 // ── Short conversation memory (in-process; single replica) ──
 
@@ -107,7 +162,7 @@ function getHistory(userId) {
   return entry.messages;
 }
 
-function remember(userId, userText, assistantText) {
+export function rememberTurn(userId, userText, assistantText) {
   const now = Date.now();
   const messages = [...getHistory(userId), { role: 'user', content: userText }, { role: 'assistant', content: assistantText }];
   if (!histories.has(userId) && histories.size >= MAX_HISTORIES) {
@@ -122,6 +177,7 @@ function remember(userId, userText, assistantText) {
   histories.delete(userId);
   histories.set(userId, { at: now, messages: messages.slice(-HISTORY_TURNS * 2) });
 }
+const remember = rememberTurn;
 
 export function forgetConversation(userId) {
   histories.delete(userId);
@@ -199,6 +255,8 @@ Balas HANYA dengan satu objek JSON, tanpa teks lain:
 
 Aksi yang tersedia (boleh kosong, maksimal ${MAX_ACTIONS}):
 {"type":"add_transaction","tx_type":"expense"|"income","amount":<bilangan bulat rupiah>,"category":"<kategori>","note":"<catatan singkat>","wallet":"<nama dompet>"}  (wallet opsional)
+{"type":"edit_last_transaction","amount":<bilangan bulat rupiah opsional>,"category":"<kategori opsional>","note":"<catatan opsional>","tx_type":"expense"|"income","wallet":"<nama dompet opsional>"}  (koreksi/ralat transaksi terakhir yang baru saja dicatat, mis. "lima belas kocak bukan lima puluh", "eh salah 15rb", "masuk belanja bukan makan")
+{"type":"delete_last_transaction"}  (batalkan/hapus transaksi terakhir jika pengguna minta batal, mis. "eh gak jadi", "hapus yang barusan")
 {"type":"set_budget","category":"<kategori pengeluaran>","amount":<bilangan bulat rupiah>}
 {"type":"set_nickname","nickname":"<nama panggilan>"}
 {"type":"remember","fact":"<satu kalimat singkat>"}
@@ -227,6 +285,10 @@ Kategori: pakai daftar "Kategori pengeluaran/pemasukan" di DATA PENGGUNA (termas
 ATURAN AKSI
 - Catat transaksi atau atur budget hanya jika pengguna jelas memintanya atau jelas melaporkan uang keluar/masuk.
   Pertanyaan dan obrolan tidak butuh aksi.
+- KOREKSI TRANSAKSI TERAKHIR: Jika pengguna mengoreksi/meralat transaksi yang baru saja dicatat (mis. "eh salah 15rb",
+  "lima belas kocak bukan lima puluh", "harusnya 20 ribu bukan 50 ribu", "masuk belanja aja"), gunakan edit_last_transaction
+  (JANGAN buat add_transaction baru). Jika pengguna menyebut angka pendek tanpa "ribu" saat mengoreksi transaksi ribuan
+  (mis. [TRANSAKSI TERAKHIR] Rp 50.000 lalu pengguna bilang "lima belas bukan lima puluh"), artinya Rp 15.000 (amount: 15000).
 - "rb"/"ribu"/"k" = ribu, "jt"/"juta" = juta. amount selalu bilangan bulat tanpa titik/koma.
 - Jangan menebak nominal. Jika nominal tidak ada, tanyakan di reply dan jangan buat aksi.
 - Jika ragu kategori, pakai "lainnya". note maksimal 60 karakter, tanpa nominal.
@@ -250,13 +312,15 @@ ATURAN AKSI
 - Tantangan ("tantangan no jajan seminggu") = start_challenge. Saran budget dari kebiasaan: sarankan ketik "saran budget".
 - Jika ada aksi transaksi/budget, reply cukup singkat; bot akan menampilkan rincian yang tersimpan beserta tombol batal.
 - Jika PETUNJUK PARSER berisi nominal, pakai nominal itu.
-- Untuk hapus transaksi, sarankan /hapus. Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
+- Untuk hapus transaksi, sarankan /hapus (atau pakai delete_last_transaction bila pengguna jelas meminta membatalkan transaksi barusan). Untuk file CSV, sarankan /export. Untuk melihat ingatan, sarankan /memori.
 
 CONTOH
 Pengguna: "panggil aku Boss"
 {"reply":"Siap, Boss! Mulai sekarang aku panggil kamu Boss 😎","actions":[{"type":"set_nickname","nickname":"Boss"}]}
 Pengguna: "catat 40K uang rokok"
 {"reply":"Oke, aku catat ya.","actions":[{"type":"add_transaction","tx_type":"expense","amount":40000,"category":"lainnya","note":"rokok"}]}
+Pengguna: "lima belas kocak bukan lima puluh"
+{"reply":"Wkwk maaf, bukan 50 tapi 15 ribu ya. Aku benerin sekarang.","actions":[{"type":"edit_last_transaction","amount":15000}]}
 Pengguna: "gajiku 8 juta, gajian tiap tanggal 25"
 {"reply":"Noted! Penghasilan Rp 8 juta, gajian tanggal 25. Sekarang aku bisa hitung sisa aman belanja per hari sampai gajian.","actions":[{"type":"set_profile","monthly_income":8000000,"payday":25}]}
 Pengguna: "aku lagi nabung buat nikah 50 juta, targetnya Desember 2027, udah kekumpul 10 juta"
@@ -461,6 +525,22 @@ export function sanitizeAction(raw, ctx = {}) {
     const goalId = toInt(raw.goal_id);
     return goalId !== null && goalId > 0 ? { type: 'delete_goal', goal_id: goalId } : null;
   }
+  if (raw.type === 'delete_last_transaction') {
+    return { type: 'delete_last_transaction' };
+  }
+  if (raw.type === 'edit_last_transaction') {
+    const out = { type: 'edit_last_transaction' };
+    const amt = toInt(raw.amount);
+    if (amt !== null && validAmount(amt)) out.amount = amt;
+    if (raw.tx_type === 'income' || raw.tx_type === 'expense') out.tx_type = raw.tx_type;
+    const category = cleanText(raw.category, 30).toLowerCase();
+    const allowedCats = out.tx_type ? categories[out.tx_type] : [...categories.expense, ...categories.income];
+    if (category && allowedCats.includes(category)) out.category = category;
+    if (typeof raw.note === 'string' && raw.note.trim()) out.note = raw.note.trim().slice(0, MAX_NOTE_LENGTH);
+    const wallet = cleanText(raw.wallet, 30);
+    if (wallet) out.wallet = wallet;
+    return Object.keys(out).length > 1 ? out : null;
+  }
 
   const amount = typeof raw.amount === 'string' ? Number(raw.amount) : raw.amount;
   if (!validAmount(amount)) return null;
@@ -513,7 +593,20 @@ export function parseAssistantOutput(content, ctx = {}) {
 
 // The rule parser reads amounts exactly; prefer its number when the model proposes a single matching money action.
 function applyHint(actions, hint) {
-  if (!hint || !hint.amount) return actions;
+  if (!hint) return actions;
+  if (hint.intent === 'edit_last' && hint.amount) {
+    if (actions.some((a) => a.type === 'edit_last_transaction')) {
+      return actions.map((a) => (a.type === 'edit_last_transaction' && !a.amount ? { ...a, amount: hint.amount } : a));
+    }
+    if (actions.length === 1 && actions[0].type === 'add_transaction') {
+      return [{ type: 'edit_last_transaction', amount: hint.amount }];
+    }
+    if (actions.length === 0) {
+      return [{ type: 'edit_last_transaction', amount: hint.amount }];
+    }
+    return actions;
+  }
+  if (!hint.amount) return actions;
   const money = actions.filter((a) => a.type === 'add_transaction' || a.type === 'set_budget');
   if (money.length !== 1) return actions;
   const [target] = money;
@@ -524,33 +617,51 @@ function applyHint(actions, hint) {
 /**
  * One chat-completions call. Resolves to { ok, status, content, finishReason, usage, latencyMs, error } and never throws.
  * `error` is a short provider message with the API key redacted, for logs and diagnostics.
+ * @param {{ fetchImpl?: typeof fetch, timeoutMs?: number, maxTokens?: number, temperature?: number, jsonMode?: boolean, reasoningEffort?: string }} [options]
  */
-export async function callChat(config, messages, { fetchImpl = fetch } = {}) {
+export async function callChat(config, messages, { fetchImpl = fetch, timeoutMs, maxTokens, temperature, jsonMode, reasoningEffort } = {}) {
+  const effectiveTimeout = timeoutMs || timeoutFor('chat');
   const redact = (s) => String(s || '').split(config.apiKey).join('<AI_API_KEY>').slice(0, 300);
   const started = Date.now();
+  const body = {
+    model: config.model,
+    temperature: temperature ?? 0.3,
+    max_tokens: maxTokens || maxTokensFor('chat'),
+    messages
+  };
+  // MiniMax and GLM both honour OpenAI's JSON mode; providers that don't should ignore the field.
+  if (jsonMode) body.response_format = { type: 'json_object' };
+  // MiMo models spend 15-20s generating reasoning_content unless reasoning_effort is set to 'none'.
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
+  else if (/^mimo-/i.test(config.model)) body.reasoning_effort = 'none';
   try {
     const res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: config.model, temperature: 0.5, max_tokens: config.maxTokens, messages }),
-      signal: AbortSignal.timeout(config.timeoutMs)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(effectiveTimeout)
     });
-    const body = await res.json().catch(() => null);
+    const resp = await res.json().catch(() => null);
     if (!res.ok) {
-      const message = body?.error?.message || body?.message || body?.error || `HTTP ${res.status}`;
+      const message = resp?.error?.message || resp?.message || resp?.error || `HTTP ${res.status}`;
       return { ok: false, status: res.status, latencyMs: Date.now() - started, error: redact(typeof message === 'string' ? message : JSON.stringify(message)) };
     }
-    const choice = body?.choices?.[0];
+    const choice = resp?.choices?.[0];
+    const msg = choice?.message || {};
+    const reasoningContent = typeof msg.reasoning_content === 'string'
+      ? msg.reasoning_content
+      : (typeof msg.reasoning === 'string' ? msg.reasoning : '');
     return {
       ok: true,
       status: res.status,
-      content: choice?.message?.content ?? '',
+      content: msg.content ?? '',
+      reasoningContent,
       finishReason: choice?.finish_reason ?? null,
-      usage: { prompt_tokens: Number(body?.usage?.prompt_tokens) || 0, completion_tokens: Number(body?.usage?.completion_tokens) || 0 },
+      usage: { prompt_tokens: Number(resp?.usage?.prompt_tokens) || 0, completion_tokens: Number(resp?.usage?.completion_tokens) || 0 },
       latencyMs: Date.now() - started
     };
   } catch (err) {
-    return { ok: false, status: 0, latencyMs: Date.now() - started, error: err.name === 'TimeoutError' ? `timeout ${config.timeoutMs}ms` : redact(err.cause?.code || err.message) };
+    return { ok: false, status: 0, latencyMs: Date.now() - started, error: err.name === 'TimeoutError' ? `timeout ${effectiveTimeout}ms` : redact(err.cause?.code || err.message) };
   }
 }
 
@@ -577,10 +688,20 @@ export async function runAssistant({ userId, text, context, hint = null, categor
 
   let result = null;
   let output = null;
-  for (const config of chain) {
+  const started = Date.now();
+  for (const [i, config] of chain.entries()) {
     if (coolingDown(config)) continue;
-    result = await callChat(config, messages, { fetchImpl });
-    output = result.ok ? parseAssistantOutput(result.content, categories ? { categories } : {}) : null;
+    const left = chatBudgetMs() - (Date.now() - started);
+    if (left < MIN_ATTEMPT_MS) {
+      logger?.warn({ model: config.model, left_ms: left }, '[AI] Time budget used up; skipping remaining models');
+      break;
+    }
+    const kind = i === 0 ? 'chat' : 'fallback';
+    result = await callChat(config, messages, { fetchImpl, timeoutMs: Math.min(timeoutFor(kind), left), maxTokens: maxTokensFor('chat') });
+    const rawText = result.ok
+      ? (String(result.content || '').trim() || (String(result.reasoningContent || '').includes('{') ? result.reasoningContent : ''))
+      : '';
+    output = result.ok ? parseAssistantOutput(rawText, categories ? { categories } : {}) : null;
 
     try {
       onUsage?.({
@@ -696,8 +817,8 @@ export async function readReceipt({ imageBase64, mimeType, caption = '', categor
     }
   ];
 
-  const result = await callChat(config, messages, { fetchImpl });
-  const json = result.ok ? extractJson(stripThinking(result.content)) : null;
+  const result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor('receipt'), maxTokens: maxTokensFor('receipt'), temperature: 0, jsonMode: true });
+  const json = result.ok ? extractJson(stripThinking(result.content || result.reasoningContent || '')) : null;
   reportUsage(onUsage, logger, config.model, result, Boolean(json), result.ok ? 'unusable receipt response' : result.error);
   if (!result.ok) {
     logger?.warn({ status: result.status, error: result.error, model: config.model }, '[AI] Receipt request failed');
@@ -726,7 +847,7 @@ export async function writeWeeklyReport({ context, week }, { fetchImpl = fetch, 
     { role: 'system', content: WEEKLY_PROMPT },
     { role: 'user', content: `DATA PENGGUNA:\n${context}\n\nRINGKASAN 7 HARI TERAKHIR:\n${week}` }
   ];
-  const result = await callChat(config, messages, { fetchImpl });
+  const result = await callChat(config, messages, { fetchImpl, timeoutMs: timeoutFor('report'), maxTokens: maxTokensFor('report') });
   const text = result.ok ? stripThinking(result.content).replace(/[*_#`]/g, '').trim().slice(0, MAX_REPLY_LENGTH) : '';
   reportUsage(onUsage, logger, config.model, result, Boolean(text), result.ok ? 'empty weekly report' : result.error);
   if (!result.ok) logger?.warn({ status: result.status, error: result.error }, '[AI] Weekly report failed');
@@ -753,7 +874,7 @@ export async function clusterIdeas(texts, { fetchImpl = fetch, logger } = {}) {
   const result = await callChat(config, [
     { role: 'system', content: CLUSTER_PROMPT },
     { role: 'user', content: list }
-  ], { fetchImpl });
+  ], { fetchImpl, timeoutMs: timeoutFor('report'), maxTokens: maxTokensFor('report'), jsonMode: true });
   if (!result.ok) {
     logger?.warn({ status: result.status, error: result.error }, '[AI] Idea clustering failed');
     return null;

@@ -402,3 +402,18 @@ For the Mini App banner and "Yang baru" card.
 - `POST /announcements` `{ kind: 'maintenance'|'update', title, body, start_date?, start_time?, end_date?, end_time?, remind_before?, notify_end?, broadcast? }` → 201.
   Maintenance times are local (bot timezone). `broadcast: true` sends it to all users via the broadcast queue; `broadcast_error` is set when it could not start (e.g. another broadcast running).
 - `POST /announcements/:id/end` (maintenance: ends now, sends "back to normal" if `notify_end`), `POST /announcements/:id/cancel`.
+
+### AI config (admin picks model from presets)
+
+Models can be switched per role (primary / fallback / fallback_2 / fallback_3 / vision / audio) without redeploy. Chat tries primary, then each fallback that is set, within `AI_CHAT_BUDGET_MS` (default 25000). Presets are declared in
+`AI_PRESETS` (JSON) on the server and keys in `AI_KEYS`; neither is ever returned to the browser.
+
+- `GET /api/admin/ai/config` → `{ presets: Array<{id, label, base_url, model, key_ref}>, active: Record<role, { preset_id, updated_at, updated_by, env: { model, base_url, source: 'env'|'override' } | null }>, roles: string[] }`
+- `PUT /api/admin/ai/override` `{ role, preset_id | null }` → `{ role, preset_id }`. Clears model cooldowns so the new pick is tried immediately. Audited as `ai_override`.
+- `POST /api/admin/ai/test` `{ preset_id, prompt? }` → `{ ok, model, base_url, status, latency_ms, content, error }`. Does not write to `ai_usage`; prompt capped at 200 chars.
+- `POST /api/admin/ai/presets` `{ label, base_url, model, api_key? , key_from? }` → 201 `{ preset }`. Adds a model from the admin page. The key is encrypted at rest (AES-256-GCM) and never returned; `key_from` copies the key of another preset. Audited as `ai_preset_create` (without the key).
+- `PUT /api/admin/ai/presets/:id` same body; an empty `api_key` keeps the stored key. Only admin-added presets (`source: 'admin'`). Audited as `ai_preset_update`.
+- `DELETE /api/admin/ai/presets/:id` (JSON body `{}`) → `{ deleted }`; 409 while a role still uses it.
+- Presets in `/ai/config` have `{ id, label, base_url, model, key_hint: '••••abcd', key_ok, source: 'admin'|'env' }`; `can_store_keys` tells whether the server can encrypt keys.
+- `/ai/test` also accepts an unsaved form `{ base_url, model, api_key | key_from | id }`.
+- `GET /api/admin/ai/skipped` → `{ today, yesterday }` (count of user messages answered by the rule parser without calling AI).

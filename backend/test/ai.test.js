@@ -284,4 +284,25 @@ describe('Bot in assistant mode', () => {
     const row = db.prepare('SELECT user_id, model, ok FROM ai_usage').get();
     expect(row).toEqual({ user_id: '42', model: 'MiniMax-M3.1-Flash-Preview', ok: 1 });
   });
+
+  it('edits the last transaction when the user corrects the amount via voice/text', async () => {
+    await bot.message('beli martabak MBR lima puluh ribu.');
+    expect(getAllTransactions('42')).toHaveLength(1);
+    expect(getAllTransactions('42')[0]).toMatchObject({ amount: 50000, category: 'makan', note: 'beli martabak MBR' });
+
+    setAiEnv({ AI_MODEL: 'mimo-v2.6-flash' });
+    const fetchMock = aiReply(asJson({
+      reply: 'Wkwk maaf, bukan 50 tapi 15 ribu ya. Aku benerin sekarang.',
+      actions: [{ type: 'edit_last_transaction', amount: 15000 }]
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await bot.message('Lima belas kocak buka lima puluh.');
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe('none');
+    expect(getAllTransactions('42')).toHaveLength(1);
+    expect(getAllTransactions('42')[0]).toMatchObject({ amount: 15000, category: 'makan', note: 'beli martabak MBR' });
+    expect(bot.last().text).toContain('Transaksi terakhir diperbarui');
+    expect(bot.last().text).toContain('Rp 15.000');
+  });
 });

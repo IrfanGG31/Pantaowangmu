@@ -350,8 +350,8 @@ input, select, textarea { font-family: inherit; }
   font-weight: 600;
 }
 
-.badge-income  { background: rgba(52, 199, 89, 0.15); color: #1a7a41; }
-.badge-expense { background: rgba(229, 57, 53, 0.12); color: #c62828; }
+.badge-income  { background: rgba(52, 199, 89, 0.16); color: var(--c-income); }
+.badge-expense { background: rgba(229, 57, 53, 0.15); color: var(--c-expense); }
 
 /* ── Transaction item ──────────────────────────────────────────── */
 
@@ -563,19 +563,21 @@ input, select, textarea { font-family: inherit; }
 
 /* ── Alert banner ──────────────────────────────────────────────── */
 .alert-warning {
-  background: rgba(255, 159, 10, 0.12);
+  background: rgba(255, 159, 10, 0.14);
   border-left: 3px solid var(--c-warning);
-  color: #856404;
+  color: var(--tg-text);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 13px;
+  font-weight: 500;
 }
 
 .alert-danger {
-  background: rgba(229, 57, 53, 0.08);
+  background: rgba(229, 57, 53, 0.12);
   border-left: 3px solid var(--tg-destructive);
-  color: var(--tg-destructive);
+  color: var(--tg-text);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 13px;
+  font-weight: 500;
 }

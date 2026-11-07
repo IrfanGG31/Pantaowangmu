@@ -306,5 +306,42 @@ describe('Finance Bot Backend — Comprehensive Test Suite', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
+
+    it('POST /api/transactions with date, PATCH /api/transactions/:id, and GET /api/transactions?q= should work', async () => {
+      const created = await request(app)
+        .post('/api/transactions')
+        .set('x-dev-user-id', '999888')
+        .send({
+          type: 'expense',
+          amount: 45000,
+          category: 'makan',
+          note: 'sate padang kemarin',
+          date: '2026-10-01'
+        });
+
+      expect(created.status).toBe(201);
+      const txId = created.body.data.id;
+
+      const patched = await request(app)
+        .patch(`/api/transactions/${txId}`)
+        .set('x-dev-user-id', '999888')
+        .send({
+          amount: 55000,
+          category: 'hiburan',
+          note: 'nonton bioskop malam'
+        });
+
+      expect(patched.status).toBe(200);
+      expect(patched.body.data.amount).toBe(55000);
+      expect(patched.body.data.category).toBe('hiburan');
+      expect(patched.body.data.note).toBe('nonton bioskop malam');
+
+      const searched = await request(app)
+        .get('/api/transactions?q=bioskop')
+        .set('x-dev-user-id', '999888');
+
+      expect(searched.status).toBe(200);
+      expect(searched.body.data.some((t) => t.id === txId)).toBe(true);
+    });
   });
 });

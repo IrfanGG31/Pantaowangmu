@@ -371,3 +371,26 @@ CREATE TABLE IF NOT EXISTS announcements (
   created_at DATETIME DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_announcements_kind ON announcements(kind, created_at);
+
+-- Admin can override the active AI model per role (primary, up to 3 fallbacks, vision, audio) without redeploy.
+-- preset_id references one of the entries in AI_PRESETS env; actual API keys live in AI_KEYS and never leave the server.
+CREATE TABLE IF NOT EXISTS ai_overrides (
+  role TEXT PRIMARY KEY, -- primary | fallback | fallback_2 | fallback_3 | vision | audio (validated in db/aiConfig.js)
+  preset_id TEXT NOT NULL,
+  updated_at DATETIME DEFAULT (datetime('now')),
+  updated_by TEXT NOT NULL
+);
+
+-- AI models added from the admin page (base URL + model + API key). The key is encrypted with AES-256-GCM
+-- (AI_SECRET_KEY, else derived from ADMIN_SESSION_SECRET) and only its last 4 characters are ever shown.
+CREATE TABLE IF NOT EXISTS ai_providers (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  model TEXT NOT NULL,
+  api_key_enc TEXT NOT NULL,
+  key_hint TEXT NOT NULL DEFAULT '',
+  created_at DATETIME DEFAULT (datetime('now')),
+  updated_at DATETIME DEFAULT (datetime('now')),
+  updated_by TEXT NOT NULL
+);

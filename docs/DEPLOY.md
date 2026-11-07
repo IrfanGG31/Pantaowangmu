@@ -1,5 +1,7 @@
 # Deploy PantaUangmu ke Railway
 
+> **Railway tidak dipakai lagi.** Panduan deploy terbaru: [DEPLOY-VPS.md](DEPLOY-VPS.md). Isi di bawah tetap berlaku untuk variabel, backup, dan fitur.
+
 ## Arsitektur
 
 Satu layanan Railway, satu proses Node.js (`backend/src/index.js`):
@@ -297,6 +299,41 @@ Mini App yang sama bisa dipasang ke layar utama (PRD PWA: W1, W4, W6, W7). Tidak
     (tampil 14 hari atau sampai ditutup pengguna).
 - Pratinjau menunjukkan pesan Telegram yang persis; "Kirim tes" mengirimnya ke satu akun dulu.
   Semua pengiriman memakai antrean broadcast (satu per satu) dan tercatat di Riwayat broadcast & log admin.
+
+## Konfigurasi AI (ganti model & API key dari web admin)
+
+Buka **Analitik → ⚙️ Konfigurasi AI**:
+
+- **Daftar model & API key** → **+ Tambah model**: isi nama tampilan, base URL (provider yang kompatibel OpenAI: Sumopod,
+  OpenRouter, Groq, z.ai, MiniMax, dll), nama model, dan API key. Tekan **Tes koneksi**, lalu **Simpan model**.
+  - Provider dan kuncinya sama dengan model lain? Pilih **"atau pakai kunci dari"** supaya tidak perlu mengetik ulang.
+  - **Edit**: kosongkan API key untuk tetap memakai kunci lama. **Hapus** ditolak selama model masih dipakai suatu peran.
+- **Peran**: model utama, **cadangan 1, 2, 3**, foto struk, voice note. Pilih model → **Tes** → **Simpan**. Langsung aktif
+  tanpa redeploy. Chat dicoba berurutan utama → cadangan 1 → 2 → 3 → parser biasa; tiap model boleh beda provider & API key.
+  Total waktu per pesan dibatasi 25 detik (`AI_CHAT_BUDGET_MS`); model yang baru gagal dilewati 5 menit (cooldown).
+  "Pakai dari Variables (env)" kembali ke `AI_MODEL`/`AI_FALLBACK_*`/`AI_VISION_*`/`AI_AUDIO_*`.
+
+Keamanan:
+- API key dienkripsi AES-256-GCM di tabel `ai_providers` dan tidak pernah dikirim ke browser; admin hanya melihat 4 karakter
+  terakhir. Log audit mencatat perubahan tanpa kunci.
+- Kunci enkripsi diambil dari `AI_SECRET_KEY` bila ada, kalau tidak dari `ADMIN_SESSION_SECRET`. **Bila secret itu diganti,
+  kunci yang tersimpan tidak bisa dibaca lagi** (tampil "⚠️ tidak terbaca, isi ulang") dan bot memakai model dari Variables.
+  Supaya bebas mengganti `ADMIN_SESSION_SECRET`, set `AI_SECRET_KEY` (string acak ≥ 32 karakter) sebelum menyimpan kunci.
+
+Model dari Railway Variables tetap didukung: `AI_PRESETS` (JSON `[{id,label,base_url,model,key_ref}]`) dan `AI_KEYS`
+(JSON `{key_ref: apiKey}`). Model ini tampil berlabel "Variables"; bisa dites dan **Salin** jadi model admin yang bisa diedit.
+
+## Timeout AI & short-circuit (akar penyebab "timeout 15000ms")
+
+- **Short-circuit regex**: pesan sederhana ("makan 25rb", "parkir 5000") dijawab regex parser **tanpa memanggil AI**.
+  Hemat biaya, kuota, dan menghilangkan timeout untuk pesan rutin. Jumlah "pesan dilewati" tampil di kartu Kesehatan AI.
+- Timeout dipisah per task (default): chat 12 s, cadangan 6 s, receipt 20 s, laporan 20 s, STT 15 s. Semua bisa dioverride
+  via `AI_TIMEOUT_<KIND>_MS` di Variables, dengan batas aman 60 s.
+- Output dibatasi (`max_tokens`): chat 400, receipt 500, laporan 2000. Override via `AI_MAX_TOKENS_<KIND>`.
+- JSON mode (`response_format`) dipakai untuk receipt dan clustering ide — provider yang mendukung (MiniMax, GLM) men-generate
+  lebih cepat dan deterministis.
+- Fallback dicatat di kartu Kesehatan AI: % chat yang baru berhasil setelah utama gagal (heuristik 5 detik, 24 jam).
+- Tabel Error AI menampilkan **Model**, **Jenis** (chat/foto struk/voice/laporan), dan timeout aktual.
 
 ## Risiko diketahui
 

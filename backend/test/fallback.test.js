@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { initDatabase, db } from '../src/db/connection.js';
 import { registerHandlers, PROCESSING_FAILED } from '../src/bot/commands.js';
 import { getAllTransactions } from '../src/db/transactions.js';
-import { runAssistant, resetAiState, getAiChain } from '../src/ai/interpreter.js';
+import { runAssistant, resetAiState, getAiChain, timeoutFor } from '../src/ai/interpreter.js';
 import { transcribeAudio, transcribeVoice } from '../src/ai/transcribe.js';
 import { getVisionConfig, readReceipt } from '../src/ai/interpreter.js';
 import { parseFreeText, splitItems } from '../src/bot/textParser.js';
@@ -107,7 +107,7 @@ describe('AI router: Groq → MiniMax → regex', () => {
     const log = logger();
     expect(await runAssistant(TURN, { fetchImpl, logger: log })).toMatchObject({ reply: 'Dari cadangan' });
     expect(fetchImpl.mock.calls.map((c) => new URL(c[0]).host)).toEqual(['api.groq.example', 'minimax.example']);
-    expect(log.warn).toHaveBeenCalledWith(expect.objectContaining({ model: 'llama-3.1-8b-instant', error: 'timeout 15000ms' }), '[AI] Request failed');
+    expect(log.warn).toHaveBeenCalledWith(expect.objectContaining({ model: 'llama-3.1-8b-instant', error: 'timeout 12000ms' }), '[AI] Request failed');
     expect(log.info).toHaveBeenCalledWith(expect.objectContaining({ model: 'MiniMax-M3.1-Flash-Preview', fallback: true }), '[AI] Reply');
 
     await runAssistant(TURN, { fetchImpl });
@@ -122,9 +122,30 @@ describe('AI router: Groq → MiniMax → regex', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it('caps every AI call at 15 seconds', () => {
-    Object.assign(process.env, GROQ, MINIMAX, { AI_TIMEOUT_MS: '30000' });
-    expect(getAiChain().map((c) => c.timeoutMs)).toEqual([15000, 15000]);
+  it('AI_TIMEOUT_<kind>_MS controls per-task timeouts (default: 12s chat, 6s fallback, 20s receipt/report)', () => {
+    delete process.env.AI_TIMEOUT_MS;
+    delete process.env.AI_TIMEOUT_CHAT_MS;
+    delete process.env.AI_TIMEOUT_FALLBACK_MS;
+    delete process.env.AI_TIMEOUT_RECEIPT_MS;
+    delete process.env.AI_TIMEOUT_REPORT_MS;
+    expect(timeoutFor('chat')).toBe(12000);
+    expect(timeoutFor('fallback')).toBe(6000);
+    expect(timeoutFor('receipt')).toBe(20000);
+    expect(timeoutFor('report')).toBe(20000);
+    // General env still works as a fallback for any task.
+    process.env.AI_TIMEOUT_MS = '8000';
+    expect(timeoutFor('chat')).toBe(8000);
+    expect(timeoutFor('fallback')).toBe(8000);
+    // Per-task overrides win over the general knob.
+    process.env.AI_TIMEOUT_CHAT_MS = '5000';
+    expect(timeoutFor('chat')).toBe(5000);
+    expect(timeoutFor('fallback')).toBe(8000);
+    // 60 s safety cap: wild values are clamped so a buggy env never freezes a user.
+    process.env.AI_TIMEOUT_RECEIPT_MS = '999999';
+    expect(timeoutFor('receipt')).toBe(60000);
+    delete process.env.AI_TIMEOUT_MS;
+    delete process.env.AI_TIMEOUT_CHAT_MS;
+    delete process.env.AI_TIMEOUT_RECEIPT_MS;
   });
 
   it('bot: both models down → regex parser records each item and still replies', async () => {
