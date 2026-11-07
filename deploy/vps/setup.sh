@@ -7,6 +7,8 @@
 #   sudo bash setup.sh staging claude/exciting-albattani-vdde2r  3001
 #
 # Safe to run again (idempotent). Never prints or asks for secrets: you fill /opt/panta/<name>/app.env yourself.
+# Sharing a VPS with other apps: PROXY=none skips Caddy (when nginx/another proxy already owns 80/443)
+# and prints the reverse-proxy block to add there. Pick a free PORT; the script refuses a busy one.
 set -euo pipefail
 
 NAME=${1:?"pakai: sudo bash setup.sh <name> <branch> <port> [domain]"}
@@ -22,6 +24,26 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 [[ $NAME =~ ^[a-z0-9-]+$ ]] || { echo "Nama hanya huruf kecil, angka, '-'."; exit 1; }
 [[ $PORT =~ ^[0-9]+$ ]] || { echo "Port harus angka."; exit 1; }
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
+PROXY=${PROXY:-caddy}
+[[ $PROXY =~ ^(caddy|none)$ ]] || { echo "PROXY harus caddy atau none."; exit 1; }
+
+# ── 0. Preflight: never fight other apps on this server ─────────────────────
+command -v ss >/dev/null || { apt-get update -qq && apt-get install -y -qq iproute2 >/dev/null; }
+command -v ss >/dev/null || { echo "Perintah 'ss' tidak tersedia; tidak bisa memastikan port bebas."; exit 1; }
+listeners() { ss -ltnpH "( sport = :$1 )" 2>/dev/null | grep -o 'users:(("[^"]*"' | cut -d'"' -f2 | sort -u | tr '\n' ' '; }
+if [ ! -f "$DIR/compose.yml" ] && [ -n "$(ss -ltnH "( sport = :$PORT )" 2>/dev/null)" ]; then
+  echo "Port $PORT sudah dipakai ($(listeners "$PORT")). Pilih port lain, mis. PORT=3100."; exit 1
+fi
+if [ "$PROXY" = caddy ]; then
+  for p in 80 443; do
+    owners=$(listeners $p | sed 's/\bcaddy\b//g' | xargs || true)
+    if [ -n "$owners" ]; then
+      echo "Port $p sudah dipakai '$owners' (aplikasi lain di server ini)."
+      echo "Supaya tidak bentrok, jalankan ulang dengan PROXY=none, lalu tambahkan blok reverse proxy yang dicetak di akhir ke server web itu."
+      exit 1
+    fi
+  done
+fi
 
 # ── 1. System (once) ─────────────────────────────────────────────────────────
 say "Paket dasar"
@@ -42,14 +64,21 @@ if ! command -v docker >/dev/null; then
 fi
 systemctl enable --now docker >/dev/null
 
-if ! command -v caddy >/dev/null; then
+if [ "$PROXY" = caddy ] && ! command -v caddy >/dev/null; then
   say "Caddy (HTTPS otomatis)"
+  CADDY_NEW=1
   curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -qq && apt-get install -y -qq caddy >/dev/null
 fi
-mkdir -p /etc/caddy/sites
-grep -q 'import /etc/caddy/sites/\*' /etc/caddy/Caddyfile 2>/dev/null || echo 'import /etc/caddy/sites/*.caddy' > /etc/caddy/Caddyfile
+if [ "$PROXY" = caddy ]; then
+  mkdir -p /etc/caddy/sites
+  if ! grep -q 'import /etc/caddy/sites/\*' /etc/caddy/Caddyfile 2>/dev/null; then
+    # Fresh install: replace the placeholder site. Existing Caddy: keep its config and only add our import.
+    if [ -n "${CADDY_NEW:-}" ]; then echo 'import /etc/caddy/sites/*.caddy' > /etc/caddy/Caddyfile
+    else cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak-$(date +%s)"; printf '\nimport /etc/caddy/sites/*.caddy\n' >> /etc/caddy/Caddyfile; fi
+  fi
+fi
 
 # Oracle Ubuntu images REJECT everything but SSH in iptables (the cloud Security List must allow 80/443 too).
 say "Firewall 80/443"
@@ -84,13 +113,18 @@ if [ ! -f "$DIR/app.env" ]; then
 fi
 chmod 600 "$DIR/app.env"
 
-cat > "/etc/caddy/sites/$NAME.caddy" <<EOF
-$DOMAIN {
-	encode gzip
-	reverse_proxy 127.0.0.1:$PORT
-}
-EOF
-systemctl reload caddy 2>/dev/null || systemctl restart caddy
+if [ "$PROXY" = caddy ]; then
+  printf '%s {\n\tencode gzip\n\treverse_proxy 127.0.0.1:%s\n}\n' "$DOMAIN" "$PORT" > "/etc/caddy/sites/$NAME.caddy"
+  caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 || { echo "Konfigurasi Caddy tidak valid; cek /etc/caddy/Caddyfile."; exit 1; }
+  systemctl reload caddy 2>/dev/null || systemctl restart caddy
+else
+  echo
+  echo "PROXY=none: tambahkan ini ke server web yang sudah ada (HTTPS untuk $DOMAIN diurus di sana):"
+  echo "  nginx: server { server_name $DOMAIN; location / { proxy_pass http://127.0.0.1:$PORT; proxy_set_header Host \$host;"
+  echo "         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; } }"
+  echo "         lalu: sudo certbot --nginx -d $DOMAIN"
+  echo "  Caddy: $DOMAIN { reverse_proxy 127.0.0.1:$PORT }"
+fi
 
 # Auto-deploy: every 2 minutes, rebuild only when the branch moved.
 cat > "/etc/cron.d/panta-$NAME" <<EOF
