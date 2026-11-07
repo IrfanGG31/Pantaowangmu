@@ -111,7 +111,7 @@ if [ "$(uname -m)" = x86_64 ] && [ "${IMAGE_MODE:-pull}" != local ]; then
   TAG=$(printf '%s' "$BRANCH" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9._-]/-/g')
   IMAGE_LINE="PANTA_IMAGE=ghcr.io/irfangg31/pantaowangmu:$TAG"
 fi
-printf 'PANTA_NAME=%s\nHOST_PORT=%s\nMEM_LIMIT=%s\n%s\n' "$NAME" "$PORT" "${MEM_LIMIT:-512m}" "$IMAGE_LINE" > "$DIR/compose.env"
+printf 'PANTA_NAME=%s\nHOST_PORT=%s\nMEM_LIMIT=%s\n%s\n' "$NAME" "$PORT" "${MEM_LIMIT:-320m}" "$IMAGE_LINE" > "$DIR/compose.env"
 
 if [ ! -f "$DIR/app.env" ]; then
   sed "s|^WEBAPP_URL=.*|WEBAPP_URL=https://$DOMAIN|" "$HERE/app.env.example" > "$DIR/app.env"

@@ -19,7 +19,12 @@ Data: /opt/panta/<nama>/data/finance.db   Rahasia: /opt/panta/<nama>/app.env (ch
   terjadi di server. Server ARM atau `IMAGE_MODE=local` tetap build di server.
   **Sekali saja:** setelah workflow pertama hijau, buka github.com/IrfanGG31?tab=packages → `pantaowangmu` →
   Package settings → Change visibility → **Public** (supaya VPS bisa menarik tanpa login).
-- **RAM Panta dibatasi** `MEM_LIMIT` (default 512m, pemakaian nyata ±100–250 MB), jadi tidak bisa menghabiskan RAM aplikasi lain.
+- **Panta mengalah ke aplikasi lain** (atur di `/opt/panta/<nama>/compose.env`, lalu `panta-deploy … --force`):
+  - RAM maks `MEM_LIMIT` (default 320m; pemakaian nyata ±90–200 MB) dan **tidak memakai swap**.
+  - Heap Node `NODE_HEAP_MB` (default 192).
+  - CPU maks `CPU_LIMIT` (default 0.75 core), dengan prioritas setengah.
+  - Bila RAM server habis, **Panta yang dimatikan duluan**, bukan aplikasi lain. Panta lalu restart sendiri.
+  - Log maksimal 10 MB.
 - **Port**: pakai port bebas (`PORT=3100`). Bila 80/443 sudah dipakai server web lain, jalankan dengan `PROXY=none`.
   Script akan berhenti sendiri bila ada bentrok, dan tidak menimpa config server web yang sudah ada.
 
