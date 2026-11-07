@@ -12,6 +12,17 @@ Telegram ─► https://panta.<ip>.sslip.io ─► Caddy :443 ─► 127.0.0.1:3
 Data: /opt/panta/<nama>/data/finance.db   Rahasia: /opt/panta/<nama>/app.env (chmod 600)
 ```
 
+## Server kecil / dipakai bareng aplikasi lain
+
+- **Image dibangun oleh GitHub Actions** (workflow `image`, ±5 menit setelah push), bukan di VPS. Server x86_64
+  hanya menarik image `ghcr.io/irfangg31/pantaowangmu:<branch>`, jadi build npm/vite yang makan ±1 GB RAM tidak
+  terjadi di server. Server ARM atau `IMAGE_MODE=local` tetap build di server.
+  **Sekali saja:** setelah workflow pertama hijau, buka github.com/IrfanGG31?tab=packages → `pantaowangmu` →
+  Package settings → Change visibility → **Public** (supaya VPS bisa menarik tanpa login).
+- **RAM Panta dibatasi** `MEM_LIMIT` (default 512m, pemakaian nyata ±100–250 MB), jadi tidak bisa menghabiskan RAM aplikasi lain.
+- **Port**: pakai port bebas (`PORT=3100`). Bila 80/443 sudah dipakai server web lain, jalankan dengan `PROXY=none`.
+  Script akan berhenti sendiri bila ada bentrok, dan tidak menimpa config server web yang sudah ada.
+
 ## 0. Selamatkan data dari Railway (lakukan duluan)
 
 Trial Railway habis, jadi layanannya offline, dan volume bisa dihapus Railway kalau dibiarkan lama.

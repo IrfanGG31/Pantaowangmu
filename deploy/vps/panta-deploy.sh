@@ -19,6 +19,15 @@ ARG=${3:-}
 cd "$DIR"
 dc() { docker compose --project-directory "$DIR" -f "$DIR/compose.yml" --env-file "$DIR/compose.env" "$@"; }
 stamp() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
+# Image mode (PANTA_IMAGE in compose.env): GitHub Actions builds, this server only pulls. Otherwise build here.
+IMAGE=$(grep -E '^PANTA_IMAGE=' compose.env 2>/dev/null | cut -d= -f2- || true)
+image_id() { docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true; }
+pull_image() {
+  dc pull -q app && return 0
+  echo "[$(stamp)] Gagal menarik $IMAGE. Pastikan GitHub Actions 'image' sudah hijau dan package-nya Public"
+  echo "  (github.com/IrfanGG31?tab=packages → pantaowangmu → Package settings → Change visibility → Public)."
+  return 1
+}
 
 secrets_ready() {
   if ! grep -Eq '^BOT_TOKEN=.+' app.env; then
@@ -30,7 +39,12 @@ secrets_ready() {
 build_and_up() {
   secrets_ready || exit 1
   echo "[$(stamp)] deploy $(git -C repo rev-parse --short HEAD) ($(git -C repo log -1 --format=%s | cut -c1-70))"
-  dc up -d --build --remove-orphans
+  if [ -n "$IMAGE" ]; then
+    pull_image || exit 1
+    dc up -d --no-build --remove-orphans
+  else
+    dc up -d --build --remove-orphans
+  fi
   docker image prune -f >/dev/null
   # Wait for the healthcheck so a broken build is visible in the log.
   for _ in $(seq 1 30); do
@@ -47,11 +61,16 @@ case "$ACTION" in
     BRANCH=$(git -C repo rev-parse --abbrev-ref HEAD)
     git -C repo fetch -q origin "$BRANCH"
     running=$(dc ps -q app 2>/dev/null || true)
-    if [ "$(git -C repo rev-parse HEAD)" = "$(git -C repo rev-parse "origin/$BRANCH")" ] && [ -n "$running" ]; then
-      exit 0
-    fi
     secrets_ready >/dev/null || exit 0   # not configured yet: stay quiet in cron
-    git -C repo reset -q --hard "origin/$BRANCH"
+    if [ -n "$IMAGE" ]; then
+      before=$(image_id)
+      dc pull -q app >/dev/null 2>&1 || exit 0   # image not published yet: try again next tick
+      [ "$before" = "$(image_id)" ] && [ -n "$running" ] && exit 0
+      git -C repo reset -q --hard "origin/$BRANCH"
+    else
+      [ "$(git -C repo rev-parse HEAD)" = "$(git -C repo rev-parse "origin/$BRANCH")" ] && [ -n "$running" ] && exit 0
+      git -C repo reset -q --hard "origin/$BRANCH"
+    fi
     build_and_up
     ;;
   --force)
