@@ -1,5 +1,7 @@
 # Deploy PantaUangmu ke Railway
 
+> **Railway tidak dipakai lagi.** Panduan deploy terbaru: [DEPLOY-VPS.md](DEPLOY-VPS.md). Isi di bawah tetap berlaku untuk variabel, backup, dan fitur.
+
 ## Arsitektur
 
 Satu layanan Railway, satu proses Node.js (`backend/src/index.js`):

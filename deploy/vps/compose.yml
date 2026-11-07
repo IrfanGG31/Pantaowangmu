@@ -1,0 +1,35 @@
+# One PantaUangmu instance (copied to /opt/panta/<name>/compose.yml by setup.sh).
+# Same image as Railway: Express API + Mini App + bot (polling) + cron, SQLite in ./data.
+name: panta-${PANTA_NAME:?}
+
+services:
+  app:
+    build:
+      context: ./repo
+      dockerfile: Dockerfile
+    image: panta-${PANTA_NAME}:latest
+    restart: unless-stopped
+    env_file:
+      # raw: values are taken literally, so '$' in ADMIN_PASSWORD_HASH or API keys is safe. Do not quote values.
+      - path: ./app.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DB_PATH: /data/finance.db
+    volumes:
+      - ./data:/data
+    # Only Caddy (on the host) reaches the app; nothing is exposed publicly except 80/443.
+    ports:
+      - "127.0.0.1:${HOST_PORT:?}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
