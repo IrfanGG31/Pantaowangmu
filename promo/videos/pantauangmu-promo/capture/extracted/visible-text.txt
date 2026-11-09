@@ -1,0 +1,441 @@
+# BRD – PantaUangmu
+
+**Pemilik:** Rafi | **Versi:** 1.0 · 6 Oktober 2026 | **Status:** Draft
+
+---
+
+## 1. Ringkasan Eksekutif
+
+PantaUangmu adalah aplikasi pencatat keuangan pribadi yang hidup sepenuhnya di dalam Telegram — tanpa instalasi, tanpa registrasi akun baru. Pengguna mencatat transaksi dalam 3 detik lewat chat biasa ("25rb makan siang"), dan langsung mendapat satu angka jawaban: **Jatah Aman Harian**, yaitu sisa uang yang aman dibelanjakan hari ini.
+
+Produk ini menyasar lebih dari 100 juta pengguna aktif Telegram di Indonesia yang belum memiliki kebiasaan mencatat keuangan bukan karena tidak mau, melainkan karena aplikasi yang ada terlalu ribet. Dengan memanfaatkan infrastruktur Telegram (identitas, notifikasi, grup, Mini App, Telegram Stars), PantaUangmu dapat didistribusikan tanpa biaya akuisisi pengguna yang besar dan dimonetisasi langsung via platform.
+
+**Proposisi inti:** *Catat dalam 3 detik. Paham dalam 10 detik. Untuk semua orang, di dalam Telegram.*
+
+## 2. Latar Belakang & Konteks Bisnis
+
+### 2.1 Masalah Utama
+
+Orang Indonesia berhenti mencatat keuangan bukan karena malas — melainkan karena friction-nya terlalu tinggi. Buka aplikasi → cari menu → pilih kategori → isi kolom: 4 langkah hanya untuk mencatat "beli kopi 25rb." Aplikasi keuangan populer (Money Manager, Wallet, Spendee) rata-rata ditinggalkan dalam 2–3 minggu pertama.
+
+### 2.2 Peluang di Telegram
+
+Telegram bukan sekadar messenger — ia adalah super-app platform yang matang:
+
+- Lebih dari 100 juta pengguna aktif Telegram di Indonesia sudah membukanya puluhan kali sehari
+- Tidak ada instalasi dan tidak ada registrasi: identitas pengguna sudah tersedia otomatis via `initData`
+- Grup dan kontak bawaan membuat fitur dompet bersama (pasangan, keluarga, teman kos) murah untuk dibangun
+- Mini App memberikan UI penuh (grafik, form, tombol native) yang tidak mungkin hadir di chat biasa
+- Telegram Stars sudah tersedia sebagai pembayaran langganan in-app
+
+### 2.3 Konteks Produk
+
+PantaUangmu dibangun di atas prototipe yang sudah berjalan (SvelteKit Mini App + Node.js/Express). Repo referensi `alexey-goloburdin/telegram-finance-bot` menjadi inspirasi untuk konsep batas harian dan kategori alias. PRD v1.0 (29 September 2026) telah mendokumentasikan analisis penuh celah prototipe dan roadmap teknis.
+
+### 2.4 Diferensiasi vs Kompetitor
+
+| Kompetitor | Masalah mereka | Keunggulan PantaUangmu |
+| --- | --- | --- |
+| Money Manager, Wallet | Harus buka app tersendiri, input manual ribet | Hidup di Telegram, input 1 kalimat |
+| Bot keuangan Telegram lain | Hanya command-based, tidak ada Mini App | Natural language + Mini App penuh |
+| Spreadsheet (Excel, Google Sheets) | Tidak portable, tidak ada analitik otomatis | Portable, insight otomatis |
+| Nol (kebanyakan pengguna) | Tidak tahu uang ke mana | Entry point paling rendah di ekosistem |
+
+## 3. Unique Selling Proposition (USP) & Value Proposition
+
+### 3.1 USP Utama
+
+> **"Satu-satunya pencatat keuangan yang hidup di dalam Telegram dan menjawab satu pertanyaan: aman nggak hari ini?"**
+
+PantaUangmu bukan sekadar bot keuangan — ia menggabungkan kecepatan chat dengan kedalaman analitik Mini App, tanpa memaksa pengguna keluar dari Telegram.
+
+### 3.2 Lima Pilar USP
+
+**1. Zero Friction Entry — Tanpa Instalasi, Tanpa Akun Baru** Pengguna mulai hanya dengan `/start`. Identitas dari akun Telegram yang sudah ada. Tidak ada email, tidak ada password, tidak ada form. Satu kalimat sudah bisa mencatat.
+
+**2. Natural Language Input dalam Bahasa Indonesia** Parser memahami cara orang Indonesia betulan nulis:
+
+- Nominal: `25rb`, `1,5jt`, `2 juta`, `150k`, `35.000`
+- Konteks waktu: `kemarin`, `senin`, `tadi siang`
+- Pedagang lokal: `gojek`, `grab`, `indomaret`, `warteg`
+- Transfer e-wallet: `gopay`, `ovo`, `dana`, `shopee`
+
+Bukan hanya angka — tapi *bahasa sehari-hari* orang Indonesia.
+
+**3. Jatah Aman Harian — Satu Angka, Bukan Tabel** Layar utama menjawab satu pertanyaan: *"Aman nggak hari ini?"* Formula:
+
+`Jatah Aman = (Dana periode - Tagihan tetap - Pengeluaran sejauh ini) ÷ Sisa hari`
+
+Ditampilkan dengan status warna dan teks: aman / hati-hati / melampaui. Mengikuti tanggal gajian, bukan selalu tanggal 1.
+
+**4. Shared Ledger — Viral by Design** Buku bersama untuk pasangan, keluarga, atau teman kos diundang lewat tautan `startapp`. Setiap transaksi menampilkan siapa yang mencatat. Ini adalah loop viral organik: satu undangan = satu pengguna baru masuk.
+
+**5. Bot di Grup — Distribusi Lewat Komunitas** Bot bisa ditambahkan ke grup Telegram. Pesan berformat (`25rb galon`) tercatat ke buku grup. Ini memungkinkan distribusi ke komunitas mahasiswa, komunitas kos, grup keluarga — tanpa iklan.
+
+### 3.3 Value Proposition per Segmen
+
+| Segmen | Masalah | Nilai yang diterima |
+| --- | --- | --- |
+| Mahasiswa | Uang saku habis sebelum waktunya | Jatah Aman Harian + pengingat cerdas |
+| Karyawan | Tidak tahu gaji ke mana | Ringkasan otomatis + kategori pengeluaran |
+| Pasangan muda | Pengeluaran bersama tidak tercatat | Shared ledger di chat yang sudah ada |
+| Pemilik usaha kecil | Uang usaha dan rumah bercampur | Beberapa buku terpisah + ekspor CSV |
+
+## 4. Target Pasar & Segmen Pengguna
+
+### 4.1 Total Addressable Market (TAM)
+
+- Pengguna aktif Telegram di Indonesia: **>100 juta** (per 2024)
+- Penetrasi smartphone Indonesia: **\~200 juta** pengguna
+- Pengguna yang belum memiliki kebiasaan mencatat keuangan: diestimasi **>70%** segmen usia 18–45 tahun
+
+### 4.2 Persona Pengguna
+
+**Dinda, 20 tahun — Mahasiswi**
+
+- Situasi: Uang saku bulanan Rp 1,5 juta dari orang tua, sering habis seminggu sebelum kiriman berikutnya
+- Kebiasaan: Aktif di Telegram untuk grup kuliah dan komunitas
+- Kebutuhan: Tahu sisa uang sampai tanggal kiriman berikutnya, catat cepat tanpa aplikasi baru
+- Fitur kunci: Jatah Aman Harian, catat via chat, notifikasi saat mendekati batas
+
+**Andi, 28 tahun — Karyawan Swasta**
+
+- Situasi: Gaji tetap Rp 8 juta, ada cicilan, langganan streaming, dan pengeluaran nongkrong yang sulit dikontrol
+- Kebiasaan: Sering cek laporan keuangan akhir bulan tapi tidak tahu harus mulai dari mana
+- Kebutuhan: Kendali tanpa repot, insight mingguan otomatis
+- Fitur kunci: Anggaran per kategori, transaksi berulang, wawasan otomatis
+
+**Bu Sari, 42 tahun — Pemilik Warung**
+
+- Situasi: Uang usaha dan rumah tangga bercampur, sering bingung berapa untung bulan ini
+- Kebutuhan: Pisah dua buku, laporan sederhana, ekspor ke CSV
+- Fitur kunci: Beberapa buku (ledger), ekspor data, ringkasan per periode
+
+**Raka & Nabila — Pasangan Muda**
+
+- Situasi: Sudah serumah atau baru menikah, pengeluaran bersama sering tidak tercatat
+- Kebutuhan: Satu buku bersama, lihat siapa belanja apa, tanpa saling menagih
+- Fitur kunci: Shared ledger, nama pencatat di tiap transaksi
+
+### 4.3 Urutan Akuisisi
+
+1. **Fase 1:** Mahasiswa dan Gen Z — adopsi cepat, viral via grup kampus
+2. **Fase 2:** Karyawan muda 25–35 tahun — konversi ke fitur Pro lebih tinggi
+3. **Fase 3:** Pelaku UMKM kecil — butuh fitur buku terpisah dan ekspor
+4. **Fase 4:** Keluarga dan pasangan — shared ledger sebagai viral loop utama
+
+## 5. Kebutuhan Bisnis & Fungsional
+
+### 5.1 Kebutuhan Bisnis
+
+| # | Kebutuhan | Prioritas | Ukuran Keberhasilan |
+| --- | --- | --- | --- |
+| B1 | Pengguna baru mencatat transaksi pertama dalam 60 detik dari `/start` tanpa mengisi form | Kritis | % onboarding completion, median time-to-first-tx |
+| B2 | Waktu pencatatan teks median di bawah 5 detik end-to-end | Kritis | p50 latency bot response |
+| B3 | Produk dapat digunakan tanpa instruksi oleh pengguna 18–45 tahun | Kritis | Skor usability test |
+| B4 | Platform siap untuk 100.000 pengguna aktif tanpa tulis ulang arsitektur | Tinggi | Load test, waktu respons API |
+| B5 | Pengguna dapat mengundang pasangan/keluarga ke buku bersama | Tinggi | % pengguna dengan setidaknya 1 anggota shared ledger |
+| B6 | Konversi pengguna aktif ke Pro minimal 3–5% | Tinggi | MRR, conversion rate |
+| B7 | Akurasi kategorisasi otomatis minimal 85% setelah 30 hari pemakaian | Sedang | % transaksi yang tidak diubah pengguna |
+
+### 5.2 Kebutuhan Fungsional (P0 — Wajib Rilis Publik)
+
+**Pencatatan (Capture)**
+
+- **C1** Kalimat bebas di bot tanpa perintah: `25rb makan siang`, `gaji 5jt`, `bensin 35.000 kemarin`
+- **C2** Parser nominal Indonesia: `rb`, `k`, `ribu`, `jt`, `juta`, `1,5jt`, `1.500.000`
+- **C3** Kartu konfirmasi dengan tombol Ubah Kategori, Ubah Dompet, dan Urungkan
+- **C4** Form catat manual di Mini App (keypad angka besar, kategori terakhir di atas)
+- **C5** Edit transaksi: ubah jumlah, kategori, dompet, tanggal, catatan
+- **C6** Catat mundur: `kemarin`, `senin`, pilih tanggal
+
+**Gambaran & Analisis (Insight)**
+
+- **I1** Beranda: Jatah Aman Harian dengan status warna, 5 transaksi terakhir
+- **I2** Ringkasan periode hari/minggu/bulan: masuk, keluar, selisih
+- **I3** Rincian per kategori dengan grafik donat/bar
+
+**Perencanaan (Plan)**
+
+- **P1** Anggaran per kategori per bulan dengan bilah progres
+- **P2** Peringatan saat pengeluaran mencapai 80% dan 100% batas anggaran
+
+**Dompet & Kepercayaan**
+
+- **W1** Beberapa dompet: tunai, bank, e-wallet dengan saldo awal
+- **W2** Transfer antar dompet
+- **T1** Antarmuka tersedia dalam Bahasa Indonesia dan Inggris
+- **T4** Ekspor data CSV
+- **T5** Hapus akun dan semua data
+- **T7** Pengingat harian dengan waktu yang bisa diatur
+
+### 5.3 Kebutuhan Fungsional (P1 — Segera Setelah Rilis)
+
+- **C7** Voice note: kirim suara → transkripsi → parse
+- **C8** Foto struk: ambil total, toko, tanggal dari gambar
+- **C9** Tempel notifikasi bank/e-wallet (GoPay, DANA, OVO, BCA)
+- **C10** Transaksi berulang: gaji, kos, langganan, cicilan
+- **I4** Tren dan pembanding: bulan ini vs bulan lalu
+- **I6** Wawasan otomatis: "Makan naik 32% dari bulan lalu"
+- **S1** Buku bersama dengan peran Pemilik/Anggota/Pelihat
+- **S2** Bot di grup Telegram
+
+### 5.4 Non-Goals (Versi 1)
+
+- Tidak memindahkan atau menyimpan uang, tidak memproses pembayaran
+- Tidak terhubung otomatis ke rekening bank (open banking)
+- Tidak ada aplikasi native iOS/Android
+- Tidak ada saran investasi atau produk keuangan
+
+## 6. Model Monetisasi
+
+### 6.1 Model Freemium + Telegram Stars
+
+Pencatatan inti **selalu gratis** — kebiasaan mencatat harus terbentuk dulu sebelum dimonetisasi. Fitur lanjutan dikunci di belakang langganan Pro yang dibayar via **Telegram Stars** (platform pembayaran resmi Telegram untuk digital goods di bot dan Mini App).
+
+### 6.2 Perbandingan Tier
+
+| Fitur | Gratis | Pro |
+| --- | --- | --- |
+| Catat via chat dan Mini App | Tidak terbatas | Tidak terbatas |
+| Dompet | Hingga 3 | Tidak terbatas |
+| Buku/ledger | 1 pribadi | Banyak + buku bersama |
+| Anggaran, statistik dasar | Ya | Ya |
+| Parser LLM (kalimat kompleks) | Kuota bulanan kecil | Kuota lebih besar |
+| Voice note & foto struk | Kuota kecil | Kuota besar |
+| Shared ledger (anggota) | Hingga 2 orang | Hingga 10 orang |
+| Wawasan otomatis, laporan bulanan | Ringkas | Penuh |
+| Tanya data dengan bahasa biasa | Tidak | Ya |
+| Ekspor CSV | Ya | Ya |
+| Laporan bisa dibagikan | Tidak | Ya |
+
+### 6.3 Estimasi Harga
+
+Sebagai titik tolak yang perlu divalidasi melalui uji harga:
+
+- **Pro Bulanan:** setara Rp 25.000–35.000/bulan (dalam Stars)
+- **Pro Tahunan:** diskon \~30% — setara Rp 200.000–250.000/tahun
+- **Target konversi:** 3–5% dari MAU yang aktif mencatat
+
+### 6.4 Revenue Potensial (Skenario Konservatif)
+
+| MAU Aktif | Konversi Pro | ARPU/bulan | MRR |
+| --- | --- | --- | --- |
+| 10.000 | 3% | Rp 30.000 | Rp 9.000.000 |
+| 50.000 | 4% | Rp 30.000 | Rp 60.000.000 |
+| 100.000 | 5% | Rp 30.000 | Rp 150.000.000 |
+
+*Angka ini adalah estimasi awal untuk planning, bukan proyeksi resmi.*
+
+### 6.5 Pertimbangan Platform
+
+Telegram mewajibkan penggunaan Stars untuk digital goods di dalam bot dan Mini App (berlaku sejak September 2024). Ketentuan terbaru dan besaran fee Stars perlu diverifikasi sebelum peluncuran. Tidak ada rencana pembayaran di luar platform Telegram untuk menghindari kompleksitas regulasi.
+
+## 7. Arsitektur & Ketergantungan Teknis
+
+### 7.1 Stack Teknologi
+
+| Lapisan | Teknologi | Status |
+| --- | --- | --- |
+| Mini App (frontend) | SvelteKit static SPA + TypeScript + Chart.js | Sudah ada di prototipe |
+| Bot & API | Node.js + Express/Fastify, satu repo | Sudah ada, perlu konsolidasi |
+| Mode bot | Webhook (bukan long polling) | Perlu migrasi dari polling |
+| Database | PostgreSQL via Supabase | Migrasi dari SQLite |
+| Antrean & pekerjaan | pg-boss atau BullMQ | Baru |
+| Penyimpanan file | Supabase Storage (foto struk) | Baru |
+| LLM / parser | Model ringan untuk teks; model visi untuk struk | Baru (P1) |
+| Hosting Mini App | Vercel / Cloudflare Pages | Sesuai stack yang ada |
+| Hosting API & Bot | Railway / Fly.io / VPS | Sesuai stack yang ada |
+| Observabilitas | pino (sudah ada) + Sentry + metrik dasar | Partial |
+
+### 7.2 Dependensi Eksternal
+
+- **Telegram Bot API** (v8.0+ untuk Mini App, v9.0+ untuk SecureStorage & DeviceStorage)
+- **Telegram Stars** sebagai payment gateway — fee platform perlu dikonfirmasi
+- **Supabase** untuk PostgreSQL dan Row Level Security (RLS)
+- **Penyedia LLM** untuk parsing teks kompleks dan OCR struk (belum ditentukan vendor)
+- **Zona waktu pengguna** — semua timestamp disimpan UTC, tampilkan di zona waktu pengguna
+
+### 7.3 Pekerjaan Konsolidasi Prototipe (Blocker sebelum Rilis)
+
+1. Pilih satu backend (`backend/src/`) dan hapus duplikasi `api/` di root
+2. Samakan port antara `README.md` (3000) dan `CONTRACT.md` (3001)
+3. Migrasi SQLite ke PostgreSQL via Supabase dengan migrasi berversi
+4. Pastikan bypass `X-Dev-User-Id` tidak aktif di production (tes otomatis)
+5. Verifikasi perhitungan batas hari/minggu/bulan terhadap zona waktu pengguna
+6. Tambahkan tes untuk Mini App (saat ini hanya backend yang ada tesnya)
+
+### 7.4 Keamanan
+
+- Validasi tanda tangan `initData` (HMAC-SHA256 atau Ed25519) pada **setiap** request
+- Row Level Security (RLS) di PostgreSQL sebagai lapisan otorisasi kedua
+- Token bot dan kunci LLM hanya di environment variable server, tidak pernah di Mini App
+- Rate limiting per user dan per IP
+- Foto struk dihapus otomatis setelah diproses (default)
+- Tidak menyimpan nomor rekening atau kartu (parser membuang angka panjang)
+- Kepatuhan UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi (PDP)
+- Kebijakan privasi wajib ada dan bisa diakses dari bot dan Mini App
+
+## 8. Metrik Keberhasilan & North Star
+
+### 8.1 North Star Metric
+
+> **WAL (Weekly Active Loggers):** Pengguna yang mencatat di ≥4 hari berbeda dalam 7 hari terakhir.
+
+WAL mengukur apakah PantaUangmu sudah menjadi **kebiasaan**, bukan sekadar dicoba sekali. Ini lebih bermakna dari DAU/MAU biasa karena mencatat keuangan harus terjadi hampir setiap hari untuk memberikan nilai.
+
+### 8.2 Metrik Utama
+
+| Metrik | Definisi | Target Awal |
+| --- | --- | --- |
+| **North Star: WAL** | Pengguna mencatat ≥4 hari dalam 7 hari | Naik bulan ke bulan |
+| Waktu ke transaksi pertama | `/start` → transaksi tersimpan | p50 < 60 detik |
+| Waktu pencatatan teks | Pesan diterima → konfirmasi terkirim | p50 < 5 detik |
+| Akurasi parser | % transaksi yang tidak diubah pengguna | ≥85% setelah 30 hari |
+| Retensi D7 | Pengguna yang mencatat lagi di hari ke-7 | ≥35% |
+| Retensi D30 | Pengguna yang mencatat lagi di hari ke-30 | ≥20% |
+| Kecepatan Mini App | Time-to-first-content pada 4G, mid-range | < 1,5 detik |
+| Konversi Pro | MAU aktif yang berlangganan | 3–5% |
+| Viral coefficient | Undangan shared ledger yang diterima per pengguna | > 0,3 |
+
+### 8.3 Corong Analitik
+
+```
+Impresikan → Onboard → Catat Pertama → Aktif (WAL) → Bayar (Pro)
+```
+
+Event yang dilacak (tanpa nominal atau catatan pribadi): `start`, `first_tx`, `tx_created{source}`, `tx_edited{field}`, `tx_undone`, `parse_fallback_llm`, `budget_set`, `wallet_added`, `invite_sent`, `invite_accepted`, `export`, `paywall_view`, `subscribe`.
+
+### 8.4 Eksperimen Awal yang Direncanakan
+
+1. Auto-save vs selalu konfirmasi: mana yang meningkatkan retensi dan akurasi parser?
+2. Waktu pengingat harian: 20:00 vs 21:00 vs adaptif berdasarkan waktu biasanya pengguna mencatat
+3. Beranda dengan Jatah Aman vs beranda dengan ringkasan saldo total
+
+## 9. Risiko & Asumsi Bisnis
+
+### 9.1 Risiko Utama
+
+| Risiko | Kemungkinan | Dampak | Mitigasi |
+| --- | --- | --- | --- |
+| Parser salah kategori → pengguna kehilangan kepercayaan | Tinggi | Tinggi | Konfirmasi saat ragu; mudah diurungkan; belajar dari koreksi; ukur akurasi |
+| Biaya LLM membengkak seiring skala | Sedang | Sedang | Regex dulu, LLM hanya sebagai cadangan; kuota per pengguna; cache respons |
+| Pengguna berhenti setelah minggu pertama | Tinggi | Tinggi | Jatah Aman Harian; pengingat cerdas; wawasan otomatis; onboarding tanpa friction |
+| Perubahan kebijakan atau API Telegram | Sedang | Sedang | Deteksi fitur dengan `isVersionAtLeast`, tidak bergantung pada satu fitur baru |
+| Kepercayaan atas data keuangan pribadi | Sedang | Tinggi | Kebijakan privasi transparan; ekspor dan hapus kapan saja; kunci biometrik |
+| Pembatasan rate pengiriman pesan Telegram (\~30 msg/dtk) | Sedang | Sedang | Sebar pengiriman; hormati jam tenang pengguna; antrian per zona waktu |
+| Beban satu pengembang di sela kuliah & bisnis | Tinggi | Sedang | Prioritas ketat; fase kecil; jangan mulai P1 sebelum MVP terbukti |
+| Regulasi fintech (UU PDP, OJK) | Rendah | Tinggi | Produk hanya mencatat, tidak memproses dana; konfirmasi dengan penasihat hukum |
+
+### 9.2 Asumsi yang Perlu Divalidasi
+
+- Pengguna mau mencatat lewat chat dibanding membuka aplikasi terpisah
+- Akurasi parser Bahasa Indonesia cukup tinggi dengan regex + LLM ringan
+- Pengguna Gen Z dan milenial Indonesia mau membayar Stars untuk kuota dan fitur berbagi
+- Shared ledger lewat grup Telegram menjadi growth loop utama (viral by design)
+- Jatah Aman Harian adalah metafora yang langsung dimengerti tanpa penjelasan
+
+## 10. Roadmap & Fase Rilis
+
+### Filosofi Pengembangan
+
+PantaUangmu menggunakan pendekatan **ship-and-learn**: rilis ke pengguna nyata secepat mungkin, ukur, lalu iterasi. Setiap fase memiliki *definition of done* yang ketat sebelum masuk fase berikutnya.
+
+---
+
+### Phase 0 — Konsolidasi (1–2 Minggu)
+
+**Goal:** Satu basis kode yang bersih dan siap dikembangkan secara publik.
+
+| Tugas | Detail |
+| --- | --- |
+| Satu Backend | Hapus duplikasi `api/` vs `backend/src/`; satu entry point `/backend` |
+| Port Konsisten | Standarisasi ke `:3001`; perbarui README, `.env.example`, CONTRACT.md |
+| SQLite ke PostgreSQL | Migrasi schema ke Supabase; aktifkan RLS di semua tabel sensitif |
+| Webhook Bot | Ganti polling ke webhook HTTPS; tambahkan endpoint health-check |
+| Zona Waktu | Simpan semua timestamp sebagai UTC; konversi ke Asia/Jakarta (WIB) di layer presentasi |
+| Test Suite Dasar | Unit test parser nominal (>=40 skenario); integration test `/transactions` endpoint |
+
+**Exit criteria:** CI hijau, `bot.test.ts` & `api.test.ts` lulus, deploy staging berjalan.
+
+---
+
+### Phase 1 — MVP Publik (3–4 Minggu)
+
+**Goal:** WAL >= 200; pengguna pertama logging setiap hari secara mandiri.
+
+| Kode | Fitur |
+| --- | --- |
+| C1–C6 | Catat cepat via teks + konfirmasi + edit inline, ringkasan harian/mingguan/bulanan, Jatah Aman Harian, multiple wallet, kategori otomatis |
+| I1–I3 | Mini App tab Beranda (Jatah Aman + ringkasan), tab Riwayat dengan filter, tab Dompet |
+| P1 | Onboarding 3 langkah: pilih mata uang, set penghasilan, set tagihan tetap |
+| W1–W2 | Webhook handler Bot API 8.0+; pengelolaan sesi Supabase |
+
+**Tonggak milestones:**
+
+- Minggu 1: Backend fitur C1–C3 + skema DB final
+- Minggu 2: Backend C4–C6 + parser NL v1 (regex layer)
+- Minggu 3: Mini App I1–I3 + P1 onboarding
+- Minggu 4: QA, bug-bash, soft launch ke 50 beta tester
+
+**Exit criteria:** D7 Retention >= 40 %; crash rate < 1 %; WAL >= 200.
+
+---
+
+### Phase 2 — Pintar (3–4 Minggu)
+
+**Goal:** Kurangi gesekan input; mulai monetisasi; WAL >= 600.
+
+| Kode | Fitur |
+| --- | --- |
+| C7–C10 | Scan struk foto, recurring auto-log, pengingat harian jam custom, laporan PDF ekspor |
+| I4–I7 | Tab Anggaran (progress bar per kategori), tab Tujuan Tabungan, grafik tren pengeluaran, filter tanggal kustom |
+| P2–P4 | Parser NL v2 (LLM fallback), merchant rule learning, multi-bahasa (id/en) |
+| W3–W4 | SecureStorage / DeviceStorage (Bot API 9.0+), push notification via Telegram |
+| Stars | Paket PantaUangmu Pro (Stars 299/bulan): PDF, scan struk, unlimited reminder, prioritas dukungan |
+
+**Exit criteria:** LLM parse accuracy >= 92 %; MRR > Rp 1 jt; WAL >= 600.
+
+---
+
+### Phase 3 — Sosial (3–4 Minggu)
+
+**Goal:** Aktifkan viral loop; WAL >= 1.500; K-factor >= 0.3.
+
+| Kode | Fitur |
+| --- | --- |
+| S1–S2 | Buku Bersama via invite link startapp; shared expense split dengan kalkulator |
+| S4 | Bot di grup Telegram: semua anggota bisa catat ke buku bersama yang sama |
+| S3 (parsial) | Leaderboard hemat keluarga / pondok (opt-in) |
+| I8 (parsial) | Mini App onboarding Buku Bersama; notifikasi kalau teman catat |
+
+**Viral mechanic:** Setiap buku bersama yang aktif rata-rata mengundang 1.8 orang baru, menghasilkan K-factor 0.3+ secara organik.
+
+**Exit criteria:** >= 15 % pengguna aktif memiliki >= 1 buku bersama; WAL >= 1.500.
+
+---
+
+### Phase 4 — Skala (Berjalan)
+
+**Goal:** Infrastruktur tahan 50 k+ WAL; jalur pendapatan diversifikasi.
+
+| Area | Inisiatif |
+| --- | --- |
+| Infrastruktur | Job queue pg-boss/BullMQ; read replica Postgres; partisi tabel transactions by year |
+| Fitur Lanjutan | C11 analisis investasi dasar; C12 OCR multi-bahasa; I8 dashboard keluarga lengkap; S3 leaderboard komunitas penuh |
+| Monetisasi | P5 API akses mitra (fintech, bank digital); eksplorasi B2B white-label |
+| Kualitas | SLO 99,5 % uptime; observabilitas penuh (OpenTelemetry); security audit tahunan |
+
+---
+
+### Timeline Ringkas
+
+| Periode | Fase | Target WAL |
+| --- | --- | --- |
+| Okt 2026 | Phase 0 | — |
+| Nov 2026 | Phase 1 | 200 |
+| Des 2026 | Phase 2 | 600 |
+| Jan 2027 | Phase 3 | 1.500 |
+| 2027+ | Phase 4 | 50.000+ |
+
+> **Catatan:** Timeline bersifat target, bukan janji. Setiap fase dapat diperpanjang jika exit criteria belum terpenuhi. Prioritas selalu: stabilitas dulu, fitur baru kemudian.

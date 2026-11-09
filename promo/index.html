@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>PantaUangmu Promo</title>
+<style>
+  :root {
+    --bg: #0b1220; --bg2: #111a2e; --card: #16213a; --line: #24304d;
+    --tg: #3390ec; --tg2: #2aabee; --green: #34c759; --amber: #ffb020; --red: #e53935;
+    --text: #f5f7fb; --muted: #9aa6c0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+  body { font-family: "Inter", "Noto Color Emoji", sans-serif; color: var(--text); position: relative; }
+  #stage { position: absolute; inset: 0; overflow: hidden;
+    background: radial-gradient(1200px 900px at 50% 0%, #17305c 0%, transparent 60%),
+                radial-gradient(900px 900px at 100% 100%, #10264a 0%, transparent 60%), var(--bg); }
+  .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: .45; }
+  .scene { position: absolute; inset: 0; opacity: 0; }
+  .center { position: absolute; left: 0; right: 0; text-align: center; }
+  .kicker { font-size: 34px; font-weight: 700; letter-spacing: 6px; text-transform: uppercase; color: var(--tg2); }
+  .h1 { font-family: "Inter Display", "Inter", sans-serif; font-size: 92px; font-weight: 800; line-height: 1.05; letter-spacing: -2px; }
+  .h2 { font-family: "Inter Display", "Inter", sans-serif; font-size: 68px; font-weight: 800; line-height: 1.1; letter-spacing: -1px; }
+  .sub { font-size: 40px; font-weight: 500; color: var(--muted); line-height: 1.35; }
+  .accent { color: var(--tg2); }
+  .green { color: var(--green); }
+
+  /* phone */
+  .phone { position: absolute; left: 50%; width: 760px; height: 1060px; margin-left: -380px;
+    background: #0e1626; border: 3px solid #2a3a5c; border-radius: 64px; overflow: hidden;
+    box-shadow: 0 60px 120px rgba(0,0,0,.55), 0 0 0 12px #0a1020; }
+  .tgbar { height: 132px; background: #17212b; display: flex; align-items: center; gap: 24px; padding: 30px 36px 0; }
+  .ava { width: 76px; height: 76px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 34px; flex: none; }
+  .tgbar .name { font-size: 32px; font-weight: 700; }
+  .tgbar .st { font-size: 24px; color: var(--muted); }
+  .chat { position: absolute; top: 132px; left: 0; right: 0; bottom: 0; padding: 36px 30px;
+    background: linear-gradient(180deg, #0e1a2b, #0b1422); display: flex; flex-direction: column; gap: 22px; }
+  .msg { max-width: 82%; padding: 22px 28px; border-radius: 30px; font-size: 34px; line-height: 1.35; }
+  .me { align-self: flex-end; background: #2b5278; border-bottom-right-radius: 8px; }
+  .bot { align-self: flex-start; background: #182533; border-bottom-left-radius: 8px; }
+  .msg .who { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  .btn { background: #22344a; border-radius: 16px; padding: 14px; font-size: 26px; font-weight: 600; text-align: center; color: #cfe3ff; }
+  .btn.full { grid-column: span 2; }
+  .caret { display: inline-block; width: 4px; height: 36px; background: #fff; vertical-align: -6px; margin-left: 4px; }
+
+  .chip { display: inline-block; padding: 18px 32px; border-radius: 999px; font-size: 36px; font-weight: 700;
+    background: var(--card); border: 2px solid var(--line); }
+  .pill { display: inline-block; padding: 12px 30px; border-radius: 999px; font-size: 30px; font-weight: 800; letter-spacing: 3px; }
+
+  /* scene 1 */
+  .step { position: absolute; left: 50%; width: 760px; margin-left: -380px; padding: 30px 40px; border-radius: 28px;
+    background: var(--card); border: 2px solid var(--line); font-size: 42px; font-weight: 600; display: flex; align-items: center; gap: 28px; }
+  .step b { width: 64px; height: 64px; border-radius: 50%; background: #2a1a24; color: #ff6b6b; display: grid; place-items: center; font-size: 32px; flex: none; }
+  .strike { position: absolute; height: 10px; background: var(--red); border-radius: 6px; left: 120px; top: 50%; transform-origin: left center; }
+
+  /* logo */
+  .logo { width: 260px; height: 260px; border-radius: 72px; background: linear-gradient(135deg, var(--tg2), #1b6fd1);
+    display: grid; place-items: center; box-shadow: 0 30px 80px rgba(42,171,238,.45); position: absolute; left: 50%; margin-left: -130px; }
+  .logo svg { width: 150px; height: 150px; }
+
+  /* mini app */
+  .mini { position: absolute; top: 132px; left: 0; right: 0; bottom: 0; background: #0f1830; padding: 48px 44px; }
+  .ring { width: 100%; height: 26px; border-radius: 20px; background: #1d2a47; overflow: hidden; }
+  .ring > i { display: block; height: 100%; border-radius: 20px; background: linear-gradient(90deg, var(--green), #7ee08f); }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 24px 0; border-bottom: 2px solid #1b2742; font-size: 32px; }
+  .row span:last-child { font-weight: 700; }
+
+  /* grid */
+  .grid { position: absolute; left: 70px; right: 70px; top: 520px; display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+  .feat { background: var(--card); border: 2px solid var(--line); border-radius: 36px; padding: 40px 36px; min-height: 290px; }
+  .feat .ic { font-size: 64px; margin-bottom: 18px; }
+  .feat .t { font-size: 40px; font-weight: 800; line-height: 1.15; margin-bottom: 10px; }
+  .feat .d { font-size: 28px; color: var(--muted); line-height: 1.3; }
+
+  .cta { display: inline-flex; align-items: center; gap: 22px; background: var(--tg); padding: 36px 64px; border-radius: 999px;
+    font-size: 48px; font-weight: 800; box-shadow: 0 24px 60px rgba(51,144,236,.5); }
+  #progress { position: absolute; left: 0; bottom: 0; height: 8px; background: var(--tg2); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="blob" id="blobA" style="width:700px;height:700px;background:#2aabee;left:-200px;top:200px"></div>
+  <div class="blob" id="blobB" style="width:600px;height:600px;background:#34c759;right:-220px;top:1200px;opacity:.18"></div>
+
+  <!-- S1: Masalah -->
+  <section class="scene" id="s1">
+    <div class="center" style="top:260px" id="s1t">
+      <div class="kicker">Jujur deh</div>
+      <div class="h1" style="margin-top:30px">Mau catat<br><span class="accent">“kopi 25rb”</span><br>aja ribet?</div>
+    </div>
+    <div class="step" id="st1" style="top:900px"><b>1</b>Buka aplikasi</div>
+    <div class="step" id="st2" style="top:1050px"><b>2</b>Cari menu</div>
+    <div class="step" id="st3" style="top:1200px"><b>3</b>Pilih kategori</div>
+    <div class="step" id="st4" style="top:1350px"><b>4</b>Isi semua kolom</div>
+    <div class="center sub" id="s1b" style="top:1580px; color:#ff8a8a; font-weight:700">…lalu berhenti di minggu ke-2.</div>
+  </section>
+
+  <!-- S2: Logo -->
+  <section class="scene" id="s2">
+    <div class="logo" id="logo2" style="top:560px">
+      <svg viewBox="0 0 100 100" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 48 L86 18 L70 84 L48 62 Z" fill="rgba(255,255,255,.18)"/>
+        <path d="M48 62 L86 18"/>
+        <path d="M34 40 h14 M41 33 v14" stroke-width="7"/>
+      </svg>
+    </div>
+    <div class="center" style="top:900px" id="s2t">
+      <div class="h1" style="font-size:118px">Panta<span class="accent">Uangmu</span></div>
+      <div class="sub" style="margin-top:34px; font-size:46px">Pencatat keuangan yang hidup<br><b style="color:#fff">di dalam Telegram.</b></div>
+    </div>
+  </section>
+
+  <!-- S3: Zero friction -->
+  <section class="scene" id="s3">
+    <div class="center" style="top:150px" id="s3t">
+      <div class="kicker">USP 01 · Zero Friction</div>
+      <div class="h2" style="margin-top:22px">Tanpa instalasi.<br>Tanpa akun baru.</div>
+    </div>
+    <div class="phone" id="ph3" style="top:560px">
+      <div class="tgbar"><div class="ava" style="background:var(--tg)">P</div><div><div class="name">PantaUangmu</div><div class="st">bot</div></div></div>
+      <div class="chat">
+        <div class="msg me" id="m3a"><span id="m3aTxt"></span><span class="caret" id="c3"></span></div>
+        <div class="msg bot" id="m3b">Halo! 👋 Langsung catat aja.<br>Contoh: <b>25rb makan siang</b></div>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:40px; justify-content:center" id="no3">
+          <div class="chip" style="font-size:30px">❌ Download app</div>
+          <div class="chip" style="font-size:30px">❌ Email</div>
+          <div class="chip" style="font-size:30px">❌ Password</div>
+          <div class="chip" style="font-size:30px">❌ Form</div>
+        </div>
+      </div>
+    </div>
+    <div class="center sub" style="top:1700px" id="s3b">Cukup <b style="color:#fff">/start</b>. Akun Telegram-mu sudah cukup.</div>
+  </section>
+
+  <!-- S4: Natural language -->
+  <section class="scene" id="s4">
+    <div class="center" style="top:150px" id="s4t">
+      <div class="kicker">USP 02 · Bahasa Sehari-hari</div>
+      <div class="h2" style="margin-top:22px">Ketik kayak chat biasa.<br><span class="accent">Tercatat 3 detik.</span></div>
+    </div>
+    <div class="phone" id="ph4" style="top:560px; height:900px">
+      <div class="tgbar"><div class="ava" style="background:var(--tg)">P</div><div><div class="name">PantaUangmu</div><div class="st">bot</div></div></div>
+      <div class="chat">
+        <div class="msg me" id="m4a"><span id="m4aTxt"></span><span class="caret" id="c4"></span></div>
+        <div class="msg bot" id="m4b" style="max-width:92%">
+          <div style="font-weight:800; font-size:36px">✅ Tercatat</div>
+          <div style="margin-top:8px">🍜 Makan · <b>Rp 25.000</b></div>
+          <div style="color:var(--muted); font-size:28px">Dompet: Tunai · Hari ini</div>
+          <div class="btns"><div class="btn">Ubah Kategori</div><div class="btn">Ubah Dompet</div><div class="btn full">↩︎ Urungkan</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="center" style="top:1520px" id="chips4">
+      <div style="display:flex; flex-wrap:wrap; gap:18px; justify-content:center; padding:0 60px">
+        <span class="chip">1,5jt</span><span class="chip">150k</span><span class="chip">35.000</span><span class="chip">kemarin</span>
+        <span class="chip">gojek</span><span class="chip">indomaret</span><span class="chip">gopay</span><span class="chip">warteg</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- S5: Jatah Aman Harian -->
+  <section class="scene" id="s5">
+    <div class="center" style="top:150px" id="s5t">
+      <div class="kicker">USP 03 · Satu Angka, Bukan Tabel</div>
+      <div class="h2" style="margin-top:22px">“Aman nggak<br>hari ini?”</div>
+    </div>
+    <div class="phone" id="ph5" style="top:560px; height:960px">
+      <div class="tgbar"><div class="ava" style="background:var(--tg)">P</div><div><div class="name">PantaUangmu</div><div class="st">mini app</div></div></div>
+      <div class="mini">
+        <div style="font-size:30px; color:var(--muted); font-weight:600">Jatah Aman Harian</div>
+        <div style="font-family:'Inter Display'; font-size:124px; font-weight:800; letter-spacing:-3px; margin:6px 0 14px" id="num5">Rp 0</div>
+        <span class="pill" id="pill5" style="background:rgba(52,199,89,.15); color:var(--green)">● AMAN</span>
+        <div style="margin-top:40px" class="ring"><i id="bar5" style="width:0%"></i></div>
+        <div style="display:flex; justify-content:space-between; font-size:24px; color:var(--muted); margin-top:12px"><span>Gajian 25 Okt</span><span id="days5">8 hari lagi</span></div>
+        <div style="margin-top:30px" id="rows5">
+          <div class="row"><span>🍜 Makan siang</span><span>−Rp 25.000</span></div>
+          <div class="row"><span>🛵 Gojek</span><span>−Rp 18.000</span></div>
+          <div class="row"><span>☕ Kopi</span><span>−Rp 22.000</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="center" style="top:1600px" id="f5">
+      <div style="font-size:30px; color:var(--muted); font-weight:600; line-height:1.5">
+        (Dana periode − Tagihan tetap − Pengeluaran) ÷ Sisa hari
+      </div>
+      <div style="font-size:38px; font-weight:700; margin-top:16px">Ikut <span class="accent">tanggal gajianmu</span>, bukan tanggal 1.</div>
+    </div>
+  </section>
+
+  <!-- S6: Shared ledger + grup -->
+  <section class="scene" id="s6">
+    <div class="center" style="top:150px" id="s6t">
+      <div class="kicker">USP 04 · Buku Bersama</div>
+      <div class="h2" style="margin-top:22px">Bareng pasangan,<br>keluarga, teman kos.</div>
+    </div>
+    <div class="phone" id="ph6" style="top:560px; height:960px">
+      <div class="tgbar"><div class="ava" style="background:#e67e22">🏠</div><div><div class="name">Kos Melati</div><div class="st">5 anggota · PantaUangmu</div></div></div>
+      <div class="chat">
+        <div class="msg bot" id="m6a"><div class="who" style="color:#ff9f43">Raka</div>25rb galon</div>
+        <div class="msg bot" id="m6b" style="background:#14304a"><div class="who" style="color:var(--tg2)">PantaUangmu</div>✅ Rp 25.000 · Rumah Tangga<br><span style="color:var(--muted); font-size:28px">dicatat oleh Raka</span></div>
+        <div class="msg bot" id="m6c"><div class="who" style="color:#ff6bcb">Nabila</div>120rb belanja mingguan</div>
+        <div class="msg bot" id="m6d" style="background:#14304a"><div class="who" style="color:var(--tg2)">PantaUangmu</div>✅ Rp 120.000 · Belanja<br><span style="color:var(--muted); font-size:28px">dicatat oleh Nabila</span></div>
+      </div>
+    </div>
+    <div class="center sub" style="top:1600px" id="s6b">Siapa belanja apa, kelihatan.<br><b style="color:#fff">Tanpa saling nagih.</b></div>
+  </section>
+
+  <!-- S7: MVP -->
+  <section class="scene" id="s7">
+    <div class="center" style="top:200px" id="s7t">
+      <div class="kicker">MVP · Siap Dipakai</div>
+      <div class="h2" style="margin-top:22px">Semua yang kamu butuh<br>buat mulai rapi.</div>
+    </div>
+    <div class="grid" id="grid7">
+      <div class="feat"><div class="ic">💬</div><div class="t">Catat via chat & Mini App</div><div class="d">Konfirmasi, edit, urungkan, catat mundur</div></div>
+      <div class="feat"><div class="ic">📊</div><div class="t">Ringkasan & grafik</div><div class="d">Hari, minggu, bulan, per kategori</div></div>
+      <div class="feat"><div class="ic">👛</div><div class="t">Banyak dompet</div><div class="d">Tunai, bank, e-wallet + transfer</div></div>
+      <div class="feat"><div class="ic">🎯</div><div class="t">Anggaran kategori</div><div class="d">Peringatan di 80% & 100%</div></div>
+      <div class="feat"><div class="ic">⏰</div><div class="t">Pengingat harian</div><div class="d">Jam bisa kamu atur sendiri</div></div>
+      <div class="feat"><div class="ic">🔒</div><div class="t">Datamu, kendalimu</div><div class="d">Ekspor CSV · hapus akun kapan saja</div></div>
+    </div>
+    <div class="center" style="top:1730px" id="s7b"><span class="pill" style="background:rgba(52,199,89,.15); color:var(--green); font-size:36px">PENCATATAN INTI SELALU GRATIS</span></div>
+  </section>
+
+  <!-- S8: CTA -->
+  <section class="scene" id="s8">
+    <div class="logo" id="logo8" style="top:420px">
+      <svg viewBox="0 0 100 100" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 48 L86 18 L70 84 L48 62 Z" fill="rgba(255,255,255,.18)"/>
+        <path d="M48 62 L86 18"/>
+        <path d="M34 40 h14 M41 33 v14" stroke-width="7"/>
+      </svg>
+    </div>
+    <div class="center" style="top:760px">
+      <div class="h1" id="s8a">Catat dalam <span class="accent">3 detik.</span></div>
+      <div class="h1" id="s8b" style="margin-top:14px">Paham dalam <span class="green">10 detik.</span></div>
+      <div class="sub" id="s8c" style="margin-top:40px">Untuk semua orang, di dalam Telegram.</div>
+    </div>
+    <div class="center" style="top:1360px" id="s8d">
+      <div class="cta"><svg width="56" height="56" viewBox="0 0 24 24" fill="#fff"><path d="M21.9 4.3 18.6 19.8c-.2 1.1-.9 1.4-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.2-8.3c.4-.4-.1-.6-.6-.2L6 13.4l-4.9-1.5c-1.1-.3-1.1-1.1.2-1.6L20.5 2.9c.9-.3 1.7.2 1.4 1.4Z"/></svg>Buka Telegram → /start</div>
+      <div class="h2" style="margin-top:56px; font-size:56px">Panta<span class="accent">Uangmu</span></div>
+    </div>
+  </section>
+
+  <div id="progress"></div>
+</div>
+
+<script>
+  const DURATION = 38;
+  // [id, start, end] in seconds; scenes cross-fade over FADE.
+  const SCENES = [["s1",0,4.6],["s2",4.6,8.4],["s3",8.4,13.6],["s4",13.6,20.4],["s5",20.4,26.8],["s6",26.8,31.6],["s7",31.6,35],["s8",35,38]];
+  const FADE = 0.45;
+
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const p = (t, a, b) => clamp((t - a) / (b - a));
+  const outCubic = x => 1 - Math.pow(1 - x, 3);
+  const outBack = x => { const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+  const $ = id => document.getElementById(id);
+  const rupiah = n => "Rp " + Math.round(n).toLocaleString("id-ID");
+
+  // Fade + slide-up entrance starting at `at`, lasting `d`.
+  function rise(el, t, at, d = 0.5, dist = 60) {
+    const k = outCubic(p(t, at, at + d));
+    el.style.opacity = k;
+    el.style.transform = `translateY(${(1 - k) * dist}px)`;
+  }
+  function pop(el, t, at, d = 0.45) {
+    const k = p(t, at, at + d);
+    el.style.opacity = clamp(k * 2);
+    el.style.transform = `scale(${0.6 + 0.4 * outBack(k)})`;
+  }
+  function typeText(el, caret, text, t, at, cps = 14) {
+    const n = Math.floor(clamp((t - at) * cps, 0, text.length));
+    el.textContent = text.slice(0, n);
+    caret.style.opacity = n < text.length && t >= at - 0.3 ? (Math.floor(t * 3) % 2 ? 1 : 0.2) : 0;
+  }
+
+  const UPDATE = {
+    s1(t) {
+      rise($("s1t"), t, 0.1, 0.6);
+      ["st1","st2","st3","st4"].forEach((id, i) => {
+        const el = $(id); rise(el, t, 0.9 + i * 0.35, 0.4, 40);
+        el.style.opacity *= 1 - 0.55 * p(t, 2.9, 3.3);
+      });
+      rise($("s1b"), t, 3.1, 0.5, 30);
+    },
+    s2(t) {
+      pop($("logo2"), t, 0.1, 0.7);
+      $("logo2").style.transform += ` rotate(${(1 - outCubic(p(t, 0.1, 0.9))) * -20}deg)`;
+      rise($("s2t"), t, 0.6, 0.7);
+    },
+    s3(t) {
+      rise($("s3t"), t, 0.1);
+      rise($("ph3"), t, 0.3, 0.7, 140);
+      typeText($("m3aTxt"), $("c3"), "/start", t, 1.0, 10);
+      $("m3a").style.opacity = t > 0.9 ? 1 : 0;
+      rise($("m3b"), t, 1.9, 0.4, 30);
+      [...$("no3").children].forEach((c, i) => pop(c, t, 2.6 + i * 0.22, 0.4));
+      rise($("s3b"), t, 3.6, 0.5, 30);
+    },
+    s4(t) {
+      rise($("s4t"), t, 0.1);
+      rise($("ph4"), t, 0.3, 0.7, 140);
+      $("m4a").style.opacity = t > 0.9 ? 1 : 0;
+      typeText($("m4aTxt"), $("c4"), "25rb makan siang", t, 1.0, 13);
+      pop($("m4b"), t, 2.6, 0.5);
+      $("m4b").style.transformOrigin = "left top";
+      const chips = [...$("chips4").firstElementChild.children];
+      $("chips4").style.opacity = 1;
+      chips.forEach((c, i) => pop(c, t, 3.6 + i * 0.16, 0.4));
+    },
+    s5(t) {
+      rise($("s5t"), t, 0.1);
+      rise($("ph5"), t, 0.3, 0.7, 140);
+      const k = outCubic(p(t, 1.0, 2.8));
+      $("num5").textContent = rupiah(Math.round(87500 * k / 500) * 500);
+      $("bar5").style.width = (k * 62) + "%";
+      pop($("pill5"), t, 2.6, 0.45);
+      [...$("rows5").children].forEach((r, i) => rise(r, t, 3.0 + i * 0.2, 0.4, 20));
+      rise($("f5"), t, 3.9, 0.6, 30);
+    },
+    s6(t) {
+      rise($("s6t"), t, 0.1);
+      rise($("ph6"), t, 0.3, 0.7, 140);
+      ["m6a","m6b","m6c","m6d"].forEach((id, i) => rise($(id), t, 1.0 + i * 0.6, 0.4, 30));
+      rise($("s6b"), t, 3.6, 0.5, 30);
+    },
+    s7(t) {
+      rise($("s7t"), t, 0.1);
+      [...$("grid7").children].forEach((c, i) => pop(c, t, 0.4 + i * 0.14, 0.45));
+      pop($("s7b"), t, 1.9, 0.45);
+    },
+    s8(t) {
+      pop($("logo8"), t, 0.05, 0.6);
+      rise($("s8a"), t, 0.3, 0.5);
+      rise($("s8b"), t, 0.7, 0.5);
+      rise($("s8c"), t, 1.1, 0.5, 30);
+      pop($("s8d"), t, 1.4, 0.5);
+      const pulse = 1 + 0.03 * Math.sin(Math.max(0, t - 1.9) * 6);
+      if (t > 1.9) $("s8d").firstElementChild.style.transform = `scale(${pulse})`;
+    },
+  };
+
+  window.renderFrame = function (t) {
+    for (const [id, a, b] of SCENES) {
+      const el = $(id);
+      const visible = t >= a - 0.001 && t < b + FADE;
+      el.style.display = visible ? "block" : "none";
+      if (!visible) continue;
+      const fadeIn = a === 0 ? 1 : p(t, a, a + FADE);
+      const fadeOut = b === DURATION ? 1 : 1 - p(t, b, b + FADE);
+      el.style.opacity = Math.min(fadeIn, fadeOut);
+      el.style.transform = `scale(${1 + 0.04 * (1 - fadeOut)})`;
+      UPDATE[id](t - a);
+    }
+    $("blobA").style.transform = `translate(${Math.sin(t * 0.5) * 120}px, ${Math.cos(t * 0.4) * 160}px)`;
+    $("blobB").style.transform = `translate(${Math.cos(t * 0.45) * -140}px, ${Math.sin(t * 0.35) * 120}px)`;
+    $("progress").style.width = (t / DURATION * 100) + "%";
+  };
+  window.DURATION = DURATION;
+
+  // Live preview when opened directly in a browser.
+  if (!location.search.includes("render")) {
+    const t0 = performance.now();
+    const loop = () => { renderFrame(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  } else {
+    renderFrame(0);
+  }
+</script>
+</body>
+</html>
